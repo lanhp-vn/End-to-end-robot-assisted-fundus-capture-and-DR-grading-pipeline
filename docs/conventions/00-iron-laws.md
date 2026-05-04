@@ -1,0 +1,108 @@
+# 00 — Iron Laws
+
+> Non-negotiable invariants for the AmazingHand + SO-ARM101 follower project. Every rule in later files is an application of these laws. If you find yourself about to violate one, stop and raise it in review — don't silently work around it.
+
+---
+
+## IL-1: Voltage-domain isolation is physical safety
+
+- **Hand bus**: 5 V ± 0.25 V, Feetech **SCS0009** servos × 8, Seeed XIAO bus servo driver. Powered from a dedicated 5 V / ≥ 3 A DC supply (kit-bundled).
+- **Arm bus**: 12 V ± 0.6 V, Feetech **STS3215** servos × 5 (gripper removed), Waveshare bus servo adapter (A). Powered from a dedicated 12 V / ≥ 3 A DC supply.
+- **The two power rails must never share.** Mixing destroys the 5 V SCS0009 units instantly. Label each PSU on the bench and route the cables so they cannot be swapped under fatigue.
+- **Logic side is 3.3 V on both adapters.** The Seeed XIAO driver requires the **front jumper to be removed** to expose UART directly — otherwise the bus is back-driven through the on-board regulator.
+
+See `docs/BOM.md` for the full bill of materials and per-bus current budgets.
+
+## IL-2: `references/` is read-only
+
+The five submodules under `references/` (lerobot, AmazingHand, FeetechServo, rustypot, FTServo_Python) are **never modified in place**. Reasons:
+
+- They track upstream commits — local edits would be lost on the next bump.
+- They are vendored for reading, not forking.
+- Patching upstream behavior locally hides the patch from anyone reading the file.
+
+If you need to adapt code from a reference, **transfer it** into `src/` or `scripts/` and own it there. Cite the original location in the destination file's docstring (e.g., "adapted from `references/lerobot/src/lerobot/robots/so_follower/so_follower.py:53–61`").
+
+The single exception is `git submodule update` to bump a submodule SHA. Bumps land in their own commit (scope `deps`), with the upstream SHA + tag in the body.
+
+## IL-3: Motor ID assignment is canonical
+
+### Hand (8 × SCS0009 on a single 5 V bus)
+
+| Finger | Right servo (odd ID) | Left servo (even ID) |
+|---|---|---|
+| Index  | 1 | 2 |
+| Middle | 3 | 4 |
+| Ring   | 5 | 6 |
+| Thumb  | 7 | 8 |
+
+"Right" and "left" are taken viewing the hand from the palm side, per `references/AmazingHand/docs/AmazingHand_Assembly.pdf` page 21. Mis-assigning odd/even on a pair inverts that finger's Close/Open direction — calibration cannot rescue it.
+
+### Arm (5 × STS3215 on a single 12 V bus)
+
+| ID | Joint | Notes |
+|---|---|---|
+| 1 | shoulder_pan  | base rotation |
+| 2 | shoulder_lift | first link |
+| 3 | elbow_flex    | second link |
+| 4 | wrist_flex    | wrist pitch |
+| 5 | wrist_roll    | wrist roll |
+| **6** | ~~gripper~~   | **physically absent** — removed to mount the AmazingHand |
+
+Lerobot's stock `SOFollower` hard-codes a 6-motor dict including ID 6. Our `SO101FollowerNoGripper` subclass at `src/arm101_hand/robots/so101_follower_no_gripper.py` drops that entry. Use the `arm101-calibrate-follower` console script (registered via `pyproject.toml`), not `lerobot-calibrate` directly — the upstream script has no knowledge of our subclass.
+
+## IL-4: COM-port discipline — single owner at a time
+
+Both buses use a USB↔TTL bridge (CH343 for the hand at `COM18`, a separate adapter for the arm). The driver chip enforces single-owner access — opening the port from a second process while the first holds it returns "access denied" or silent stalls.
+
+Before launching any tool that opens the port, **close every other holder**:
+
+- Python sessions (the calibration scripts, a stray REPL).
+- `FD.exe` (the Feetech Windows debug tool).
+- Serial monitors (PuTTY, Tera Term, VS Code serial monitor).
+- Any prior `rustypot` controller that wasn't closed cleanly.
+
+Discover ports with:
+
+```powershell
+Get-PnpDevice -Class Ports -Status OK | Select-Object Name, DeviceID | Format-Table -AutoSize
+```
+
+## IL-5: Calibration state lives in version-controlled YAML / JSON
+
+- **Hand calibration** lives in `scripts/calibration/AmazingHand/AmazingHand_calib_values.yaml`. The three calibration scripts (`AmazingHand_MotorReset.py`, `AmazingHand_MiddlePos_FingerCalib.py`, `AmazingHand_FingerTest.py`) read from and write to that file.
+- **Arm calibration** lives at lerobot's default location: `~/.cache/huggingface/lerobot/calibration/robots/so101_follower_no_gripper/<id>.json`. Override with `--robot.calibration_dir=<repo-path>` if you want it in-tree.
+
+Never hand-edit a calibration file while a controller is connected — re-run the calibration script instead. Hand edits to live state miss safety re-checks (e.g., torque release on exit) and silently desync the on-disk values from the in-memory bus state.
+
+## IL-6: Cross-device commits stay atomic
+
+A change that affects both arm and hand — shared YAML schema, a coordination script, an API the two halves both consume — ships in **one commit** that updates every affected file together.
+
+Reasons:
+
+- The two devices share a single Python process; a partial update creates an inconsistent runtime.
+- Bisecting a regression that crosses both devices is much easier when commits are atomic.
+- Reviewers can verify both halves match in a single diff.
+
+If a refactor touches > 8 files across both devices, split logically (e.g., "introduce schema in shared module" → "switch hand to schema" → "switch arm to schema"), but each split must independently leave the repo working.
+
+## IL-7: Documentation is single-source-of-truth (DRY)
+
+Every normative fact, procedure, specification, or reusable pattern lives in **exactly one** Markdown file. Other files that reference it use a pointer (`[see X §Y](path/to/X.md)`) — never an inline restatement.
+
+- **Canonical ownership** by topic is enumerated in `06-documentation-protocol.md` §10. Any new .md content must declare which file owns it, or cite an existing owner.
+- **Allowed exceptions**: compressed TL;DRs are permitted when *explicitly labeled* as summaries, carry a pointer to the full normative source, and never exceed one line per rule. Concrete cases:
+  - `CLAUDE.md` Iron Laws TL;DR — one-line-per-law summary of this file.
+  - `README.md` capability bullets — human orientation, not normative.
+- **Updates propagate via pointer**: editing the canonical file fixes every downstream reference without touching those downstream files.
+
+Rationale: a fact that lives in two places will drift. The motor ID table in §IL-3 above is the canonical source; if you find a different motor ID convention anywhere else in the repo, that other file is wrong — fix it, don't merge them.
+
+---
+
+## Enforcement
+
+- **Every PR description** must explicitly list which Iron Laws it touches (or confirm "no Iron Laws affected").
+- `CLAUDE.md` at the repo root carries a compressed summary of these laws for quick reference.
+- When in doubt, read the authoritative sources cited in each law — not secondary summaries.

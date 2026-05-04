@@ -1,0 +1,80 @@
+import time
+from pathlib import Path
+
+import numpy as np
+import yaml
+
+from rustypot import Scs0009PyController
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+YAML_PATH = SCRIPT_DIR / "AmazingHand_calib_values.yaml"
+
+VALID_FINGERS = ("index", "middle", "ring", "thumb")
+
+
+def prompt_finger():
+    while True:
+        choice = input(f"Which finger to test? ({'/'.join(VALID_FINGERS)}): ").strip().lower()
+        if choice in VALID_FINGERS:
+            return choice
+        print(f"  invalid -- pick one of {VALID_FINGERS}")
+
+
+def close_finger(c, id1, id2, mp1, mp2, speed):
+    c.write_goal_speed(id1, speed)
+    c.write_goal_speed(id2, speed)
+    c.write_goal_position(id1, np.deg2rad(mp1 + 90))
+    c.write_goal_position(id2, np.deg2rad(mp2 - 90))
+    time.sleep(0.01)
+
+
+def open_finger(c, id1, id2, mp1, mp2, speed):
+    c.write_goal_speed(id1, speed)
+    c.write_goal_speed(id2, speed)
+    c.write_goal_position(id1, np.deg2rad(mp1 - 30))
+    c.write_goal_position(id2, np.deg2rad(mp2 + 30))
+    time.sleep(0.01)
+
+
+def main():
+    with open(YAML_PATH, "r") as f:
+        config = yaml.safe_load(f)
+
+    finger = prompt_finger()
+    block = config["fingers"][finger]
+    id1 = block["servo_1"]["id"]
+    id2 = block["servo_2"]["id"]
+    mp1 = block["servo_1"]["middle_pos"]
+    mp2 = block["servo_2"]["middle_pos"]
+    speed = config["speed"]
+
+    c = Scs0009PyController(
+        serial_port=config["com_port"],
+        baudrate=config["baudrate"],
+        timeout=config["timeout"],
+    )
+    c.write_torque_enable(id1, 1)
+    c.write_torque_enable(id2, 1)
+
+    print(f"[finger={finger}, ID_1={id1}, ID_2={id2}] MiddlePos_1={mp1}, MiddlePos_2={mp2}")
+    print("cycling Close <-> Open -- Ctrl+C to stop")
+
+    try:
+        while True:
+            close_finger(c, id1, id2, mp1, mp2, speed)
+            time.sleep(3)
+            open_finger(c, id1, id2, mp1, mp2, speed)
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n^C -- stopping")
+    finally:
+        try:
+            c.write_torque_enable(id1, 0)
+            c.write_torque_enable(id2, 0)
+        except Exception as e:
+            print(f"warning: failed to disable torque: {e}")
+
+
+if __name__ == "__main__":
+    main()

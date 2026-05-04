@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# IDE / editor
+.vscode/
+.idea/
+.agents/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local
+*.log
+.tmp/*
+!.tmp/.gitkeep
+
+# Claude Code local settings
+.claude/settings.local.json

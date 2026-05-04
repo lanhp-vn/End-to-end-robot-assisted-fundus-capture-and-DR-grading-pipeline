@@ -1,0 +1,48 @@
+[project]
+name = "arm101-hand"
+version = "0.1.0"
+description = "Unified workspace for SO-ARM101 follower + AmazingHand calibration & control"
+requires-python = ">=3.12"
+dependencies = [
+    "lerobot[feetech]",
+    "rustypot>=1.4,<2.0",
+    "numpy>=2.0,<2.3",
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.8", "mypy>=1.10", "pytest>=8.0"]
+
+[project.scripts]
+arm101-calibrate-follower = "arm101_hand.scripts.calibrate_follower:main"
+
+[tool.uv.sources]
+lerobot = { path = "references/lerobot", editable = true }
+# rustypot deliberately NOT sourced here — use the PyPI wheel.
+# Editable rustypot would require `maturin develop --features python --features pyo3/extension-module`
+# on every `uv sync` and a Rust toolchain on the dev machine.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "N", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+follow_imports = "skip"
