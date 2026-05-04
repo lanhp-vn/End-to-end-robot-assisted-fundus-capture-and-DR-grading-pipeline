@@ -4,3 +4,12 @@
 [submodule "references/AmazingHand"]
 	path = references/AmazingHand
 	url = https://github.com/pollen-robotics/AmazingHand.git
+[submodule "references/FeetechServo"]
+	path = references/FeetechServo
+	url = https://github.com/Robot-Maker-SAS/FeetechServo.git
+[submodule "references/rustypot"]
+	path = references/rustypot
+	url = https://github.com/pollen-robotics/rustypot
+[submodule "references/FTServo_Python"]
+	path = references/FTServo_Python
+	url = https://github.com/ftservo/FTServo_Python.git
