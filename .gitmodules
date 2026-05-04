@@ -1,0 +1,6 @@
+[submodule "references/lerobot"]
+	path = references/lerobot
+	url = https://github.com/huggingface/lerobot.git
+[submodule "references/AmazingHand"]
+	path = references/AmazingHand
+	url = https://github.com/pollen-robotics/AmazingHand.git
