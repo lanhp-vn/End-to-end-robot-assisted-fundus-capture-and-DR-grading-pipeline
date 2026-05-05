@@ -26,3 +26,7 @@ Thumbs.db
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Per-submodule agent orientation notes (untracked; one per submodule)
+references/*/CLAUDE.md
+references/*/CLAUDE.local.md
