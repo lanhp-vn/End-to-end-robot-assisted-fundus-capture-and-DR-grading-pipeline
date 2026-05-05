@@ -81,10 +81,11 @@ Full procedure in [`scripts/calibration/so_arm101/README.md`](scripts/calibratio
 uv run arm101-calibrate-follower `
     --robot.type=so101_follower_no_gripper `
     --robot.port=COM<X> `
-    --robot.id=so101_follower
+    --robot.id=so101_follower `
+    --robot.calibration_dir=scripts/calibration/so_arm101
 ```
 
-Replace `COM<X>` with the COM number from step 1. The output JSON goes to `~/.cache/huggingface/lerobot/calibration/robots/so101_follower_no_gripper/so101_follower.json` by default.
+Replace `COM<X>` with the COM number from step 1. The output JSON goes to `scripts/calibration/so_arm101/so101_follower.json` (in-tree, per IL-5). The `--robot.calibration_dir` flag is required — without it lerobot writes to `~/.cache/huggingface/lerobot/...`, which violates IL-5.
 
 > **Important.** Use `arm101-calibrate-follower` (defined in `pyproject.toml`), not `lerobot-calibrate`. The upstream entry point doesn't know our `so101_follower_no_gripper` subclass exists.
 

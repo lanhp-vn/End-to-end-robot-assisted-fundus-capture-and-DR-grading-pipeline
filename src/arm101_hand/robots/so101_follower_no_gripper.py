@@ -8,6 +8,7 @@ calibrate after registering this subclass).
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from lerobot.cameras import make_cameras_from_configs
 from lerobot.motors import Motor, MotorNormMode
@@ -17,11 +18,19 @@ from lerobot.robots.robot import Robot
 from lerobot.robots.so_follower.config_so_follower import SOFollowerRobotConfig
 from lerobot.robots.so_follower.so_follower import SOFollower
 
+# IL-5: arm calibration must live in-tree. parents[3] = src/arm101_hand/robots/<file> → repo root.
+_DEFAULT_CALIBRATION_DIR = Path(__file__).resolve().parents[3] / "scripts" / "calibration" / "so_arm101"
+
 
 @RobotConfig.register_subclass("so101_follower_no_gripper")
 @dataclass
 class SO101FollowerNoGripperConfig(SOFollowerRobotConfig):
     """Config for an SO-101 follower without its gripper motor."""
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.calibration_dir is None:
+            self.calibration_dir = _DEFAULT_CALIBRATION_DIR
 
 
 class SO101FollowerNoGripper(SOFollower):

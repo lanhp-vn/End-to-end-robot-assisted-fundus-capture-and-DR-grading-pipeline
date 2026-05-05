@@ -22,7 +22,7 @@ Full text in `docs/conventions/00-iron-laws.md`. Read that file before editing.
 - **IL-2 — `references/` is read-only.** Five vendored submodules (lerobot, AmazingHand, FeetechServo, rustypot, FTServo_Python). Adapt by transferring into `src/` or `scripts/`.
 - **IL-3 — Motor ID canon.** Hand: IDs 1–8 (odd-right/even-left per finger). Arm: IDs 1–5 shoulder→wrist. **ID 6 is physically absent on the arm.**
 - **IL-4 — COM-port discipline.** Single owner per bus. Close FD.exe / serial monitors / stale Python sessions before opening.
-- **IL-5 — Calibration in version control.** Hand: `scripts/calibration/AmazingHand/AmazingHand_calib_values.yaml`. Arm: lerobot's `~/.cache/...so101_follower_no_gripper/<id>.json`.
+- **IL-5 — Calibration in version control, in-tree only.** Hand: `scripts/calibration/AmazingHand/AmazingHand_calib_values.yaml`. Arm: `scripts/calibration/so_arm101/<id>.json` (redirected via `--robot.calibration_dir=scripts/calibration/so_arm101` — never `~/.cache/...`).
 - **IL-6 — Atomic cross-device commits.** Changes touching both arm and hand ship in one commit.
 - **IL-7 — Documentation is single-source-of-truth.** One canonical home per fact; pointers everywhere else.
 
@@ -69,7 +69,8 @@ uv run python scripts/calibration/AmazingHand/AmazingHand_FingerTest.py
 uv run arm101-calibrate-follower `
     --robot.type=so101_follower_no_gripper `
     --robot.port=COM<X> `
-    --robot.id=so101_follower
+    --robot.id=so101_follower `
+    --robot.calibration_dir=scripts/calibration/so_arm101
 
 # Discover ports via lerobot's helper
 uv run python scripts/calibration/so_arm101/find_port.py

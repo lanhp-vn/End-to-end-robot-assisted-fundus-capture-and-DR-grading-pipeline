@@ -70,8 +70,10 @@ Get-PnpDevice -Class Ports -Status OK | Select-Object Name, DeviceID | Format-Ta
 
 ## IL-5: Calibration state lives in version-controlled YAML / JSON
 
+All calibration files live **inside the workspace**. No project state is permitted in user-cache locations such as `~/.cache/huggingface/lerobot/`.
+
 - **Hand calibration** lives in `scripts/calibration/AmazingHand/AmazingHand_calib_values.yaml`. The three calibration scripts (`AmazingHand_MotorReset.py`, `AmazingHand_MiddlePos_FingerCalib.py`, `AmazingHand_FingerTest.py`) read from and write to that file.
-- **Arm calibration** lives at lerobot's default location: `~/.cache/huggingface/lerobot/calibration/robots/so101_follower_no_gripper/<id>.json`. Override with `--robot.calibration_dir=<repo-path>` if you want it in-tree.
+- **Arm calibration** lives in `scripts/calibration/so_arm101/<id>.json`, where `<id>` is the value passed to `--robot.id`. Lerobot's default would write to `~/.cache/huggingface/lerobot/calibration/robots/so101_follower_no_gripper/`; we redirect it by passing `--robot.calibration_dir=scripts/calibration/so_arm101` to `arm101-calibrate-follower` (the standard command in `scripts/calibration/so_arm101/README.md` already includes this flag).
 
 Never hand-edit a calibration file while a controller is connected — re-run the calibration script instead. Hand edits to live state miss safety re-checks (e.g., torque release on exit) and silently desync the on-disk values from the in-memory bus state.
 
