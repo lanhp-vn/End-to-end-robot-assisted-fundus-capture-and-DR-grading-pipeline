@@ -139,11 +139,15 @@ Sanity check the saved values against the real mechanism.
 
 If anything looks off, revisit Step 3 for that finger.
 
-### Step 5 — Full-hand demo (not yet ported)
+### Step 5 — Full-hand demo
 
-A combined "fist → open hand → per-finger isolation" demo is planned but not yet implemented in this repo. To port it, adapt `references/AmazingHand/PythonExample/AmazingHand_Demo.py` to read from `AmazingHand_calib_values.yaml` and restrict it to the right hand. Place the resulting script under `scripts/demos/AmazingHand_FullHand_Demo.py` when implemented.
+**Script:** `scripts/calibration/AmazingHand/AmazingHand_FullHand_Test.py`
 
-The reference demo cycles all four fingers together, then exercises each finger's abduction/adduction independently. It is the end-to-end sanity check that proves the calibration matches the real mechanism.
+This script provides a combined "fist → open hand → per-finger isolation" demo. It reads from `AmazingHand_calib_values.yaml` and drives the right hand through a complete cycle.
+
+1. Run the script (`uv run python scripts/calibration/AmazingHand/AmazingHand_FullHand_Test.py`).
+2. The hand will cycle through closing all fingers, opening all fingers, and then exercising each finger independently.
+3. This is the end-to-end sanity check that proves the calibration matches the real mechanism across all fingers.
 
 ---
 
@@ -196,4 +200,4 @@ Editing the YAML by hand is fine — the scripts preserve any top-level keys you
 
 ## 6. One-line summary
 
-Burn unique IDs (FD.exe) → reset each finger's motors to 0° and install horns (`AmazingHand_MotorReset.py`) → interactively dial in per-servo offsets (`AmazingHand_MiddlePos_FingerCalib.py`) → audit per-finger with `AmazingHand_FingerTest.py` → port the full-hand demo when ready (`scripts/demos/AmazingHand_FullHand_Demo.py`, see §5). All state lives in `AmazingHand_calib_values.yaml`.
+Burn unique IDs (FD.exe) → reset each finger's motors to 0° and install horns (`AmazingHand_MotorReset.py`) → interactively dial in per-servo offsets (`AmazingHand_MiddlePos_FingerCalib.py`) → audit per-finger with `AmazingHand_FingerTest.py` → run the full-hand demo (`AmazingHand_FullHand_Test.py`). All state lives in `AmazingHand_calib_values.yaml`.

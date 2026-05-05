@@ -1,3 +1,12 @@
+"""
+AmazingHand Motor Reset Script (Pre-Horn Installation)
+
+This script is used during Step 2 of the calibration process, BEFORE attaching
+the servo horns. It prompts for a finger and drives both of its servos to their
+electrical 0° (center) position. The motors will hold this position under torque,
+allowing you to attach the servo horns in the correct neutral orientation.
+It also resets the 'middle_pos' values for that finger to 0 in the YAML file.
+"""
 import time
 from pathlib import Path
 

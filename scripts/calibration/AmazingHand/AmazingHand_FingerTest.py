@@ -1,3 +1,13 @@
+"""
+AmazingHand Finger Test Script
+
+This script allows you to audit the calibration of a single finger.
+It prompts you to select a finger (index, middle, ring, or thumb), and then
+continuously cycles that finger between a closed and open pose indefinitely.
+This is used to visually verify that the neutral positions and ranges of motion
+are correct without making any changes to the calibration values.
+Press Ctrl+C to stop the cycle.
+"""
 import time
 from pathlib import Path
 

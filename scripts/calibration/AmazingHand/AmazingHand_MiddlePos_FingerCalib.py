@@ -1,3 +1,13 @@
+"""
+AmazingHand Middle Position Calibration Script
+
+This script is used during Step 3 of the calibration process to fine-tune the
+middle positions of a specific finger's servos. It cycles the chosen finger
+between closed and open poses, and interactively prompts you to adjust the
+offset (in degrees) for each servo. This compensates for slight misalignments
+due to the discrete teeth on the servo splines. Adjusted values are saved to
+'AmazingHand_calib_values.yaml'.
+"""
 import time
 from pathlib import Path
 
