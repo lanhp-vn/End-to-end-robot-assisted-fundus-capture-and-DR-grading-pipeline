@@ -29,7 +29,7 @@ class SO101FollowerNoGripperConfig(SOFollowerRobotConfig):
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        if self.calibration_dir is None:
+        if getattr(self, "calibration_dir", None) is None:
             self.calibration_dir = _DEFAULT_CALIBRATION_DIR
 
 
@@ -47,11 +47,11 @@ class SO101FollowerNoGripper(SOFollower):
         self.bus = FeetechMotorsBus(
             port=config.port,
             motors={
-                "shoulder_pan":  Motor(1, "sts3215", nm),
+                "shoulder_pan": Motor(1, "sts3215", nm),
                 "shoulder_lift": Motor(2, "sts3215", nm),
-                "elbow_flex":    Motor(3, "sts3215", nm),
-                "wrist_flex":    Motor(4, "sts3215", nm),
-                "wrist_roll":    Motor(5, "sts3215", nm),
+                "elbow_flex": Motor(3, "sts3215", nm),
+                "wrist_flex": Motor(4, "sts3215", nm),
+                "wrist_roll": Motor(5, "sts3215", nm),
             },
             calibration=self.calibration,
         )

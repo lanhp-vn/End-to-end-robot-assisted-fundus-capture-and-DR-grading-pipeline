@@ -32,15 +32,14 @@ From the repo root:
 uv run arm101-calibrate-follower `
     --robot.type=so101_follower_no_gripper `
     --robot.port=COM<X> `
-    --robot.id=so101_follower `
-    --robot.calibration_dir=scripts/calibration/so_arm101
+    --robot.id=so101_follower
 ```
 
 Replace `COM<X>` with the COM number you discovered above.
 
 The `arm101-calibrate-follower` console script registers our `SO101FollowerNoGripper` subclass before delegating to lerobot's `calibrate()`. Without this wrapper, the upstream `lerobot-calibrate` does not know the type `so101_follower_no_gripper` exists.
 
-The `--robot.calibration_dir` flag is **required** by IL-5 — it redirects lerobot's output from `~/.cache/huggingface/lerobot/...` (the upstream default) into this in-tree directory. Drop the flag and the JSON lands in the user-cache and is invisible to the repo.
+`SO101FollowerNoGripperConfig` defaults `calibration_dir` to `scripts/calibration/so_arm101` (see `src/arm101_hand/robots/so101_follower_no_gripper.py`), so the JSON always lands in-tree and IL-5 is enforced by code, not by remembering a flag. Pass `--robot.calibration_dir=<path>` to override if you need a different location (rare).
 
 ## 3. What happens
 
@@ -67,7 +66,7 @@ Thin wrapper over `lerobot-find-port` (see `lerobot.scripts.lerobot_find_port`).
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | `KeyError: 'so101_follower_no_gripper'` or `unknown robot type` | You ran `lerobot-calibrate` directly instead of `arm101-calibrate-follower` | Use `uv run arm101-calibrate-follower …` so the subclass registers first |
-| `Calibration saved to C:\Users\…\.cache\huggingface\lerobot\…` instead of `scripts/calibration/so_arm101/…` | You forgot `--robot.calibration_dir=scripts/calibration/so_arm101` (IL-5 violation) | Move the JSON in-tree, delete the cache subdir, re-run with the flag |
+| `Calibration saved to C:\Users\…\.cache\huggingface\lerobot\…` instead of `scripts/calibration/so_arm101/…` | The subclass default was bypassed — either you ran upstream `lerobot-calibrate` (which doesn't know our subclass) or you passed `--robot.calibration_dir` pointing outside the repo | Use `arm101-calibrate-follower` and either drop `--robot.calibration_dir` or point it back to `scripts/calibration/so_arm101`; then move/delete the cache copy |
 | `serial.serialutil.SerialException: could not open port 'COM<X>'` | Wrong COM number, or another process holds the port | Re-run §1 discovery; close FD.exe / serial monitors |
 | Ping fails for one motor | Bad cable, dead servo, or duplicate ID on the bus | Wire that motor alone and check with FD.exe or `lerobot-find-port` |
 | Calibration completes but arm jogs the wrong direction | Wire conventions mismatched | Re-check IDs 1..5 are shoulder_pan → shoulder_lift → elbow_flex → wrist_flex → wrist_roll |
