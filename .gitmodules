@@ -13,3 +13,9 @@
 [submodule "references/FTServo_Python"]
 	path = references/FTServo_Python
 	url = https://github.com/ftservo/FTServo_Python.git
+[submodule "references/SO-ARM100"]
+	path = references/SO-ARM100
+	url = https://github.com/TheRobotStudio/SO-ARM100
+[submodule "references/AmazingHandControl"]
+	path = references/AmazingHandControl
+	url = https://github.com/Betatester777/AmazingHandControl
