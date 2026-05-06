@@ -48,3 +48,9 @@ indent-style = "space"
 python_version = "3.12"
 ignore_missing_imports = true
 follow_imports = "skip"
+
+[tool.pytest.ini_options]
+# Keep collection inside our own ``tests/`` tree. The vendored submodules under
+# ``references/`` ship their own conftest.py files (some define an option named
+# ``--port`` that collides with ours), and they are read-only per IL-2.
+testpaths = ["tests"]

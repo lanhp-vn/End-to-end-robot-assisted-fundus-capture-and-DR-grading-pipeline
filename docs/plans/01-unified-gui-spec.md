@@ -748,7 +748,7 @@ flowchart TD
 | # | Milestone | Status | Hardware contact | Verified |
 |---|---|---|---|---|
 | **M1** | Foundations — schemas + kinematics + widgets + window shell + console-script | ✅ Complete | None | 2026-05-06 (on bench) |
-| **M2** | E-STOP signal flow + safe-park orchestration (fake devices) | Pending | None | — |
+| **M2** | E-STOP signal flow + safe-park orchestration (fake devices) | ✅ Complete | None | 2026-05-06 (on bench) |
 | **M3** | Hand bus brought up (COM18) | Pending | First hardware contact | — |
 | **M4** | Arm bus brought up (COM20) | Pending | Second hardware contact | — |
 | **M5** | Cross-device polish + persistence | Pending | Both buses concurrent | — |
@@ -770,25 +770,47 @@ flowchart TD
 
 **Hardware checkpoint outcome (2026-05-06):** user verified on bench. `uv run arm101-gui` opens the empty shell; header reads `Hand: ○ Disconnected   Arm: ○ Disconnected   ⛔ E-STOP`; both tabs show their "coming in MX" placeholders; activity log toggle works; mouse-click and `Esc` / `Shift+Esc` produce `[E-STOP] soft pressed` / `[E-STOP] hard pressed` log lines; **no servo on either bus moved** during any interaction (status badges stayed gray throughout).
 
-### 16.3 M2 — next (no hardware contact)
+### 16.3 M2 — landed (2026-05-06)
 
-Goal: prove E-STOP queue-drain and safe-park orchestration end-to-end against fake devices, before any real bus is opened.
+**Source files:**
+- `src/arm101_hand/gui/safety.py` (new, ~375 lines). Public surface: `DeviceProto` (runtime-checkable structural protocol — `name`, `is_connected`, `drain_queue`, `set_velocity`, `send_pose`, `read_positions`, `disable_torque_all`); `NullDevice` placeholder used before a real controller is registered (`is_connected()` always returns `False`, the action methods raise to flag accidental calls); `SafePark` orchestrator (per-device runs dispatched through an injectable executor — production = one daemon thread per device, tests = synchronous in-thread); `ThresholdEvaluator` (per-motor 5-sample rolling-window temp classifier + single-sample percent-deviation voltage classifier — pure-logic, no Qt); `SafetyPoller(QThread)` skeleton awaiting M3/M4 controllers. Activity-log event format centralized in `_format_event(device, mode, reason, outcome)` so the line shape is asserted in exactly one place.
+- `src/arm101_hand/gui/main_window.py` (edited). Added `log_event = Signal(str, str)` connected to `ActivityLog.append` via `Qt.QueuedConnection` so worker-thread log emits never poke the widget directly. `_build_safe_park` loads `data/hand_config.yaml` + `data/arm_config.yaml` eagerly (malformed pose file fails at startup, not on first Esc), registers a `NullDevice` per bus with closure-based pose resolvers (M3 / M4 swap in the real controllers via `register_device`). `Esc` / `Shift+Esc` and the E-STOP button route to `engage_soft("user")` / `engage_hard("user")`. Auto-opens the activity log on E-STOP press so the outcomes are visible.
+- `pyproject.toml` (edited). Added `[tool.pytest.ini_options] testpaths = ["tests"]` so collection is scoped to our test tree. The vendored `references/AmazingHandControl/tests/conftest.py` (added between M1 and M2 sign-off) defines a `--port` option that collides with ours; references are read-only per IL-2, so constraining collection is the right fix.
+
+**Tests (2 new files under `tests/unit/`, 33 new cases, 124 / 124 green in 0.38 s):**
+- `test_safe_park.py` — 12 cases against `FakeClock` + `FakeDevice` (records calls, tunable `arrival_after_calls`, `advance_per_read` for timeout tests, `on_first_read` callback for re-entry tests) + synchronous executor. Covers: §7.5 happy path, timeout fallback to hard-disable, missing-pose per-device isolation, out-of-range pose fallback, `safe_park.enabled=false` short-circuit, soft-during-soft re-entry rejected, hard skips park, `NullDevice` short-circuits to "no device" on both modes, concurrent fault isolation (one device's failure doesn't block the other's full sequence), and `_format_event` shape (3 parametrized).
+- `test_safety_thresholds.py` — 21 cases. Temp single-sample classification at every boundary (7 parametrized — below warn / at warn / between / single critical-spike / negative); 5-sample rolling-window spike suppression; sustained-critical escalation + cool-down; per-motor + per-device window independence. Voltage classification for both buses (9 parametrized — hand 5 V and arm 12 V at warn / critical / in-range, both polarities); voltage no-window immediate reset; unknown-device returns `ok`.
+
+**Hardware checkpoint outcome (2026-05-06):** user verified on bench. `uv run pytest -m 'not hardware'` reports `124 passed in 0.38s`. `uv run arm101-gui` opens the M1 shell with SafePark wired; pressing `Esc` logs `[hand] safe-park: no device (mode=soft, reason=user)` + `[arm] safe-park: no device (mode=soft, reason=user)`; `Shift+Esc` produces the same lines with `mode=hard`; clicking and Shift-clicking the red E-STOP button match the keyboard paths. **No servo on either bus moved during any interaction** (status badges stayed gray throughout).
+
+### 16.4 M3 — next (first hardware contact: hand bus on COM18)
+
+Goal: bring up the AmazingHand on COM18 (5 V SCS0009 bus, 8 servos, IDs 1–8) end-to-end — Hand panel UI + `HandController` worker thread + safe-park integration with the real device.
 
 **To-build:**
-- `src/arm101_hand/gui/safety.py` — `SafetyPoller(QThread)` skeleton + `SafePark` orchestrator class. The orchestrator works against an injected `DeviceProto` (`drain_queue`, `set_velocity`, `send_pose`, `read_positions`, `disable_torque_all`) so it's fully unit-testable with `FakeDevice` (no PySide6 event loop required).
-- Wire `MainWindow.soft_pressed` / `hard_pressed` into the orchestrator; replace M1's placeholder log handler.
-- Activity-log event format: per-event line includes mode (`soft` | `hard`), reason (`user` | `temp_critical` | `voltage_critical` | `app_exit`), and per-device outcome (`parked in 1.8s`, `timed out at 4.0s`, `no device`, `pose missing`, etc.).
-- `tests/unit/test_safe_park.py` — pose lookup, arrival check (all motors within tolerance), timeout fallback to hard-disable, missing-pose per-device fallback, `enabled=false` short-circuit, second-event-during-park ignored. Use a `FakeClock` for timeouts; never `time.sleep` (per `04-testing-verification.md` §3.3).
-- `tests/unit/test_safety_thresholds.py` — warn/critical boundaries, 5-sample rolling window for temperature (no `time.sleep`).
+- `src/arm101_hand/hand/controller.py` — `HandController(QObject)` running on its own `QThread`. Owns one `Scs0009PyController` (rustypot wrapper) and conforms structurally to M2's `DeviceProto` so `SafePark.register_device(hand_controller, ...)` plugs in unchanged. Public Qt API per spec §5.1: slots `connect`, `disconnect`, `send_servo_target`, `send_batch_targets`, `disable_torque_all`, `poll_state`; signals `state_changed`, `connected`, `disconnected`, `error`, `warning`. Calibration-aware (Option B, §5.2) — adds `middle_pos` and applies even-ID inversion on the way to rustypot, inverse on the read side.
+- `src/arm101_hand/gui/hand_panel.py` — Hand tab UI per §5.3: 4 finger rows (Ring / Middle / Pointer / Thumb) with base + side sliders, live readouts updated at safety-poll rate, per-finger speed combos, global speed combo + sync, "Disable hand torque" button. Pose manager underneath (save / load / delete / rename). `keyPressEvent` handler for `1`–`4` finger select, arrows for nudging (Up/Down = base ±, Left/Right = side ±), Shift / Ctrl modifiers for ×5 / ×10 step, `Q` / `E` / `C` for fully-close / fully-open / center-side. Replaces the M1 placeholder label.
+- `src/arm101_hand/gui/sequence_player.py` — `SequencePlayer(QThread)` walking pose-step strings parsed out of `data/hand_config.yaml` (`<pose>:s1,…,s8|<delay>s` and `SLEEP:<n>s`).
+- `src/arm101_hand/gui/pose_manager.py` — Save / load / delete / rename widget. Keep cross-tab consumers in mind so M4 can reuse it for the arm.
+- `MainWindow` integration — when `HandController.connected` fires, call `safe_park.replace_device("hand", controller)` (or its equivalent — extend `SafePark` minimally if needed) so soft E-STOP starts actually parking the hand instead of logging "no device". Header status badge updates from polled state.
+- `tests/unit/test_hand_controller_mock.py` — feed a fake `Scs0009PyController` (mock the rustypot API per `04-testing-verification.md` §3.4) into `HandController`; verify command sequencing, even-ID inversion + middle_pos addition on send, inverse on read, torque-off on the disconnect path, and that the controller satisfies `DeviceProto` at runtime (`isinstance(controller, DeviceProto)` via `runtime_checkable`).
+- `tests/unit/test_sequence_parser.py` — round-trip the two step formats; reject malformed steps with clear errors.
+- `tests/hardware/test_hand_real.py` (`@pytest.mark.hardware`, `--port=COM18`) — connect, read state, send a benign single-finger nudge (+5° base on one finger), wait for arrival, return to middle, torque-off, disconnect. Skipped by default per the existing `conftest.py` gate.
 
-**Hardware checkpoint:** `uv run pytest -m 'not hardware'` stays green; `uv run arm101-gui` opens; `Esc` / `Shift+Esc` produce the new safe-park-style log lines (with "no device" outcome since no controllers are connected). Servos still untouched.
+**Hardware checkpoint:**
+- `uv run pytest -m 'not hardware'` stays green (124 + new M3 cases).
+- `uv run pytest -m hardware --port=COM18` runs the hand-bus smoke test successfully (one finger nudges + returns to middle, all 8 servos report state, torque cleanly drops on disconnect).
+- `uv run arm101-gui` connects the hand on COM18, drives all four fingers from sliders + keyboard, soft E-STOP routes through SafePark which now actually parks the hand (no longer "no device" for hand); arm tab still shows the M1 placeholder + `[arm] safe-park: no device` on E-STOP.
+
+At sign-off, this section gets rewritten as "M3 — landed" with the file list, test count, and bench-checkpoint outcome — same pattern as §16.2 / §16.3.
 
 ---
 
 ## Change log
 
-| Date | Change | Author |
-|---|---|---|
-| 2026-05-06 | Initial draft after design interview; approved by user (Q1–Q8). COM20 confirmed for arm bus in §8.1. | Claude |
-| 2026-05-06 | **Revision R1.** (1) Enabled arm keyboard jogging (overrides Q7 "no kbd"): `1`–`5` select motor, arrows step, Shift/Ctrl scale step, `T` torque-toggle. New subsection in §6.3 + rationale §15.6. (2) Reworked E-STOP / critical-temp to safe-park-then-disable: `Esc` is now soft (parks then disables), `Shift+Esc` is hard (instant). New §7.5 sequence, `safe_park` block in §8.1, rationale §15.5. (3) Added `test_safe_park.py` and `test_arm_keyboard.py` to §11. (4) Bumped `arm_panel.py` and `safety.py` line estimates in §9. | Claude |
-| 2026-05-06 | **M1 implementation complete and verified on bench.** Added §16 implementation plan with the milestone-flow Mermaid diagram and per-milestone status table; recorded M1 file list, test count (91 / 91 green), and hardware-checkpoint outcome. | Claude |
+| Date | Change |
+|---|---|
+| 2026-05-06 | Initial draft after design interview; approved by user (Q1–Q8). COM20 confirmed for arm bus in §8.1. |
+| 2026-05-06 | **Revision R1.** (1) Enabled arm keyboard jogging (overrides Q7 "no kbd"): `1`–`5` select motor, arrows step, Shift/Ctrl scale step, `T` torque-toggle. New subsection in §6.3 + rationale §15.6. (2) Reworked E-STOP / critical-temp to safe-park-then-disable: `Esc` is now soft (parks then disables), `Shift+Esc` is hard (instant). New §7.5 sequence, `safe_park` block in §8.1, rationale §15.5. (3) Added `test_safe_park.py` and `test_arm_keyboard.py` to §11. (4) Bumped `arm_panel.py` and `safety.py` line estimates in §9. |
+| 2026-05-06 | **M1 implementation complete and verified on bench.** Added §16 implementation plan with the milestone-flow Mermaid diagram and per-milestone status table; recorded M1 file list, test count (91 / 91 green), and hardware-checkpoint outcome. |
+| 2026-05-06 | **M2 implementation complete and verified on bench.** Wired SafePark orchestrator + ThresholdEvaluator + SafetyPoller skeleton into MainWindow's E-STOP signals; activity-log event format finalized via `_format_event`. 33 new unit tests (124 / 124 green in 0.38 s) covering full safe-park sequence, timeout / missing-pose / out-of-range / disabled fallbacks, soft re-entry rejection, hard skip, fault isolation, threshold-evaluator boundaries + 5-sample window. Added `[tool.pytest.ini_options] testpaths = ["tests"]` to scope collection (the AmazingHandControl reference submodule, vendored after M1, defines a colliding `--port` option). §16.3 rewritten as "M2 — landed"; §16.4 added with the M3 plan. |
