@@ -21,7 +21,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal, Protocol, runtime_checkable
 
 from PySide6.QtCore import QObject, QThread, Signal
@@ -164,6 +164,31 @@ class SafePark:
                 range_check=range_check,
             )
         )
+
+    def replace_device(self, name: str, new_device: DeviceProto) -> None:
+        """Swap the device on an existing registration without dropping its
+        ``pose_resolver`` / ``pose_name`` / ``park_velocity`` / ``range_check``.
+
+        Used by the application layer when a real controller comes online and
+        replaces the ``NullDevice`` placeholder (M3 / M4), or when a controller
+        disconnects and is replaced by a fresh ``NullDevice``.
+
+        Rejected mid-park (``_busy_count > 0``) — same conservatism as
+        soft-during-soft re-entry. Raises ``KeyError`` if no registration
+        matches ``name``.
+        """
+        with self._busy_lock:
+            if self._busy_count > 0:
+                self._log(
+                    f"safe-park: replace_device({name!r}) ignored (busy)",
+                    "warn",
+                )
+                return
+            for i, reg in enumerate(self._devices):
+                if reg.device.name == name:
+                    self._devices[i] = replace(reg, device=new_device)
+                    return
+            raise KeyError(name)
 
     def is_busy(self) -> bool:
         with self._busy_lock:

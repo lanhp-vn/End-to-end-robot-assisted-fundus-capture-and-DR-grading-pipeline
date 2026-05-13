@@ -392,3 +392,105 @@ def test_format_event_string_shape(mode: str, reason: str, outcome: str, desc: s
     assert msg.startswith("[hand]"), f"{desc}: device prefix; got {msg}"
     assert f"mode={mode}" in msg and f"reason={reason}" in msg, f"{desc}: mode + reason present; got {msg}"
     assert outcome in msg, f"{desc}: outcome present; got {msg}"
+
+
+# -----------------------------------------------------------------------------
+# replace_device — M3 swap mechanism
+# -----------------------------------------------------------------------------
+
+
+def test_replace_device_swaps_handle_and_preserves_resolver_and_velocity() -> None:
+    sp, _log, _clock = _make_safepark()
+    target = {"j1": 0.0}
+    null_dev = NullDevice("hand")
+
+    range_calls: list[dict[str, float]] = []
+
+    def range_check(pose: dict[str, float]) -> list[str]:
+        range_calls.append(pose)
+        return []
+
+    sp.register_device(
+        null_dev,
+        pose_resolver=lambda: dict(target),
+        pose_name="middle",
+        park_velocity=2,
+        range_check=range_check,
+    )
+
+    real = FakeDevice(name="hand", target_pose=target, arrival_after_calls=1)
+    sp.replace_device("hand", real)
+    sp.engage_soft("user")
+
+    op_names = [c[0] for c in real.calls]
+    assert op_names[:3] == ["drain_queue", "set_velocity", "send_pose"], (
+        f"new device receives the full park sequence; got {op_names}"
+    )
+    assert ("set_velocity", 2) in real.calls, f"park_velocity preserved across the swap; got {real.calls}"
+    assert range_calls == [target], f"range_check preserved across the swap; called with {range_calls}"
+
+
+def test_replace_device_unknown_name_raises_key_error() -> None:
+    sp, _log, _clock = _make_safepark()
+    sp.register_device(
+        NullDevice("hand"),
+        pose_resolver=lambda: None,
+        pose_name="middle",
+        park_velocity=2,
+    )
+    with pytest.raises(KeyError) as ei:
+        sp.replace_device("arm", NullDevice("arm"))  # never registered
+    assert "arm" in str(ei.value), f"KeyError carries the unknown name; got {ei.value}"
+
+
+def test_replace_device_rejected_during_park_does_not_swap() -> None:
+    sp, log, _clock = _make_safepark()
+    target = {"j1": 0.0}
+    original = FakeDevice(name="hand", target_pose=target, arrival_after_calls=2)
+
+    replacement = FakeDevice(name="hand", target_pose=target, arrival_after_calls=1)
+
+    def replace_during_park() -> None:
+        sp.replace_device("hand", replacement)
+
+    original.on_first_read = replace_during_park
+
+    sp.register_device(
+        original,
+        pose_resolver=lambda: dict(target),
+        pose_name="middle",
+        park_velocity=2,
+    )
+
+    sp.engage_soft("user")
+
+    assert "send_pose" not in [c[0] for c in replacement.calls], (
+        f"replacement device never receives in-flight park; got {replacement.calls}"
+    )
+    assert any("ignored (busy)" in m for m in log.messages()), f"busy rejection logged; got {log.messages()}"
+
+
+def test_replace_device_is_idempotent_across_repeated_swaps() -> None:
+    sp, _log, _clock = _make_safepark()
+    target = {"j1": 0.0}
+    sp.register_device(
+        NullDevice("hand"),
+        pose_resolver=lambda: dict(target),
+        pose_name="middle",
+        park_velocity=2,
+    )
+
+    a = FakeDevice(name="hand", target_pose=target, arrival_after_calls=1)
+    b = FakeDevice(name="hand", target_pose=target, arrival_after_calls=1)
+
+    sp.replace_device("hand", a)
+    sp.replace_device("hand", b)
+    sp.replace_device("hand", a)
+
+    sp.engage_soft("user")
+    assert "send_pose" in [c[0] for c in a.calls], (
+        f"final swap target receives the park; got a.calls={a.calls}"
+    )
+    assert "send_pose" not in [c[0] for c in b.calls], (
+        f"intermediate swap target not engaged; got b.calls={b.calls}"
+    )
