@@ -18,6 +18,7 @@ dev = ["ruff>=0.8", "mypy>=1.10", "pytest>=8.0"]
 [project.scripts]
 arm101-calibrate-follower = "arm101_hand.scripts.calibrate_follower:main"
 arm101-gui = "arm101_hand.scripts.unified_gui:main"
+arm101-arm-torque = "arm101_hand.scripts.arm_torque:main"
 
 [tool.uv.sources]
 lerobot = { path = "references/lerobot", editable = true }

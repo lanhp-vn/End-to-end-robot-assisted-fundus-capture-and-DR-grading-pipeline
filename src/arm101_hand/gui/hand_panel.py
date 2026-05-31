@@ -22,8 +22,8 @@ Keyboard handling (panel-scope ``keyPressEvent`` per spec §5.3):
 - ``Up`` / ``Down`` — step base by ±step (Up = close = +).
 - ``Right`` / ``Left`` — step side by ±step.
 - ``Shift`` modifier ⇒ step × 5; ``Ctrl`` modifier ⇒ step × 10; default 1°.
-- ``Q`` — fully close selected (base=110, side=0).
-- ``E`` — fully open selected (base=0, side=0).
+- ``Q`` — fully close selected (base=90, side=0).
+- ``E`` — fully open selected (base=-35, side=0).
 - ``C`` — center side of selected (base unchanged, side=0).
 """
 
@@ -70,13 +70,20 @@ FINGER_TABLE: tuple[tuple[str, str, int, int], ...] = (
 )
 NUM_FINGERS = len(FINGER_TABLE)
 
-BASE_MIN, BASE_MAX = 0, 110
-SIDE_MIN, SIDE_MAX = -40, 40
+# Slider extremes anchored to scripts/calibration/AmazingHand/AmazingHand_FullHand_Test.py:
+# OpenHand `Move_*(-35, 35)` → logical base = -35 (fully open).
+# CloseHand `Move_*(90, -90)` → logical base = +90 (fully closed).
+# SIDE bounds come from the widest lateral tilt in the per-finger demos
+# (IndexOnly/MiddleOnly/RingOnly/ThumbOnly) which reach ±30° in logical frame.
+BASE_MIN, BASE_MAX = -35, 90
+SIDE_MIN, SIDE_MAX = -30, 30
 SPEED_MIN, SPEED_MAX = 1, 5
 
-# Even-ID-pre-inverted servo target range (the YAML's per-servo cap from
-# AmazingHandControl conventions); used to gate slider math.
-_SERVO_LOGICAL_MIN, _SERVO_LOGICAL_MAX = -40, 110
+# Per-servo logical envelope used to clamp compose_finger outputs. Matches the
+# widest individual servo angle the demo script touches (Move_Index(-70, 10) and
+# Move_*(90, -90) drive individual servos to -70 and +90 respectively in
+# logical frame).
+_SERVO_LOGICAL_MIN, _SERVO_LOGICAL_MAX = -70, 90
 
 
 class _FingerRow(QGroupBox):

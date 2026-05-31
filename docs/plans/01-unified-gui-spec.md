@@ -214,9 +214,9 @@ Module is pure-logic, fully unit-testable, zero imports beyond `numpy`.
 
 - Finger label (clickable to select; or use `1`–`4` keys)
 - Open / Close buttons (one-click, send absolute targets)
-- "Pos" slider — base angle [0°, 110°], shows current target
+- "Pos" slider — base angle [-35°, +90°], shows current target
 - "Pos live" readout — last polled actual position from servo, updates at safety-poll rate
-- "Side" slider — side offset [-40°, +40°]
+- "Side" slider — side offset [-30°, +30°]
 - "Side live" readout
 - Speed combo — 1–5
 
@@ -234,8 +234,8 @@ Module is pure-logic, fully unit-testable, zero imports beyond `numpy`.
 - `Up`/`Down` → step base by ±step (Up = close = +; Down = open = −)
 - `Right`/`Left` → step side by ±step (Right = +; Left = −)
 - step = `1` (no modifier) | `5` (Shift) | `10` (Ctrl)
-- `Q` → fully close selected (base = 110, side = 0)
-- `E` → fully open selected (base = 0, side = 0)
+- `Q` → fully close selected (base = 90, side = 0)
+- `E` → fully open selected (base = -35, side = 0)
 - `C` → center side of selected (base unchanged, side = 0)
 - All keystrokes update the slider value, which emits `valueChanged` → enqueues `send_servo_target` to the HandController.
 
@@ -403,7 +403,7 @@ Joint values are **degrees** (lerobot `use_degrees=True` mode). Loader rejects v
 ### 7.4 Soft limits (UI-side enforcement)
 
 - Arm sliders have `min`/`max` set from calibration JSON's `range_min/max` (converted to degrees).
-- Hand sliders: base [0, 110], side [−40, +40], absolute servo target [−40, +110] (same as AmazingHandControl).
+- Hand sliders: base [−35, +90], side [−30, +30], per-servo logical envelope [−70, +90]. Anchored to the OpenHand / CloseHand extremes and the per-finger demo tilt in `scripts/calibration/AmazingHand/AmazingHand_FullHand_Test.py`.
 - Keyboard nudges respect the same clamps.
 - Pose YAML loader refuses to apply a value outside the per-device limits (logs a warning, leaves slider untouched).
 
