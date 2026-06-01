@@ -40,6 +40,7 @@ def save_config(path, data):
         out["fingers"][finger] = {
             "servo_1": InlineDict(block["servo_1"]),
             "servo_2": InlineDict(block["servo_2"]),
+            "limits": InlineDict(block["limits"]),
         }
     with open(path, "w") as f:
         yaml.safe_dump(out, f, sort_keys=False, default_flow_style=False)
