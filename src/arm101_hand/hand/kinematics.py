@@ -126,15 +126,31 @@ def compose_finger(
     side: int,
     servo_min: int = -40,
     servo_max: int = 110,
+    *,
+    base_min: int | None = None,
+    base_max: int | None = None,
+    side_min: int | None = None,
+    side_max: int | None = None,
 ) -> tuple[int, int]:
     """``(base, side)`` → ``(pos1, pos2)`` symmetric servo pair, clamped.
 
     Both outputs are in the **logical** frame (positive = close, same direction
-    for both servos). pos1 takes ``base - side``, pos2 takes ``base + side``,
-    so that ``decompose_finger`` round-trips cleanly. The simplified symmetric
-    model replaces AmazingHandControl's bilinear ``compute_auto_positions``;
-    we don't expose left/right "auto-extreme" interpolation in v1.
+    for both servos). When a calibrated finger's ``base_min``/``base_max`` and/or
+    ``side_min``/``side_max`` are supplied, ``base``/``side`` are first clamped to
+    that envelope; the result is always clamped per-servo to ``[servo_min,
+    servo_max]`` as a corner-safety net (a ``(base_max, side_max)`` corner can
+    still exceed one servo's stop). ``pos1`` takes ``base - side``, ``pos2`` takes
+    ``base + side``, so ``decompose_finger`` round-trips cleanly.
+
+    The limit kwargs are **opt-in**: with none supplied, behavior is identical to
+    the legacy per-servo-only clamp (callers like ``gui/hand_panel.py`` are
+    unaffected). Calibrated callers pass per-finger values from
+    ``FingerCalibration.limits``.
     """
+    if base_min is not None and base_max is not None:
+        base = int(clamp(base, base_min, base_max))
+    if side_min is not None and side_max is not None:
+        side = int(clamp(side, side_min, side_max))
     pos1 = clamp(base - side, servo_min, servo_max)
     pos2 = clamp(base + side, servo_min, servo_max)
     return int(pos1), int(pos2)
@@ -147,10 +163,20 @@ def decompose_finger(
     servo_max: int = 110,
     side_min: int = -40,
     side_max: int = 40,
+    *,
+    base_min: int | None = None,
+    base_max: int | None = None,
 ) -> tuple[int, int]:
-    """``(pos1, pos2)`` → ``(base, side)``. Inverse of ``compose_finger``."""
+    """``(pos1, pos2)`` → ``(base, side)``. Inverse of ``compose_finger``.
+
+    ``side`` is clamped to ``[side_min, side_max]`` as before. ``base`` is clamped
+    to ``[base_min, base_max]`` only when both are supplied (opt-in; preserves the
+    legacy unclamped-``base`` behavior the GUI depends on).
+    """
     p1 = clamp(int(pos1), servo_min, servo_max)
     p2 = clamp(int(pos2), servo_min, servo_max)
     base = (p1 + p2) // 2
     side = clamp((p2 - p1) // 2, side_min, side_max)
+    if base_min is not None and base_max is not None:
+        base = clamp(base, base_min, base_max)
     return int(base), int(side)
