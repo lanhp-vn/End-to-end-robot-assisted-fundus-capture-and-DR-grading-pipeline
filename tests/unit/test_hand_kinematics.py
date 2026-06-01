@@ -194,9 +194,11 @@ def test_spread_sign_preserved() -> None:
 
 def test_base_clamped_when_limits_passed() -> None:
     # base outside [base_min, base_max] is clamped ONLY when limits are passed.
-    pos1, pos2 = compose_finger(200, 0, base_min=-30, base_max=110)
-    assert (pos1, pos2) == (110, 110), "base clamped to base_max=110 (side=0 -> both servos)"
-    pos1, pos2 = compose_finger(-200, 0, base_min=-30, base_max=110)
+    # base_max=80 is below servo_max=110 so this isolates the base clamp from
+    # the per-servo clamp.
+    pos1, pos2 = compose_finger(200, 0, base_min=-30, base_max=80)
+    assert (pos1, pos2) == (80, 80), "base clamped to base_max=80 (side=0 -> both servos)"
+    pos1, pos2 = compose_finger(-200, 0, base_min=-30, base_max=80)
     assert (pos1, pos2) == (-30, -30), "base clamped to base_min=-30"
 
 
