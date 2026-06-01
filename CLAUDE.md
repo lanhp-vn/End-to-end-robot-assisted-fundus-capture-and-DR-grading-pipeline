@@ -35,15 +35,17 @@ AmazingHand-ARM101-Follower/
 ├── .python-version            # 3.12
 ├── src/arm101_hand/
 │   ├── robots/                # device layer — SO-ARM101 subclass
-│   ├── hand/                  # device layer — rustypot wrappers (placeholder)
-│   ├── config/                # primitive layer — pydantic schemas (placeholder)
+│   ├── hand/                  # device layer — rustypot controller, kinematics, range-calib state machine
+│   ├── config/                # primitive layer — pydantic schemas (calibration v2, poses, app config)
+│   ├── gui/                   # application layer — PySide6 unified GUI (hand + arm)
 │   └── scripts/               # application layer — console-script entries
 ├── scripts/
 │   ├── calibration/
-│   │   ├── AmazingHand/       # 3 working scripts + YAML state
+│   │   ├── AmazingHand/       # 5 calibration/test scripts + YAML state (v2 schema)
 │   │   └── so_arm101/         # follower calibration runner
 │   ├── teleop/                # planned
 │   └── demos/                 # planned (FullHand_Demo etc.)
+├── tests/                     # host unit tests (tests/unit) + hardware-gated (tests/hardware)
 ├── docs/
 │   ├── BOM.md                 # bill of materials + host PC spec
 │   └── conventions/           # 00–06 normative rules
@@ -63,6 +65,7 @@ Get-PnpDevice -Class Ports -Status OK | Select-Object Name, DeviceID | Format-Ta
 # AmazingHand calibration (full procedure in scripts/calibration/AmazingHand/README.md)
 uv run python scripts/calibration/AmazingHand/AmazingHand_MotorReset.py
 uv run python scripts/calibration/AmazingHand/AmazingHand_MiddlePos_FingerCalib.py
+uv run python scripts/calibration/AmazingHand/AmazingHand_RangeCalib.py      # Step 4: per-finger DOF limits
 uv run python scripts/calibration/AmazingHand/AmazingHand_FingerTest.py
 
 # SO-ARM101 follower calibration (full procedure in scripts/calibration/so_arm101/README.md)
@@ -79,7 +82,7 @@ uv run python scripts/calibration/so_arm101/find_port.py
 uv run ruff format .
 uv run ruff check .
 uv run mypy src
-uv run pytest -m 'not hardware'           # when tests/ exists
+uv run pytest -m 'not hardware'           # host unit tests (no bus)
 ```
 
 ## 5. Convention files
@@ -107,8 +110,7 @@ uv run pytest -m 'not hardware'           # when tests/ exists
 
 ## 7. Tech-debt & known limitations
 
-- **No `tests/` directory yet.** Phase 2 brought up the env; tests come with the first non-trivial new code under `src/arm101_hand/`.
-- **`src/arm101_hand/hand/` and `src/arm101_hand/config/` are placeholders.** No rustypot wrapper or pydantic schema is written yet; the AmazingHand calibration scripts use rustypot directly.
-- **No teleop, no policy, no dataset code.** Out of scope for Phase 2.
+- **No teleop, no policy, no dataset code.** The hand controller + GUI drive poses; no teleoperation or learned-policy path yet.
 - **No CI.** `ruff` / `pytest` are local-only for now.
 - **No discrete GPU.** Local ML training is CPU-bound; large-policy work needs cloud.
+- **`mypy` baseline noise.** PyYAML ships no stubs, so `import yaml` lines report `import-untyped` until `types-PyYAML` is added — pre-existing, not from current work.
