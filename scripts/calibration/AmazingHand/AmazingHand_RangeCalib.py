@@ -68,6 +68,16 @@ def save_config(path, data):
         yaml.safe_dump(out, f, sort_keys=False, default_flow_style=False)
 
 
+def limits_error(limits):
+    """Return an error string if the limit set violates v2 ordering, else None."""
+    errs = []
+    if limits["base_min"] >= limits["base_max"]:
+        errs.append(f"base_min ({limits['base_min']}) >= base_max ({limits['base_max']})")
+    if limits["side_min"] >= limits["side_max"]:
+        errs.append(f"side_min ({limits['side_min']}) >= side_max ({limits['side_max']})")
+    return "; ".join(errs) if errs else None
+
+
 def prompt_finger():
     while True:
         choice = input(f"Which finger to range-calibrate? ({'/'.join(VALID_FINGERS)}): ").strip().lower()
@@ -136,9 +146,13 @@ def main():
             if action == "quit":
                 break
             if action == "save":
-                block["limits"] = InlineDict(limits)
-                save_config(YAML_PATH, config)
-                print(f"  saved limits {limits} for {finger}")
+                err = limits_error(limits)
+                if err:
+                    print(f"  NOT saved -- invalid limits: {err}")
+                else:
+                    block["limits"] = InlineDict(limits)
+                    save_config(YAML_PATH, config)
+                    print(f"  saved limits {limits} for {finger}")
                 continue
 
             state, mark = apply_action(state, action)
@@ -157,9 +171,13 @@ def main():
     except KeyboardInterrupt:
         print("\n^C -- saving and exiting")
     finally:
-        block["limits"] = InlineDict(limits)
-        save_config(YAML_PATH, config)
-        print(f"Saved limits for {finger} to {YAML_PATH}")
+        err = limits_error(limits)
+        if err:
+            print(f"NOT saving -- invalid limits: {err}. Re-run and mark valid endpoints.")
+        else:
+            block["limits"] = InlineDict(limits)
+            save_config(YAML_PATH, config)
+            print(f"Saved limits for {finger} to {YAML_PATH}")
         for sid in (id1, id2):
             try:
                 c.write_torque_enable(sid, 0)
