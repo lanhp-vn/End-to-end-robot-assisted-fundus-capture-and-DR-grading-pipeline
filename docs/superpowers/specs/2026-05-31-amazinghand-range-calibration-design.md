@@ -163,7 +163,7 @@ The new required schema fields reject the old v1 YAML, so the **current** GUI's 
 
 ## 5. Testing (`04-testing-verification.md`)
 
-Introduces the repo's first `tests/` directory (host-only, no bus):
+Adds to the existing `tests/unit/` tree (host-only, no bus):
 
 - **Schema:** required-field enforcement, `base_min < base_max`, `side_min < side_max`, v1 YAML (no `schema_version`) rejected, `extra="forbid"` rejects unknown keys.
 - **Kinematics:** `compose_finger`/`decompose_finger` round-trip on an **asymmetric** spread pose routed through `even_id_inversion` (the case that exposed the sign bug); base/side clamp behavior at and beyond limits; floor-`//2` round-trip has no off-by-one.

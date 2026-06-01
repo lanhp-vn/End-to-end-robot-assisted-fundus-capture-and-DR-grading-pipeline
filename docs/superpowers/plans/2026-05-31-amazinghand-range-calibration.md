@@ -25,9 +25,9 @@
 | `scripts/calibration/AmazingHand/AmazingHand_FullHand_Test.py` | Full-hand demo | Modify — derive poses from limits |
 | `scripts/calibration/AmazingHand/AmazingHand_MiddlePos_FingerCalib.py` | Middle-pos fine-tune | Modify — derive test cycle from limits |
 | `scripts/calibration/AmazingHand/README.md` | Calibration procedure | Modify — add Step 4 (range calib), renumber |
-| `tests/config/test_calibration.py` | Schema tests | Create |
-| `tests/hand/test_kinematics.py` | Kinematics clamp + round-trip tests | Create |
-| `tests/hand/test_range_calib.py` | Jog state-machine tests | Create |
+| `tests/unit/test_calibration.py` | Schema tests | Create |
+| `tests/unit/test_hand_kinematics.py` | Kinematics clamp + sign-guard tests | Modify (append) |
+| `tests/unit/test_range_calib.py` | Jog state-machine tests | Create |
 | `pyproject.toml` | Register `hardware` pytest marker | Modify |
 | `CLAUDE.md` | Agent self-reference | Modify (via doc_update skill) |
 
@@ -90,11 +90,13 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 **Files:**
 - Modify: `src/arm101_hand/config/calibration.py`
 - Modify: `src/arm101_hand/config/__init__.py`
-- Test: `tests/config/test_calibration.py`
+- Test: `tests/unit/test_calibration.py`
+
+> **Layout note (corrected):** the repo already has a `tests/` tree at `tests/unit/` (flat, `test_*.py`) with a `conftest.py`. Put new tests in `tests/unit/`, not `tests/config/` or `tests/hand/`. Do **not** create `tests/__init__.py` — `tests/unit/__init__.py` already exists.
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/__init__.py` (empty) and `tests/config/__init__.py` (empty) so the test packages import cleanly, then create `tests/config/test_calibration.py`:
+Create `tests/unit/test_calibration.py`:
 
 ```python
 """Tests for the AmazingHand calibration schema (v2 with DOF limits)."""
@@ -180,7 +182,7 @@ def test_loads_canonical_yaml(tmp_path):
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `uv run pytest tests/config/test_calibration.py -q`
+Run: `uv run pytest tests/unit/test_calibration.py -q`
 Expected: FAIL — `ImportError: cannot import name 'DofLimits'` (the schema doesn't exist yet). The `test_loads_canonical_yaml` will also fail until Task 2 updates the YAML — that's expected; it goes green after Task 2.
 
 - [ ] **Step 3: Implement the schema**
@@ -302,13 +304,13 @@ And add `"DofLimits",` to the `__all__` list (keep it alphabetically near the to
 
 - [ ] **Step 5: Run the tests**
 
-Run: `uv run pytest tests/config/test_calibration.py -q`
+Run: `uv run pytest tests/unit/test_calibration.py -q`
 Expected: all PASS **except** `test_loads_canonical_yaml`, which still fails (`ValidationError` — the committed YAML is still v1). That one goes green in Task 2.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/arm101_hand/config/calibration.py src/arm101_hand/config/__init__.py tests/__init__.py tests/config/__init__.py tests/config/test_calibration.py
+git add src/arm101_hand/config/calibration.py src/arm101_hand/config/__init__.py tests/unit/test_calibration.py
 git commit -m "feat: add per-finger DOF limits to the hand calibration schema (v2)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -354,7 +356,7 @@ fingers:
 
 - [ ] **Step 2: Verify the canonical-YAML test now passes**
 
-Run: `uv run pytest tests/config/test_calibration.py -q`
+Run: `uv run pytest tests/unit/test_calibration.py -q`
 Expected: ALL PASS (including `test_loads_canonical_yaml`).
 
 - [ ] **Step 3: Commit**
@@ -372,25 +374,16 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `src/arm101_hand/hand/kinematics.py` (`compose_finger`, `decompose_finger`)
-- Test: `tests/hand/test_kinematics.py`
+- Test: append to existing `tests/unit/test_hand_kinematics.py`
 
-The new keyword-only limit params default to a wide envelope, so existing positional callers in `gui/hand_panel.py` (which pass `servo_min`/`servo_max` positionally) keep working unchanged.
+> **Non-breaking constraint (corrected):** `tests/unit/test_hand_kinematics.py` already has `test_compose_finger_clamps` asserting that `compose_finger(0, 100, -40, 110)` returns `pos2=100` — i.e. the current `compose_finger` does **not** clamp `side`. The GUI (`gui/hand_panel.py`) also relies on current semantics. Therefore the new `base`/`side` clamps must be **opt-in**: the limit kwargs default to `None` and clamping happens **only when both bounds of a pair are passed**. Default-call behavior is byte-for-byte identical to today. `decompose_finger` keeps its existing positional `side_min=-40, side_max=40` clamp behavior unchanged (the GUI depends on it); only a `None`-default `base` clamp is added.
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Append the failing tests**
 
-Create `tests/hand/__init__.py` (empty), then `tests/hand/test_kinematics.py`:
+Append the following test functions to the END of `tests/unit/test_hand_kinematics.py` (the file already imports `compose_finger`, `decompose_finger`, `even_id_inversion` and `pytest` — do not re-add imports, and do not duplicate the existing `test_compose_decompose_roundtrip` / `test_even_id_inversion` / `test_compose_finger_clamps` functions):
 
 ```python
-"""Tests for AmazingHand pure kinematics: frame round-trips and limit clamps."""
-
-from __future__ import annotations
-
-import pytest
-
-from arm101_hand.hand import compose_finger, decompose_finger, even_id_inversion
-
-
-def test_spread_sign_preserved():
+def test_spread_sign_preserved() -> None:
     # Sign guard: a positive `side` (spread one way) must survive
     # compose->decompose without flipping. Uses an in-envelope asymmetric pose
     # so the per-servo clamp ([-40, 110]) does not interfere. This is the
@@ -406,47 +399,33 @@ def test_spread_sign_preserved():
     assert (base, side) == (0, -30), "decompose preserves -side"
 
 
-def test_even_id_inversion_self_inverse():
-    # The logical<->servo bridge used by the calibration script. Odd unchanged,
-    # even negated, applying twice is identity.
-    assert even_id_inversion(1, 17) == 17, "odd id unchanged"
-    assert even_id_inversion(2, 17) == -17, "even id negated"
-    assert even_id_inversion(2, even_id_inversion(2, 17)) == 17, "self-inverse"
-
-
-# | base | side | desc                                            |
-@pytest.mark.parametrize("base,side,desc", [
-    (0, 0, "neutral round-trips"),
-    (90, 0, "pure flexion round-trips"),
-    (-30, 0, "pure extension round-trips"),
-    (40, 30, "mixed flex+spread round-trips"),
-])
-def test_compose_decompose_roundtrip(base, side, desc):
-    pos1, pos2 = compose_finger(base, side)
-    b2, s2 = decompose_finger(pos1, pos2)
-    assert (b2, s2) == (base, side), desc
-
-
-def test_base_clamped_to_limits():
-    # base above base_max is clamped before composing.
+def test_base_clamped_when_limits_passed() -> None:
+    # base outside [base_min, base_max] is clamped ONLY when limits are passed.
     pos1, pos2 = compose_finger(200, 0, base_min=-30, base_max=110)
     assert (pos1, pos2) == (110, 110), "base clamped to base_max=110 (side=0 -> both servos)"
     pos1, pos2 = compose_finger(-200, 0, base_min=-30, base_max=110)
     assert (pos1, pos2) == (-30, -30), "base clamped to base_min=-30"
 
 
-def test_side_clamped_to_limits():
-    # side beyond side_max is clamped before composing.
+def test_side_clamped_when_limits_passed() -> None:
+    # side beyond side_max is clamped ONLY when limits are passed.
     pos1, pos2 = compose_finger(0, 99, side_min=-40, side_max=40)
     assert (pos1, pos2) == (-40, 40), "side clamped to side_max=40 (pos1=base-side, pos2=base+side)"
+
+
+def test_clamps_are_opt_in() -> None:
+    # With NO limit kwargs, behavior is unchanged: side is not clamped here, only
+    # the per-servo clamp applies. Guards backward compatibility with the GUI.
+    pos1, pos2 = compose_finger(0, 100, -40, 110)
+    assert (pos1, pos2) == (-40, 100), "without limits, side is not clamped (legacy behavior)"
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] **Step 2: Run the tests to verify the new clamp tests fail**
 
-Run: `uv run pytest tests/hand/test_kinematics.py -q`
-Expected: `test_base_clamped_to_limits` FAILS (no `base_min`/`base_max` kwargs yet → `TypeError`). The round-trip tests may already pass against the current implementation — that's fine; they pin the behavior we must preserve.
+Run: `uv run pytest tests/unit/test_hand_kinematics.py -q`
+Expected: `test_base_clamped_when_limits_passed` and `test_side_clamped_when_limits_passed` FAIL (`TypeError` — no `base_min`/`side_min` kwargs yet). `test_spread_sign_preserved`, `test_clamps_are_opt_in`, and all pre-existing tests PASS (they pin the behavior we must preserve).
 
-- [ ] **Step 3: Update `compose_finger` and `decompose_finger`**
+- [ ] **Step 3: Update `compose_finger` and `decompose_finger` (opt-in clamps)**
 
 In `src/arm101_hand/hand/kinematics.py`, replace `compose_finger` and `decompose_finger` with:
 
@@ -457,26 +436,30 @@ def compose_finger(
     servo_min: int = -40,
     servo_max: int = 110,
     *,
-    base_min: int = -110,
-    base_max: int = 110,
-    side_min: int = -40,
-    side_max: int = 40,
+    base_min: int | None = None,
+    base_max: int | None = None,
+    side_min: int | None = None,
+    side_max: int | None = None,
 ) -> tuple[int, int]:
     """``(base, side)`` → ``(pos1, pos2)`` symmetric servo pair, clamped.
 
     Both outputs are in the **logical** frame (positive = close, same direction
-    for both servos). ``base`` is clamped to ``[base_min, base_max]`` (calibrated
-    flexion range) and ``side`` to ``[side_min, side_max]`` (calibrated spread)
-    before composing; the result is then clamped per-servo to ``[servo_min,
+    for both servos). When a calibrated finger's ``base_min``/``base_max`` and/or
+    ``side_min``/``side_max`` are supplied, ``base``/``side`` are first clamped to
+    that envelope; the result is always clamped per-servo to ``[servo_min,
     servo_max]`` as a corner-safety net (a ``(base_max, side_max)`` corner can
-    still exceed one servo's stop). ``pos1`` takes ``base - side``, ``pos2``
-    takes ``base + side``, so ``decompose_finger`` round-trips cleanly.
+    still exceed one servo's stop). ``pos1`` takes ``base - side``, ``pos2`` takes
+    ``base + side``, so ``decompose_finger`` round-trips cleanly.
 
-    The default limit kwargs reproduce the legacy global envelope; calibrated
-    callers pass per-finger values from ``FingerCalibration.limits``.
+    The limit kwargs are **opt-in**: with none supplied, behavior is identical to
+    the legacy per-servo-only clamp (callers like ``gui/hand_panel.py`` are
+    unaffected). Calibrated callers pass per-finger values from
+    ``FingerCalibration.limits``.
     """
-    base = clamp(base, base_min, base_max)
-    side = clamp(side, side_min, side_max)
+    if base_min is not None and base_max is not None:
+        base = clamp(base, base_min, base_max)
+    if side_min is not None and side_max is not None:
+        side = clamp(side, side_min, side_max)
     pos1 = clamp(base - side, servo_min, servo_max)
     pos2 = clamp(base + side, servo_min, servo_max)
     return int(pos1), int(pos2)
@@ -490,32 +473,39 @@ def decompose_finger(
     side_min: int = -40,
     side_max: int = 40,
     *,
-    base_min: int = -110,
-    base_max: int = 110,
+    base_min: int | None = None,
+    base_max: int | None = None,
 ) -> tuple[int, int]:
-    """``(pos1, pos2)`` → ``(base, side)``. Inverse of ``compose_finger``."""
+    """``(pos1, pos2)`` → ``(base, side)``. Inverse of ``compose_finger``.
+
+    ``side`` is clamped to ``[side_min, side_max]`` as before. ``base`` is clamped
+    to ``[base_min, base_max]`` only when both are supplied (opt-in; preserves the
+    legacy unclamped-``base`` behavior the GUI depends on).
+    """
     p1 = clamp(int(pos1), servo_min, servo_max)
     p2 = clamp(int(pos2), servo_min, servo_max)
-    base = clamp((p1 + p2) // 2, base_min, base_max)
+    base = (p1 + p2) // 2
     side = clamp((p2 - p1) // 2, side_min, side_max)
+    if base_min is not None and base_max is not None:
+        base = clamp(base, base_min, base_max)
     return int(base), int(side)
 ```
 
-- [ ] **Step 4: Run the tests**
+- [ ] **Step 4: Run the kinematics tests**
 
-Run: `uv run pytest tests/hand/test_kinematics.py -q`
-Expected: ALL PASS.
+Run: `uv run pytest tests/unit/test_hand_kinematics.py -q`
+Expected: ALL PASS (new clamp tests now green; all pre-existing tests still green).
 
 - [ ] **Step 5: Run the full suite + lint to confirm no regression**
 
-Run: `uv run pytest -m 'not hardware' -q && uv run ruff check src/arm101_hand/hand/kinematics.py tests/hand/test_kinematics.py`
-Expected: all tests PASS, ruff clean.
+Run: `uv run pytest -m 'not hardware' -q` then `uv run ruff check src/arm101_hand/hand/kinematics.py tests/unit/test_hand_kinematics.py`
+Expected: all 180 tests PASS (177 prior + 3 new functions), ruff clean.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/arm101_hand/hand/kinematics.py tests/hand/__init__.py tests/hand/test_kinematics.py
-git commit -m "feat: clamp base/side to calibrated limits in compose/decompose_finger
+git add src/arm101_hand/hand/kinematics.py tests/unit/test_hand_kinematics.py
+git commit -m "feat: opt-in base/side clamp to calibrated limits in compose/decompose_finger
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
@@ -527,13 +517,13 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 **Files:**
 - Create: `src/arm101_hand/hand/range_calib.py`
 - Modify: `src/arm101_hand/hand/__init__.py`
-- Test: `tests/hand/test_range_calib.py`
+- Test: `tests/unit/test_range_calib.py`
 
 This module holds everything pure about the jog REPL: the cursor state, key→action mapping, step changes, mark capture, and status/warning formatting. No `msvcrt`, no `rustypot`. The script in Task 5 wires it to hardware.
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/hand/test_range_calib.py`:
+Create `tests/unit/test_range_calib.py`:
 
 ```python
 """Tests for the pure jog-to-limit state machine (no hardware, no msvcrt)."""
@@ -632,7 +622,7 @@ def test_load_warning(l1, l2, thr, warns, desc):
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `uv run pytest tests/hand/test_range_calib.py -q`
+Run: `uv run pytest tests/unit/test_range_calib.py -q`
 Expected: FAIL — `ModuleNotFoundError: No module named 'arm101_hand.hand.range_calib'`.
 
 - [ ] **Step 3: Implement the module**
@@ -790,13 +780,13 @@ And add these names to `__all__`:
 
 - [ ] **Step 5: Run the tests + lint**
 
-Run: `uv run pytest tests/hand/test_range_calib.py -q && uv run ruff check src/arm101_hand/hand/range_calib.py tests/hand/test_range_calib.py`
+Run: `uv run pytest tests/unit/test_range_calib.py -q && uv run ruff check src/arm101_hand/hand/range_calib.py tests/unit/test_range_calib.py`
 Expected: ALL PASS, ruff clean.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/arm101_hand/hand/range_calib.py src/arm101_hand/hand/__init__.py tests/hand/test_range_calib.py
+git add src/arm101_hand/hand/range_calib.py src/arm101_hand/hand/__init__.py tests/unit/test_range_calib.py
 git commit -m "feat: pure jog-to-limit state machine for hand range calibration
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -1433,7 +1423,7 @@ Expected: all tests PASS, ruff clean, mypy clean (or only the project's pre-exis
 Invoke the `doc_update` skill. The agent self-reference needs these corrections:
 - §7 "Tech-debt": the claim that `src/arm101_hand/hand/` and `src/arm101_hand/config/` are "placeholders" is **stale** — both are populated (`controller.py`, `kinematics.py`, `range_calib.py`; `calibration.py`, `hand_poses.py`, etc.). Correct it.
 - §4 "Common workflows": add the new `AmazingHand_RangeCalib.py` step (Step 4) to the AmazingHand calibration block.
-- Note the calibration YAML is now **schema v2** with required per-finger `limits`, and that `tests/` now exists (so `uv run pytest -m 'not hardware'` is live).
+- Note the calibration YAML is now **schema v2** with required per-finger `limits`, and that the new range-calibration coverage lives in `tests/unit/` (`test_calibration.py`, `test_range_calib.py`, additions to `test_hand_kinematics.py`).
 
 - [ ] **Step 3: Commit the doc refresh**
 
