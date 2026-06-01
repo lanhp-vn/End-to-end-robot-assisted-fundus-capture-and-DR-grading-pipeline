@@ -67,7 +67,7 @@ External **5 V / 2 A+** PSU wired to the servo bus hub. The USB bridge carries s
 
 ## 3. Calibration flow
 
-Four steps, in order. Steps 2–4 all read from and/or update `AmazingHand_calib_values.yaml`.
+Six steps, in order. Steps 2–5 all read from and/or update `AmazingHand_calib_values.yaml`.
 
 ### Step 1 — Burn unique IDs 1–8 with FD.exe
 
@@ -123,7 +123,38 @@ Horn splines have discrete teeth (~15° each), so even a well-installed horn has
 
 > If a final offset is outside **±20°**, the horn is on the wrong spline tooth — repeat Step 2 for that finger, bumping the horn by one tooth.
 
-### Step 4 — Audit with FingerTest
+### Step 4 — Calibrate per-finger motion limits
+
+**Script:** `scripts/calibration/AmazingHand/AmazingHand_RangeCalib.py`
+
+Each finger's reachable envelope (how far it flexes/extends and how far it
+spreads) is measured here and stored as logical-frame `base`/`side` min/max in
+`AmazingHand_calib_values.yaml`. This is the hand's analog of the SO-ARM101
+follower's `range_min`/`range_max` sweep. Torque stays ON throughout; you jog
+the finger with the arrow keys and mark each limit.
+
+> **Windows-only.** Uses `msvcrt` for raw arrow-key reads.
+
+1. Close any other COM-port holder (IL-4). Run:
+   `uv run python scripts/calibration/AmazingHand/AmazingHand_RangeCalib.py`
+2. Pick a finger. It holds at calibrated middle `(base=0, side=0)`.
+3. Jog to each extreme and mark it:
+
+   | Key | Action |
+   | --- | --- |
+   | ↑ / ↓ | flex toward close / extend toward open (`base` ±) |
+   | → / ← | spread (`side` ±) |
+   | `[` / `]` | shrink / grow the jog step (default 5°) |
+   | `1` `2` `3` `4` | mark `base_min` / `base_max` / `side_min` / `side_max` |
+   | `h` | home to `(0, 0)` |
+   | `s` | save this finger's limits |
+   | `q` / Ctrl+C | save and exit (torque off) |
+
+4. **Mark just *before* the mechanical stop, not at it.** A `WARNING: high load`
+   line means you've pushed into the stop — back off one step and mark there.
+5. Repeat for all four fingers.
+
+### Step 5 — Audit with FingerTest
 
 **Script:** `scripts/calibration/AmazingHand/AmazingHand_FingerTest.py`
 
@@ -139,7 +170,7 @@ Sanity check the saved values against the real mechanism.
 
 If anything looks off, revisit Step 3 for that finger.
 
-### Step 5 — Full-hand demo
+### Step 6 — Full-hand demo
 
 **Script:** `scripts/calibration/AmazingHand/AmazingHand_FullHand_Test.py`
 
@@ -156,6 +187,7 @@ This script provides a combined "fist → open hand → per-finger isolation" de
 Everything sits in `scripts/calibration/AmazingHand/AmazingHand_calib_values.yaml`:
 
 ```yaml
+schema_version: 2
 com_port: COM18
 baudrate: 1000000
 timeout: 0.5
@@ -164,20 +196,25 @@ fingers:
   index:
     servo_1: { id: 1, middle_pos: 0 }
     servo_2: { id: 2, middle_pos: 0 }
+    limits: { base_min: -30, base_max: 110, side_min: -40, side_max: 40 }
   middle:
     servo_1: { id: 3, middle_pos: 0 }
     servo_2: { id: 4, middle_pos: 0 }
+    limits: { base_min: -30, base_max: 110, side_min: -40, side_max: 40 }
   ring:
     servo_1: { id: 5, middle_pos: 0 }
     servo_2: { id: 6, middle_pos: 0 }
+    limits: { base_min: -30, base_max: 110, side_min: -40, side_max: 40 }
   thumb:
     servo_1: { id: 7, middle_pos: 0 }
     servo_2: { id: 8, middle_pos: 0 }
+    limits: { base_min: -30, base_max: 110, side_min: -40, side_max: 40 }
 ```
 
-- `com_port`, `baudrate`, `timeout`, `speed` — shared serial + motion settings, used by all three scripts.
+- `com_port`, `baudrate`, `timeout`, `speed` — shared serial + motion settings, used by all four scripts.
 - `fingers.<finger>.servo_1` / `servo_2` — per-servo `id` and calibrated `middle_pos` (degrees).
 - `servo_1` is the odd-ID (right) servo, `servo_2` is the even-ID (left) servo of the pair.
+- `fingers.<finger>.limits` — the per-finger motion envelope in logical frame: `base` (flexion, positive = close) min/max and `side` (abduction/spread) min/max, in degrees relative to the calibrated middle. Measured by `AmazingHand_RangeCalib.py` (Step 4) and consumed by the audit scripts + kinematics.
 
 Editing the YAML by hand is fine — the scripts preserve any top-level keys you add.
 
@@ -200,4 +237,4 @@ Editing the YAML by hand is fine — the scripts preserve any top-level keys you
 
 ## 6. One-line summary
 
-Burn unique IDs (FD.exe) → reset each finger's motors to 0° and install horns (`AmazingHand_MotorReset.py`) → interactively dial in per-servo offsets (`AmazingHand_MiddlePos_FingerCalib.py`) → audit per-finger with `AmazingHand_FingerTest.py` → run the full-hand demo (`AmazingHand_FullHand_Test.py`). All state lives in `AmazingHand_calib_values.yaml`.
+Burn unique IDs (FD.exe) → reset each finger's motors to 0° and install horns (`AmazingHand_MotorReset.py`) → interactively dial in per-servo offsets (`AmazingHand_MiddlePos_FingerCalib.py`) → measure per-finger motion limits (`AmazingHand_RangeCalib.py`) → audit per-finger with `AmazingHand_FingerTest.py` → run the full-hand demo (`AmazingHand_FullHand_Test.py`). All state lives in `AmazingHand_calib_values.yaml`.
