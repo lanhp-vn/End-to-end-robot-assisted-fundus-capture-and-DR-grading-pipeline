@@ -63,11 +63,12 @@ uv run python scripts/calibration/so_arm101/find_port.py
 
 ### 2. AmazingHand finger calibration
 
-Full procedure (4 steps: ID burn → 0° reset → middle-position tuning → audit) is in [`scripts/calibration/AmazingHand/README.md`](scripts/calibration/AmazingHand/README.md). After the first ID-burn step (one-time, with FD.exe), the Python flow is:
+Full procedure (5 steps: ID burn → 0° reset → middle-position tuning → range-limit calibration → audit) is in [`scripts/calibration/AmazingHand/README.md`](scripts/calibration/AmazingHand/README.md). After the first ID-burn step (one-time, with FD.exe), the Python flow is:
 
 ```powershell
 uv run python scripts/calibration/AmazingHand/AmazingHand_MotorReset.py
 uv run python scripts/calibration/AmazingHand/AmazingHand_MiddlePos_FingerCalib.py
+uv run python scripts/calibration/AmazingHand/AmazingHand_RangeCalib.py
 uv run python scripts/calibration/AmazingHand/AmazingHand_FingerTest.py
 ```
 

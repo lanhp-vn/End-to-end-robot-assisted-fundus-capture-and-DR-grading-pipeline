@@ -7,14 +7,13 @@ electrical 0° (center) position. The motors will hold this position under torqu
 allowing you to attach the servo horns in the correct neutral orientation.
 It also resets the 'middle_pos' values for that finger to 0 in the YAML file.
 """
+import contextlib
 import time
 from pathlib import Path
 
 import numpy as np
 import yaml
-
 from rustypot import Scs0009PyController
-
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 YAML_PATH = SCRIPT_DIR / "AmazingHand_calib_values.yaml"
@@ -40,6 +39,7 @@ def save_config(path, data):
         out["fingers"][finger] = {
             "servo_1": InlineDict(block["servo_1"]),
             "servo_2": InlineDict(block["servo_2"]),
+            "limits": InlineDict(block["limits"]),
         }
     with open(path, "w") as f:
         yaml.safe_dump(out, f, sort_keys=False, default_flow_style=False)
@@ -92,7 +92,7 @@ def main():
         print("Aborted.")
         return
 
-    with open(YAML_PATH, "r") as f:
+    with open(YAML_PATH) as f:
         config = yaml.safe_load(f)
 
     c = Scs0009PyController(
@@ -124,10 +124,8 @@ def main():
         print("\n^C -- exiting")
     finally:
         for sid in touched:
-            try:
+            with contextlib.suppress(Exception):
                 c.write_torque_enable(sid, 0)
-            except Exception:
-                pass
 
 
 if __name__ == "__main__":

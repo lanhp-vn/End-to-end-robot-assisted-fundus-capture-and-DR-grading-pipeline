@@ -55,3 +55,6 @@ follow_imports = "skip"
 # ``references/`` ship their own conftest.py files (some define an option named
 # ``--port`` that collides with ours), and they are read-only per IL-2.
 testpaths = ["tests"]
+markers = [
+    "hardware: test requires a physical bus (powered AmazingHand on a COM port)",
+]

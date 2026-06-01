@@ -174,3 +174,42 @@ def test_validate_pose_name(name: str, valid: bool, desc: str) -> None:
     assert is_valid == valid, f"{desc}: validity={is_valid}, msg={msg!r}"
     if not valid:
         assert msg, f"{desc}: invalid name should produce an error message"
+
+
+def test_spread_sign_preserved() -> None:
+    # Sign guard: a positive `side` (spread one way) must survive
+    # compose->decompose without flipping. Uses an in-envelope asymmetric pose
+    # so the per-servo clamp ([-40, 110]) does not interfere. This is the
+    # invariant the earlier sign bug violated.
+    pos1, pos2 = compose_finger(20, 30)
+    assert (pos1, pos2) == (-10, 50), "compose: pos1 = base - side, pos2 = base + side"
+    base, side = decompose_finger(pos1, pos2)
+    assert (base, side) == (20, 30), "decompose preserves +side (no sign flip)"
+
+    pos1, pos2 = compose_finger(0, -30)
+    assert (pos1, pos2) == (30, -30), "negative side spreads the other way"
+    base, side = decompose_finger(pos1, pos2)
+    assert (base, side) == (0, -30), "decompose preserves -side"
+
+
+def test_base_clamped_when_limits_passed() -> None:
+    # base outside [base_min, base_max] is clamped ONLY when limits are passed.
+    # base_max=80 is below servo_max=110 so this isolates the base clamp from
+    # the per-servo clamp.
+    pos1, pos2 = compose_finger(200, 0, base_min=-30, base_max=80)
+    assert (pos1, pos2) == (80, 80), "base clamped to base_max=80 (side=0 -> both servos)"
+    pos1, pos2 = compose_finger(-200, 0, base_min=-30, base_max=80)
+    assert (pos1, pos2) == (-30, -30), "base clamped to base_min=-30"
+
+
+def test_side_clamped_when_limits_passed() -> None:
+    # side beyond side_max is clamped ONLY when limits are passed.
+    pos1, pos2 = compose_finger(0, 99, side_min=-40, side_max=40)
+    assert (pos1, pos2) == (-40, 40), "side clamped to side_max=40 (pos1=base-side, pos2=base+side)"
+
+
+def test_clamps_are_opt_in() -> None:
+    # With NO limit kwargs, behavior is unchanged: side is not clamped here, only
+    # the per-servo clamp applies. Guards backward compatibility with the GUI.
+    pos1, pos2 = compose_finger(0, 100, -40, 110)
+    assert (pos1, pos2) == (-40, 100), "without limits, side is not clamped (legacy behavior)"
