@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -57,6 +59,7 @@ def test_rejects_bad_docs(mutate, desc):
 @pytest.mark.parametrize("bmin,bmax,smin,smax,desc", [
     (110, -30, -40, 40, "rejects base_min >= base_max"),
     (-30, 110, 40, -40, "rejects side_min >= side_max"),
+    (0, 0, -40, 40, "rejects base_min == base_max (strict <)"),
 ])
 def test_limit_ordering_validated(bmin, bmax, smin, smax, desc):
     with pytest.raises(ValidationError):
@@ -70,9 +73,8 @@ def test_limits_by_finger_lookup():
     assert by_finger["index"].base_max == 110, "returns the DofLimits object"
 
 
-def test_loads_canonical_yaml(tmp_path):
+def test_loads_canonical_yaml():
     # The committed YAML must satisfy the v2 schema. Load it through the public loader.
-    from pathlib import Path
     path = Path("scripts/calibration/AmazingHand/AmazingHand_calib_values.yaml")
     cal = load_hand_calibration(path)
     assert cal.schema_version == 2, "committed YAML is v2"
