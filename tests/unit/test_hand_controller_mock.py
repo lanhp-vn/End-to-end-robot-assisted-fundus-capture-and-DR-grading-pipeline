@@ -28,6 +28,7 @@ from typing import Any
 import pytest
 
 from arm101_hand.config.calibration import (
+    DofLimits,
     FingerCalibration,
     HandCalibration,
     ServoCalibration,
@@ -42,6 +43,7 @@ from arm101_hand.hand.kinematics import degrees_to_servo_radians
 # coincidence. Servo IDs follow IL-3.
 def _calibration() -> HandCalibration:
     return HandCalibration(
+        schema_version=2,
         com_port="COMTEST",
         baudrate=1_000_000,
         timeout=0.5,
@@ -50,18 +52,22 @@ def _calibration() -> HandCalibration:
             "index": FingerCalibration(
                 servo_1=ServoCalibration(id=1, middle_pos=10.0),
                 servo_2=ServoCalibration(id=2, middle_pos=-5.0),
+                limits=DofLimits(base_min=-30, base_max=110, side_min=-40, side_max=40),
             ),
             "middle": FingerCalibration(
                 servo_1=ServoCalibration(id=3, middle_pos=20.0),
                 servo_2=ServoCalibration(id=4, middle_pos=-15.0),
+                limits=DofLimits(base_min=-30, base_max=110, side_min=-40, side_max=40),
             ),
             "ring": FingerCalibration(
                 servo_1=ServoCalibration(id=5, middle_pos=30.0),
                 servo_2=ServoCalibration(id=6, middle_pos=-25.0),
+                limits=DofLimits(base_min=-30, base_max=110, side_min=-40, side_max=40),
             ),
             "thumb": FingerCalibration(
                 servo_1=ServoCalibration(id=7, middle_pos=40.0),
                 servo_2=ServoCalibration(id=8, middle_pos=-35.0),
+                limits=DofLimits(base_min=-30, base_max=110, side_min=-40, side_max=40),
             ),
         },
     )
