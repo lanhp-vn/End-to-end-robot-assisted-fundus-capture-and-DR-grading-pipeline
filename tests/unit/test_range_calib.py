@@ -6,12 +6,15 @@ import pytest
 
 from arm101_hand.hand.range_calib import (
     JOG_BASE_MAX,
+    JOG_BASE_MIN,
     JOG_SIDE_MAX,
+    JOG_SIDE_MIN,
     STEP_DEFAULT,
     STEP_MAX,
     STEP_MIN,
     JogState,
     apply_action,
+    format_status,
     key_to_action,
     load_warning,
 )
@@ -47,16 +50,23 @@ def test_jog_moves_cursor_by_step():
 
 
 def test_jog_clamps_to_safety_envelope():
-    state = JogState(base=JOG_BASE_MAX, side=JOG_SIDE_MAX, step=STEP_DEFAULT)
-    s2, _ = apply_action(state, "base+")
+    hi = JogState(base=JOG_BASE_MAX, side=JOG_SIDE_MAX, step=STEP_DEFAULT)
+    s2, _ = apply_action(hi, "base+")
     assert s2.base == JOG_BASE_MAX, "base cannot exceed the jog safety max"
-    s3, _ = apply_action(state, "side+")
+    s3, _ = apply_action(hi, "side+")
     assert s3.side == JOG_SIDE_MAX, "side cannot exceed the jog safety max"
+
+    lo = JogState(base=JOG_BASE_MIN, side=JOG_SIDE_MIN, step=STEP_DEFAULT)
+    s4, _ = apply_action(lo, "base-")
+    assert s4.base == JOG_BASE_MIN, "base cannot go below the jog safety min"
+    s5, _ = apply_action(lo, "side-")
+    assert s5.side == JOG_SIDE_MIN, "side cannot go below the jog safety min"
 
 
 # | start_step | action  | expected_step | desc                       |
 @pytest.mark.parametrize("start,action,expected,desc", [
     (STEP_DEFAULT, "step-", STEP_DEFAULT - 1, "step- shrinks by 1"),
+    (STEP_DEFAULT, "step+", STEP_DEFAULT + 1, "step+ increments by 1"),
     (STEP_MIN,     "step-", STEP_MIN,         "step- floors at STEP_MIN"),
     (STEP_MAX,     "step+", STEP_MAX,         "step+ ceils at STEP_MAX"),
 ])
@@ -86,7 +96,15 @@ def test_mark_returns_named_limit():
     (10, 10, 60, False, "low load: no warning"),
     (80, 10, 60, True,  "servo 1 over threshold warns"),
     (10, 95, 60, True,  "servo 2 over threshold warns"),
+    (80, 95, 60, True,  "both servos over threshold warns"),
 ])
 def test_load_warning(l1, l2, thr, warns, desc):
     msg = load_warning(l1, l2, thr)
     assert (msg is not None) == warns, desc
+
+
+def test_format_status_includes_cursor_and_loads():
+    line = format_status(JogState(base=12, side=-7, step=3), 40, 55)
+    assert "base=" in line and "side=" in line, "status shows the cursor"
+    assert "12" in line and "-7" in line, "status shows live base/side values"
+    assert "40" in line and "55" in line, "status shows both load readings"

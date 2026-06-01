@@ -119,4 +119,4 @@ def load_warning(load1: int, load2: int, threshold: int = LOAD_WARN_THRESHOLD) -
     hot = [sid for sid, load in ((1, load1), (2, load2)) if abs(load) > threshold]
     if not hot:
         return None
-    return f"WARNING: high load (servo pair index {hot}) — back off one step and mark there"
+    return f"WARNING: high load on servo(s) {hot} — back off one step and mark there"
