@@ -48,7 +48,7 @@ def main() -> int:
         "--margin",
         type=float,
         default=90.0,
-        help="how close to the endpoint to sweep, 1..99 (default 90; 100 = the stop itself)",
+        help="how close to the endpoint to sweep, 1..99 (default 90; values are clamped to <=99 so the hard stop is never commanded)",
     )
     args = parser.parse_args()
 

@@ -22,6 +22,10 @@ from _common import build_raw_bus, load_arm_app_config
 
 from arm101_hand.robots.calibration_summary import ARM_JOINTS
 
+# Arm bus nominal voltage (IL-1: 12 V arm rail). app_config.yaml voltage thresholds
+# are percent-deviation from this nominal.
+_ARM_NOMINAL_V = 12.0
+
 
 def main() -> int:
     cfg = load_arm_app_config()
@@ -55,6 +59,13 @@ def main() -> int:
             print(f"{joint:<14}{motor_id:>3}{model:>7}{pos:>9}{load:>7}{volt / 10:>6.1f}V{temp:>7}")
             if temp >= cfg.safety.temp_warn_c:
                 print(f"  WARNING: {joint} temp {temp}C >= warn threshold {cfg.safety.temp_warn_c}C")
+            volt_v = volt / 10
+            dev_pct = abs(volt_v - _ARM_NOMINAL_V) / _ARM_NOMINAL_V * 100
+            if dev_pct >= cfg.safety.voltage_warn_pct:
+                print(
+                    f"  WARNING: {joint} voltage {volt_v:.1f}V deviates {dev_pct:.1f}% "
+                    f"from {_ARM_NOMINAL_V:.0f}V nominal (warn {cfg.safety.voltage_warn_pct}%)"
+                )
     finally:
         # disable_torque=False: we never enabled torque; don't touch it on the way out.
         if bus.is_connected:

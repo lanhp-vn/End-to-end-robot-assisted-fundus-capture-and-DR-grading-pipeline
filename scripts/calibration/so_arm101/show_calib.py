@@ -60,7 +60,11 @@ def main() -> int:
     follower = build_follower(cfg, use_degrees=True)
     print(f"\nConnecting read-only on {cfg.arm.port} (torque stays off) ...")
     try:
-        follower.connect(calibrate=False)
+        try:
+            follower.connect(calibrate=False)
+        except (ConnectionError, OSError) as e:
+            print(f"ERROR: could not open {cfg.arm.port}: {e}", file=sys.stderr)
+            return 1
         obs = follower.get_observation()  # {f"{joint}.pos": degrees}
         print(f"\n{'joint':<14}{'present_deg':>12}{'mid_deg':>10}")
         print("-" * 36)

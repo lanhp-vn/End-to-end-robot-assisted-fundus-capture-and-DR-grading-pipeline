@@ -66,6 +66,10 @@ def main() -> int:
             continue
         targets[joint] = clamped
 
+    if not targets:
+        print("ERROR: all joints out of range -- nothing to drive", file=sys.stderr)
+        return 1
+
     cfg = load_arm_app_config()
     follower = build_follower(cfg, use_degrees=True)  # DEGREES
     vel = gentle_velocity(cfg)
