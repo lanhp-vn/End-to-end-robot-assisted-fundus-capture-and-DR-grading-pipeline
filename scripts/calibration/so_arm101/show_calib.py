@@ -59,17 +59,18 @@ def main() -> int:
     cfg = load_arm_app_config()
     follower = build_follower(cfg, use_degrees=True)
     print(f"\nConnecting read-only on {cfg.arm.port} (torque stays off) ...")
-    follower.connect(calibrate=False)
     try:
+        follower.connect(calibrate=False)
         obs = follower.get_observation()  # {f"{joint}.pos": degrees}
         print(f"\n{'joint':<14}{'present_deg':>12}{'mid_deg':>10}")
         print("-" * 36)
         for joint in ARM_JOINTS:
-            present = obs[f"{joint}.pos"]
+            present = obs.get(f"{joint}.pos", float("nan"))
             # In DEGREES mode the calibrated mid is, by definition, 0 deg.
             print(f"{joint:<14}{present:>12.2f}{0.0:>10.2f}")
     finally:
-        follower.disconnect()
+        if follower.is_connected:
+            follower.disconnect()
         print("Bus closed.")
     return 0
 
