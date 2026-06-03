@@ -87,3 +87,21 @@ def test_clamp_above_is_clamped_to_hi() -> None:
 def test_clamp_below_is_clamped_to_lo() -> None:
     lo, _ = degree_bounds(736, 3460)
     assert clamp_degrees(lo - 50.0, 736, 3460) == pytest.approx(lo)
+
+
+def test_clamp_at_boundaries_is_identity() -> None:
+    lo, hi = degree_bounds(736, 3460)
+    assert clamp_degrees(hi, 736, 3460) == pytest.approx(hi)
+    assert clamp_degrees(lo, 736, 3460) == pytest.approx(lo)
+
+
+def test_load_rejects_inverted_range(tmp_path: Path) -> None:
+    bad = {**_GOOD, "shoulder_pan": {**_GOOD["shoulder_pan"], "range_min": 3460, "range_max": 736}}
+    with pytest.raises(ValueError, match="invalid range"):
+        load_arm_calibration(_write(tmp_path, bad))
+
+
+def test_load_rejects_non_dict_entry(tmp_path: Path) -> None:
+    bad = {**_GOOD, "elbow_flex": "oops"}
+    with pytest.raises(ValueError, match="missing key"):
+        load_arm_calibration(_write(tmp_path, bad))

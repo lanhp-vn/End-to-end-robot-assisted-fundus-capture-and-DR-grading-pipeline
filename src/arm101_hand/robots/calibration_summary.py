@@ -43,7 +43,7 @@ def load_arm_calibration(path: Path) -> dict[str, JointCalib]:
     """Parse ``so101_follower.json`` into a ``JointCalib`` per joint.
 
     Raises ``ValueError`` if any of the five canonical joints is missing, or a joint
-    is missing a required key.
+    is missing a required key.  The returned dict's keys follow ``ARM_JOINTS`` order.
     """
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     missing = [j for j in ARM_JOINTS if j not in raw]
@@ -53,15 +53,20 @@ def load_arm_calibration(path: Path) -> dict[str, JointCalib]:
     for joint in ARM_JOINTS:
         entry = raw[joint]
         try:
-            out[joint] = JointCalib(
+            jc = JointCalib(
                 id=int(entry["id"]),
                 drive_mode=int(entry["drive_mode"]),
                 homing_offset=int(entry["homing_offset"]),
                 range_min=int(entry["range_min"]),
                 range_max=int(entry["range_max"]),
             )
-        except KeyError as e:
-            raise ValueError(f"joint '{joint}' missing key {e}") from e
+        except (KeyError, TypeError) as e:
+            raise ValueError(f"joint '{joint}' missing key or malformed entry: {e}") from e
+        if jc.range_min >= jc.range_max:
+            raise ValueError(
+                f"joint '{joint}' invalid range: range_min ({jc.range_min}) >= range_max ({jc.range_max})"
+            )
+        out[joint] = jc
     return out
 
 
