@@ -36,7 +36,11 @@ def _resolve_pose_name(argv: list[str], available: list[str]) -> str:
     if len(argv) > 1:
         print(f"  {argv[1]!r} is not a known pose; choose from {available}")
     while True:
-        choice = input(f"Pose? ({'/'.join(available)}): ").strip()
+        try:
+            choice = input(f"Pose? ({'/'.join(available)}): ").strip()
+        except EOFError:
+            print("\nNo input -- exiting.", file=sys.stderr)
+            raise SystemExit(1) from None
         if choice in available:
             return choice
         print(f"  invalid -- pick one of {available}")
