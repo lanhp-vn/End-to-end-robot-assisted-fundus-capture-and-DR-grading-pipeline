@@ -71,3 +71,40 @@ Thin wrapper over `lerobot-find-port` (see `lerobot.scripts.lerobot_find_port`).
 | Ping fails for one motor | Bad cable, dead servo, or duplicate ID on the bus | Wire that motor alone and check with FD.exe or `lerobot-find-port` |
 | Calibration completes but arm jogs the wrong direction | Wire conventions mismatched | Re-check IDs 1..5 are shoulder_pan → shoulder_lift → elbow_flex → wrist_flex → wrist_roll |
 | Position drifts after release | Backlash in the harmonic / belt drive, normal at low torque | Set holding torque from the teleop side; not a calibration issue |
+
+## 6. Verify/audit helpers
+
+These standalone scripts sanity-check the 5 servos and the calibration against the
+real mechanism. They keep `arm101-calibrate-follower` (lerobot) as the source of
+truth and **never write `so101_follower.json`** (IL-5). All read `arm.port` from
+`data/app_config.yaml`. Close any other bus owner first (IL-4).
+
+| Script | Motion? | Torque | Norm mode | Purpose |
+| --- | --- | --- | --- | --- |
+| `show_calib.py` | no | off | DEGREES | Print per-joint calibration (id, homing, range, degree span, midpoint). `--live` also reads present position. |
+| `scan.py` | no | off | raw | Ping motors 1–5; report position/load/voltage/temperature. Exit 1 if any motor is missing. |
+| `sweep.py` | yes | on→off | RANGE_M100_100 | Drive a joint (or `all`) to its calibrated endpoints (`±margin`, default 90) and back; verify no buzz/stall. |
+| `set_pose.py` | yes | on→off | DEGREES | Drive to a `quick_poses` pose from `data/arm_config.yaml` (zero/home/rest) and hold until Enter. |
+
+```powershell
+uv run python scripts/calibration/so_arm101/show_calib.py            # offline dump
+uv run python scripts/calibration/so_arm101/show_calib.py --live     # + live position
+uv run python scripts/calibration/so_arm101/scan.py                  # bus health (pre-flight)
+uv run python scripts/calibration/so_arm101/sweep.py wrist_flex --margin 70
+uv run python scripts/calibration/so_arm101/set_pose.py rest
+```
+
+**Norm-mode split.** `sweep.py` uses `RANGE_M100_100`, where the calibrated range maps
+to exactly ±100 with built-in clamping — so driving to an endpoint is just commanding
+±margin, inherently bounded. `set_pose.py` / `show_calib.py` use `DEGREES` to match the
+`arm_config.yaml` pose convention; in that mode a value is degrees relative to the
+range *midpoint*, so each joint's usable window is symmetric `[-span/2, +span/2]`.
+
+**Onboard-frame note.** `sweep.py` and `set_pose.py` push the on-file calibration to the
+motors after connecting (`bus.write_calibration`) so normalized targets physically match
+the recorded range. This writes the **motors**, not the JSON. `show_calib.py --live` does
+not, so its live degrees assume the motors still hold the committed calibration from the
+last calibrate run.
+
+**Recommended order:** `scan` (all 5 respond?) → `show_calib` (numbers sane?) →
+`sweep` per joint (endpoints clean?) → `set_pose home`/`rest` (parks cleanly?).
