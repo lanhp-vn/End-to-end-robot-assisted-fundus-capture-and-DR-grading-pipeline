@@ -1,7 +1,9 @@
 """Drive the SO-ARM101 to a named pose (degrees) and hold it under torque until Enter.
 
-Poses come from data/arm_config.yaml ``quick_poses`` (zero / home / rest) -- this script
-invents none (IL-7). Targets are in DEGREES (relative to each joint's calibrated mid) and
+Poses come from data/arm_config.yaml ``quick_poses`` (zero / home / rest) merged with
+data/arm_jog_poses.yaml ``poses`` (saved via jog.py; a jog pose wins on a name collision)
+-- this script invents none (IL-7). Targets are in DEGREES (relative to each joint's
+calibrated mid) and
 are clamped to the joint's usable window [-span/2, +span/2]; an out-of-range value is
 warned and that joint is skipped, matching the behavior arm_config.yaml documents for
 the GUI.
