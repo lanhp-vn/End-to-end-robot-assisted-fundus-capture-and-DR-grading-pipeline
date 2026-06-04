@@ -28,6 +28,7 @@ import time
 
 from _common import (
     ARM_CONFIG_PATH,
+    ARM_JOG_POSES_PATH,
     CALIB_PATH,
     build_follower,
     gentle_velocity,
@@ -58,9 +59,14 @@ def _resolve_pose_name(argv: list[str], available: list[str]) -> str:
 
 
 def main() -> int:
-    poses = load_arm_poses(ARM_CONFIG_PATH).quick_poses
+    quick = load_arm_poses(ARM_CONFIG_PATH).quick_poses
+    jog = load_arm_poses(ARM_JOG_POSES_PATH).poses if ARM_JOG_POSES_PATH.is_file() else {}
+    poses = {**quick, **jog}
     if not poses:
-        print(f"no quick_poses defined in {ARM_CONFIG_PATH}", file=sys.stderr)
+        print(
+            f"no poses defined in {ARM_CONFIG_PATH} (quick_poses) or {ARM_JOG_POSES_PATH} (poses)",
+            file=sys.stderr,
+        )
         return 1
     available = sorted(poses)
     name = _resolve_pose_name(sys.argv, available)
