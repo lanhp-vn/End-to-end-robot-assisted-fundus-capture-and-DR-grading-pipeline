@@ -27,7 +27,13 @@ import argparse
 import sys
 import time
 
-from _common import build_follower, gentle_velocity, load_arm_app_config, park_home_and_release
+from _common import (
+    build_follower,
+    gentle_velocity,
+    load_arm_app_config,
+    load_home_degrees,
+    park_home_and_release,
+)
 
 from arm101_hand.robots.calibration_summary import ARM_JOINTS
 
@@ -68,6 +74,7 @@ def main() -> int:
     cfg = load_arm_app_config()
     follower = build_follower(cfg, use_degrees=False)  # RANGE_M100_100
     vel = gentle_velocity(cfg)
+    home = load_home_degrees()
 
     torque_on = False
     print(f"Connecting on {cfg.arm.port} ...")
@@ -99,12 +106,12 @@ def main() -> int:
     except KeyboardInterrupt:
         print("\n^C -- stopping")
     finally:
-        # Always return to the centered home before releasing torque (see
+        # Always return to the default-home pose before releasing torque (see
         # park_home_and_release): avoids the arm dropping from an extended pose.
         if follower.is_connected:
             if torque_on:
                 print("Returning to home before releasing torque ...")
-                park_home_and_release(follower, vel)
+                park_home_and_release(follower, home, vel)
                 print("Home reached; torque off.")
             else:
                 follower.bus.disable_torque()

@@ -10,6 +10,7 @@ Motor names match the canonical IL-3 ordering: shoulder_pan → wrist_roll.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import yaml
@@ -51,3 +52,15 @@ def load_arm_poses(path: Path) -> ArmPoseConfig:
     """Parse and validate ``data/arm_config.yaml``."""
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return ArmPoseConfig.model_validate(raw)
+
+
+def save_arm_poses(path: Path, config: ArmPoseConfig) -> None:
+    """Write an ``ArmPoseConfig`` to YAML atomically (tmp file + ``os.replace``).
+
+    Used for the jog-pose file (``data/arm_jog_poses.yaml``) -- a fresh, code-owned file,
+    so no comment preservation is needed. ``sort_keys=False`` keeps a stable field order.
+    """
+    payload = config.model_dump(mode="python")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    os.replace(tmp, path)

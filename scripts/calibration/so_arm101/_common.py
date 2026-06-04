@@ -13,13 +13,14 @@ import sys
 import time
 from pathlib import Path
 
-from arm101_hand.config import load_app_config
-from arm101_hand.robots.calibration_summary import ARM_JOINTS
+from arm101_hand.config import load_app_config, load_arm_poses
+from arm101_hand.robots.calibration_summary import ARM_JOINTS, STS3215_RESOLUTION
 
 # scripts/calibration/so_arm101/_common.py -> repo root is parents[3].
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_CONFIG_PATH = _REPO_ROOT / "data" / "app_config.yaml"
 ARM_CONFIG_PATH = _REPO_ROOT / "data" / "arm_config.yaml"
+ARM_JOG_POSES_PATH = _REPO_ROOT / "data" / "arm_jog_poses.yaml"
 CALIB_PATH = Path(__file__).resolve().parent / "so101_follower.json"
 
 # id="so101_follower" -> SO101FollowerNoGripper loads <calibration_dir>/so101_follower.json,
@@ -67,21 +68,41 @@ def gentle_velocity(cfg) -> int:
     return cfg.safety.safe_park.park_velocity_arm
 
 
-def park_home_and_release(follower, vel: int, settle_s: float = 2.0) -> None:
-    """Drive all joints to the calibrated home (0) at gentle ``vel``, then disable torque.
+def load_home_degrees() -> dict[str, float]:
+    """Per-joint default-home target in degrees, from arm_config.yaml ``quick_poses['home']``.
 
-    Convention for every *motion* helper script (sweep, set_pose): return to the centered
-    home before cutting torque so the arm doesn't drop under gravity from an extended pose
-    (mirrors the ``safe_park`` intent in ``data/app_config.yaml``). Home is ``0`` in both
-    norm modes — DEGREES and RANGE_M100_100 measure from the calibrated midpoint.
+    This is the pose the motion scripts return to before releasing torque. Falls back to
+    all-zeros (the calibrated mid) if the file or the ``home`` pose is absent.
+    """
+    if ARM_CONFIG_PATH.is_file():
+        home = load_arm_poses(ARM_CONFIG_PATH).quick_poses.get("home")
+        if home is not None:
+            return home.as_dict()
+    return dict.fromkeys(ARM_JOINTS, 0.0)
 
-    Call only when torque is currently enabled and the bus is connected. Best-effort: any
-    error during the homing move (including a second Ctrl+C) still falls through to
-    torque-off, so the caller can always disconnect cleanly afterward.
+
+def park_home_and_release(follower, home: dict[str, float], vel: int, settle_s: float = 2.0) -> None:
+    """Drive all joints to the ``home`` pose (degrees) at gentle ``vel``, then disable torque.
+
+    Convention for every *motion* helper script (sweep, set_pose, jog): return to the
+    configured default-home pose before cutting torque, so the arm doesn't drop under gravity
+    from an extended pose (mirrors the ``safe_park`` intent in ``data/app_config.yaml``).
+    ``home`` is per-joint degrees relative to each joint's calibrated mid (from
+    ``load_home_degrees``); it is converted here to raw encoder steps and written with
+    ``normalize=False``, so this works for ANY follower norm mode (DEGREES or RANGE_M100_100).
+
+    Call only when torque is enabled and the bus is connected. Best-effort: any error during
+    the homing move (including a second Ctrl+C) still falls through to torque-off, so the
+    caller can always disconnect cleanly afterward.
     """
     try:
         follower.bus.sync_write("Goal_Velocity", dict.fromkeys(ARM_JOINTS, vel))
-        follower.send_action({f"{j}.pos": 0.0 for j in ARM_JOINTS})
+        goal_raw: dict[str, int] = {}
+        for j in ARM_JOINTS:
+            cal = follower.calibration[j]
+            mid = (cal.range_min + cal.range_max) / 2
+            goal_raw[j] = int(round(mid + home[j] * (STS3215_RESOLUTION - 1) / 360))
+        follower.bus.sync_write("Goal_Position", goal_raw, normalize=False)
         time.sleep(settle_s)
     except BaseException as e:
         print(f"  (homing interrupted: {e!r}) -- releasing torque anyway", file=sys.stderr)

@@ -24,13 +24,16 @@ quick_poses:
     wrist_flex: 0
     wrist_roll: 0
 
-  # Mid-range "ready" pose — elbow folded, shoulder slightly back.
+  # Default home — the pose the motion scripts (sweep/set_pose/jog) return to before
+  # releasing torque (see _common.park_home_and_release / load_home_degrees). Captured
+  # from the arm's natural folded rest on 2026-06-03 (clamped into the calibrated range),
+  # so torque-off barely moves it. Re-capture by jogging there and updating these values.
   home:
-    shoulder_pan: 0
-    shoulder_lift: -45
-    elbow_flex: 90
-    wrist_flex: 0
-    wrist_roll: 0
+    shoulder_pan: 2.1
+    shoulder_lift: -104.8
+    elbow_flex: 90.9
+    wrist_flex: -102.9
+    wrist_roll: 0.0
 
   # Storage / rest pose — arm folded against the base.
   rest:
