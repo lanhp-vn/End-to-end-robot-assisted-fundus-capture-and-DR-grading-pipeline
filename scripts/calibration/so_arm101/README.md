@@ -106,5 +106,13 @@ the recorded range. This writes the **motors**, not the JSON. `show_calib.py --l
 not, so its live degrees assume the motors still hold the committed calibration from the
 last calibrate run.
 
+**Safe release (motion scripts).** `sweep.py` and `set_pose.py` always return the arm to
+the **centered home (0 on every joint)** before disabling torque — on normal completion,
+on `Ctrl+C`/`Enter`/EOF, and after an error once torque is on. This avoids the wrist (and
+the mounted AmazingHand) dropping under gravity when torque cuts from an extended pose; it
+mirrors the `safe_park` intent in `data/app_config.yaml` and is implemented once in
+`_common.park_home_and_release`. (`scan.py` and `show_calib.py` are read-only — they never
+enable torque or move, so there is nothing to re-home.)
+
 **Recommended order:** `scan` (all 5 respond?) → `show_calib` (numbers sane?) →
 `sweep` per joint (endpoints clean?) → `set_pose home`/`rest` (parks cleanly?).

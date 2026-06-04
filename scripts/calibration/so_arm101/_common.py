@@ -9,6 +9,8 @@ of one script run. IL-5: reads ``so101_follower.json``; never writes it.
 
 from __future__ import annotations
 
+import sys
+import time
 from pathlib import Path
 
 from arm101_hand.config import load_app_config
@@ -61,5 +63,27 @@ def build_raw_bus(cfg):
 
 
 def gentle_velocity(cfg) -> int:
-    """Profile_Velocity (register units) for gentle calibration moves."""
+    """Goal_Velocity (STS3215 register 46, raw units) for gentle calibration moves."""
     return cfg.safety.safe_park.park_velocity_arm
+
+
+def park_home_and_release(follower, vel: int, settle_s: float = 2.0) -> None:
+    """Drive all joints to the calibrated home (0) at gentle ``vel``, then disable torque.
+
+    Convention for every *motion* helper script (sweep, set_pose): return to the centered
+    home before cutting torque so the arm doesn't drop under gravity from an extended pose
+    (mirrors the ``safe_park`` intent in ``data/app_config.yaml``). Home is ``0`` in both
+    norm modes — DEGREES and RANGE_M100_100 measure from the calibrated midpoint.
+
+    Call only when torque is currently enabled and the bus is connected. Best-effort: any
+    error during the homing move (including a second Ctrl+C) still falls through to
+    torque-off, so the caller can always disconnect cleanly afterward.
+    """
+    try:
+        follower.bus.sync_write("Goal_Velocity", dict.fromkeys(ARM_JOINTS, vel))
+        follower.send_action({f"{j}.pos": 0.0 for j in ARM_JOINTS})
+        time.sleep(settle_s)
+    except BaseException as e:
+        print(f"  (homing interrupted: {e!r}) -- releasing torque anyway", file=sys.stderr)
+    finally:
+        follower.bus.disable_torque()

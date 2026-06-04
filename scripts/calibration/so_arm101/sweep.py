@@ -2,13 +2,17 @@
 
 Uses RANGE_M100_100 normalization, so the calibrated range maps to +/-100 with built-in
 clamping -- driving to an endpoint is just commanding +/-margin. For each selected joint
-the script: sets a gentle Profile_Velocity, enables torque, moves to mid-range (0) first,
+the script: sets a gentle Goal_Velocity, enables torque, moves to mid-range (0) first,
 then sweeps 0 -> +margin -> -margin -> 0, watching Present_Load for stalls.
 
 After connect() the script pushes the on-file calibration to the motors
 (bus.write_calibration) so the normalized endpoints physically match the recorded range
 regardless of the motors' current EEPROM offsets. This writes the MOTORS, never the JSON
 (IL-5).
+
+On every exit path -- normal completion, Ctrl+C, or an error after torque-on -- the arm
+is first driven back to the centered home (0) and only then is torque released, so it
+never drops under gravity from an extended pose (see _common.park_home_and_release).
 
 Usage:
   uv run python scripts/calibration/so_arm101/sweep.py shoulder_pan
@@ -23,7 +27,7 @@ import argparse
 import sys
 import time
 
-from _common import build_follower, gentle_velocity, load_arm_app_config
+from _common import build_follower, gentle_velocity, load_arm_app_config, park_home_and_release
 
 from arm101_hand.robots.calibration_summary import ARM_JOINTS
 
@@ -65,6 +69,7 @@ def main() -> int:
     follower = build_follower(cfg, use_degrees=False)  # RANGE_M100_100
     vel = gentle_velocity(cfg)
 
+    torque_on = False
     print(f"Connecting on {cfg.arm.port} ...")
     try:
         try:
@@ -75,10 +80,13 @@ def main() -> int:
         # Align the motors' onboard frame with the on-file calibration (writes motors, not JSON).
         follower.bus.write_calibration(follower.calibration)
         # Gentle speed BEFORE enabling torque / first move, so nothing snaps.
-        follower.bus.sync_write("Profile_Velocity", dict.fromkeys(ARM_JOINTS, vel))
+        # STS3215 movement-speed register is "Goal_Velocity" (reg 46), not the
+        # Dynamixel-style "Profile_Velocity".
+        follower.bus.sync_write("Goal_Velocity", dict.fromkeys(ARM_JOINTS, vel))
         follower.bus.enable_torque()
+        torque_on = True
 
-        print(f"Centering all joints (Profile_Velocity={vel}) ...")
+        print(f"Centering all joints (Goal_Velocity={vel}) ...")
         follower.send_action({f"{j}.pos": 0.0 for j in ARM_JOINTS})
         time.sleep(_SETTLE_S)
 
@@ -87,16 +95,21 @@ def main() -> int:
             _move(follower, joint, +margin)
             _move(follower, joint, -margin)
             _move(follower, joint, 0.0)
-        print("\nSweep complete; returning to center.")
-        follower.send_action({f"{j}.pos": 0.0 for j in ARM_JOINTS})
-        time.sleep(_SETTLE_S)
+        print("\nSweep complete.")
     except KeyboardInterrupt:
-        print("\n^C -- stopping, releasing torque")
+        print("\n^C -- stopping")
     finally:
+        # Always return to the centered home before releasing torque (see
+        # park_home_and_release): avoids the arm dropping from an extended pose.
         if follower.is_connected:
-            follower.bus.disable_torque()
+            if torque_on:
+                print("Returning to home before releasing torque ...")
+                park_home_and_release(follower, vel)
+                print("Home reached; torque off.")
+            else:
+                follower.bus.disable_torque()
             follower.disconnect()
-            print("Torque off, bus closed.")
+            print("Bus closed.")
     return 0
 
 

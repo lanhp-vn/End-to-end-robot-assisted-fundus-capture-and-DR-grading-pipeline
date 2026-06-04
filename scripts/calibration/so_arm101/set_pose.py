@@ -9,6 +9,10 @@ the GUI.
 After connect() the script pushes the on-file calibration to the motors so degree targets
 physically match the recorded range (writes the MOTORS, never the JSON -- IL-5).
 
+On exit (Enter, Ctrl+C, or EOF) the arm is first driven back to the centered home (0) and
+only then is torque released, so it never drops under gravity from the held pose (see
+_common.park_home_and_release).
+
 Usage:
   uv run python scripts/calibration/so_arm101/set_pose.py home
   uv run python scripts/calibration/so_arm101/set_pose.py rest
@@ -22,7 +26,14 @@ from __future__ import annotations
 import sys
 import time
 
-from _common import ARM_CONFIG_PATH, CALIB_PATH, build_follower, gentle_velocity, load_arm_app_config
+from _common import (
+    ARM_CONFIG_PATH,
+    CALIB_PATH,
+    build_follower,
+    gentle_velocity,
+    load_arm_app_config,
+    park_home_and_release,
+)
 
 from arm101_hand.config import load_arm_poses
 from arm101_hand.robots.calibration_summary import ARM_JOINTS, clamp_degrees, load_arm_calibration
@@ -74,6 +85,7 @@ def main() -> int:
     follower = build_follower(cfg, use_degrees=True)  # DEGREES
     vel = gentle_velocity(cfg)
 
+    torque_on = False
     print(f"Connecting on {cfg.arm.port}; driving to '{name}' ...")
     try:
         try:
@@ -82,19 +94,28 @@ def main() -> int:
             print(f"ERROR: could not open {cfg.arm.port}: {e}", file=sys.stderr)
             return 1
         follower.bus.write_calibration(follower.calibration)
-        follower.bus.sync_write("Profile_Velocity", dict.fromkeys(ARM_JOINTS, vel))
+        # STS3215 movement-speed register is "Goal_Velocity" (reg 46), not "Profile_Velocity".
+        follower.bus.sync_write("Goal_Velocity", dict.fromkeys(ARM_JOINTS, vel))
         follower.bus.enable_torque()
+        torque_on = True
         follower.send_action({f"{j}.pos": v for j, v in targets.items()})
         time.sleep(_SETTLE_S)
         print(f"Holding '{name}' under torque: {targets}")
-        input("Press Enter to release torque and exit... ")
+        input("Press Enter to return home and release torque... ")
     except (EOFError, KeyboardInterrupt):
-        print("\n^C/EOF -- releasing")
+        print("\n^C/EOF -- returning home")
     finally:
+        # Always return to the centered home before releasing torque (see
+        # park_home_and_release): avoids the arm dropping from the held pose.
         if follower.is_connected:
-            follower.bus.disable_torque()
+            if torque_on:
+                print("Returning to home before releasing torque ...")
+                park_home_and_release(follower, vel)
+                print("Home reached; torque off.")
+            else:
+                follower.bus.disable_torque()
             follower.disconnect()
-            print("Torque off, bus closed.")
+            print("Bus closed.")
     return 0
 
 
