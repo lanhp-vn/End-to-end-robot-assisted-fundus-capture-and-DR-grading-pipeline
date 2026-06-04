@@ -20,6 +20,7 @@ from arm101_hand.robots.calibration_summary import ARM_JOINTS
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_CONFIG_PATH = _REPO_ROOT / "data" / "app_config.yaml"
 ARM_CONFIG_PATH = _REPO_ROOT / "data" / "arm_config.yaml"
+ARM_JOG_POSES_PATH = _REPO_ROOT / "data" / "arm_jog_poses.yaml"
 CALIB_PATH = Path(__file__).resolve().parent / "so101_follower.json"
 
 # id="so101_follower" -> SO101FollowerNoGripper loads <calibration_dir>/so101_follower.json,
