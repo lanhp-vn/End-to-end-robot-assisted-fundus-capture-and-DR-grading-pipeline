@@ -89,6 +89,13 @@ Replace `COM<X>` with the COM number from step 1. The output JSON goes to `scrip
 
 > **Important.** Use `arm101-calibrate-follower` (defined in `pyproject.toml`), not `lerobot-calibrate`. The upstream entry point doesn't know our `so101_follower_no_gripper` subclass exists.
 
+Once calibrated, a set of read-only verify/audit helpers lives alongside the runner — `scan.py` (pre-flight bus health check), `show_calib.py` (dump the calibration, `--live` to compare present positions), `sweep.py` (range-verify sweep to the calibrated endpoints), and `set_pose.py` (drive to a named pose and hold). They never write `so101_follower.json` — `arm101-calibrate-follower` stays the only thing that does. Per-script detail is in [`scripts/calibration/so_arm101/README.md`](scripts/calibration/so_arm101/README.md) §6.
+
+```powershell
+uv run python scripts/calibration/so_arm101/scan.py
+uv run python scripts/calibration/so_arm101/show_calib.py
+```
+
 ## Repo layout
 
 ```

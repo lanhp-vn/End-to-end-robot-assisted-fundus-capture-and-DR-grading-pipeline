@@ -78,6 +78,13 @@ uv run arm101-calibrate-follower `
 # Discover ports via lerobot's helper
 uv run python scripts/calibration/so_arm101/find_port.py
 
+# SO-ARM101 verify/audit helpers (read-only re: calibration; never write so101_follower.json — IL-5)
+# Detail in scripts/calibration/so_arm101/README.md §6.
+uv run python scripts/calibration/so_arm101/scan.py                       # pre-flight bus health check (torque off)
+uv run python scripts/calibration/so_arm101/show_calib.py [--live]        # dump calibration; --live compares present pos
+uv run python scripts/calibration/so_arm101/sweep.py <joint|all>          # range-verify sweep to endpoints (--margin 90)
+uv run python scripts/calibration/so_arm101/set_pose.py <zero|home|rest>  # drive to a named quick_poses pose, hold
+
 # Lint / format / type-check / test
 uv run ruff format .
 uv run ruff check .
