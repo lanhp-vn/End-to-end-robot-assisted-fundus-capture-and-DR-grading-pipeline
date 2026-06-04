@@ -18,17 +18,20 @@ _BOUNDS = dict.fromkeys(ARM_JOINTS, (-100.0, 100.0))
 
 
 def _state(**kw):
-    base = initial_state(dict.fromkeys(ARM_JOINTS, 0.0))
+    base = initial_state(dict.fromkeys(ARM_JOINTS, 0.0), dict.fromkeys(ARM_JOINTS, 0.0))
     for k, v in kw.items():
         setattr(base, k, v)
     return base
 
 
 def test_initial_state_active_is_first_joint():
-    s = initial_state(dict.fromkeys(ARM_JOINTS, 0.0))
+    home = dict.fromkeys(ARM_JOINTS, 0.0)
+    home[ARM_JOINTS[1]] = -90.0
+    s = initial_state(dict.fromkeys(ARM_JOINTS, 0.0), home)
     assert s.active == ARM_JOINTS[0]
     assert s.torque_on is True
     assert s.step == pytest.approx(5.0)
+    assert s.home[ARM_JOINTS[1]] == pytest.approx(-90.0)
 
 
 def test_key_to_action_digits_select_joints():
@@ -82,12 +85,20 @@ def test_step_up_and_down_clamp():
     assert s3.step == pytest.approx(JOG_STEP_MIN)
 
 
-def test_home_active_sets_cursor_zero():
+def test_home_active_goes_to_home_value():
     s = _state()
     s.cursors[s.active] = 42.0
+    s.home[s.active] = -12.0
     s2, eff = apply_action(s, "home_active", _BOUNDS)
-    assert s2.cursors[s.active] == pytest.approx(0.0)
+    assert s2.cursors[s.active] == pytest.approx(-12.0)
     assert eff == "move"
+
+
+def test_home_active_clamps_home_to_bounds():
+    s = _state()
+    s.home[s.active] = 999.0  # absurd home value
+    s2, _ = apply_action(s, "home_active", {**_BOUNDS, s.active: (-10.0, 10.0)})
+    assert s2.cursors[s.active] == pytest.approx(10.0)  # clamped to bound
 
 
 def test_toggle_torque_flips_and_signals():

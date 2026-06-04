@@ -108,13 +108,18 @@ the recorded range. This writes the **motors**, not the JSON. `show_calib.py --l
 not, so its live degrees assume the motors still hold the committed calibration from the
 last calibrate run.
 
-**Safe release (motion scripts).** `sweep.py` and `set_pose.py` always return the arm to
-the **centered home (0 on every joint)** before disabling torque — on normal completion,
-on `Ctrl+C`/`Enter`/EOF, and after an error once torque is on. This avoids the wrist (and
-the mounted AmazingHand) dropping under gravity when torque cuts from an extended pose; it
-mirrors the `safe_park` intent in `data/app_config.yaml` and is implemented once in
-`_common.park_home_and_release`. (`scan.py` and `show_calib.py` are read-only — they never
-enable torque or move, so there is nothing to re-home.)
+**Safe release (motion scripts).** `sweep.py`, `set_pose.py`, and `jog.py` always return the
+arm to the **default-home pose** (`data/arm_config.yaml` → `quick_poses.home`, degrees)
+before disabling torque — on normal completion, on `Ctrl+C`/`Enter`/EOF, and after an error
+once torque is on. The default home is the arm's natural folded rest captured from hardware,
+so torque-off barely moves it; this avoids the wrist (and the mounted AmazingHand) dropping
+under gravity from an extended pose. It mirrors the `safe_park` intent in
+`data/app_config.yaml` and is implemented once in `_common.park_home_and_release`, which
+converts the home degrees to raw encoder steps so it works in any norm mode. To change the
+home, edit `quick_poses.home` (or jog there and read `show_calib`/`scan`, then update it).
+(`scan.py` and `show_calib.py` are read-only — they never enable torque or move, so there is
+nothing to re-home. `jog.py` exited via the `t` torque-off / hand-pose path disconnects in
+place rather than re-homing.)
 
 **Jog controls (`jog.py`).** Torque ON to move; `msvcrt` raw keys:
 
@@ -123,7 +128,7 @@ enable torque or move, so there is nothing to re-home.)
 | `1`–`5` | select joint (shoulder_pan … wrist_roll) |
 | `↑` / `↓` | jog active joint ± step (deg), clamped to calibrated range |
 | `[` / `]` | shrink / grow step (1–15°) |
-| `h` | home active joint to 0 |
+| `h` | home active joint to its default-home value (`quick_poses.home`) |
 | `t` | toggle torque (off = hand-pose by hand; on = resync + hold) |
 | `s` | save current pose to `data/arm_jog_poses.yaml` (prompts for a name) |
 | `q` / `Ctrl+C` | return home, release torque, exit (if torque off: disconnect in place) |

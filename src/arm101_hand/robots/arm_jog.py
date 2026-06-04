@@ -24,17 +24,32 @@ _DIGIT_TO_JOINT = {str(i + 1): name for i, name in enumerate(ARM_JOINTS)}
 
 @dataclass
 class ArmJogState:
-    """Mutable jog cursor state. cursors: per-joint target in degrees from calibrated mid."""
+    """Mutable jog cursor state.
+
+    cursors: per-joint target in degrees from the calibrated mid.
+    home: per-joint default-home target in degrees (where ``home_active`` snaps a joint).
+    """
 
     cursors: dict[str, float]
     active: str
+    home: dict[str, float]
     step: float = JOG_STEP_DEFAULT
     torque_on: bool = True
 
 
-def initial_state(cursors: dict[str, float]) -> ArmJogState:
-    """Starting state from initial per-joint degree positions; active = first joint."""
-    return ArmJogState(cursors=dict(cursors), active=ARM_JOINTS[0], step=JOG_STEP_DEFAULT, torque_on=True)
+def initial_state(cursors: dict[str, float], home: dict[str, float]) -> ArmJogState:
+    """Starting state from initial per-joint degree positions + the default-home pose.
+
+    active = first joint. ``home`` is the per-joint default-home target (degrees) that the
+    ``h`` key snaps the active joint to.
+    """
+    return ArmJogState(
+        cursors=dict(cursors),
+        active=ARM_JOINTS[0],
+        home=dict(home),
+        step=JOG_STEP_DEFAULT,
+        torque_on=True,
+    )
 
 
 def key_to_action(key: str) -> str | None:
@@ -93,7 +108,7 @@ def apply_action(
             return state, None  # I/O layer prints a hint
         lo, hi = bounds[state.active]
         if action == "home_active":
-            target = 0.0
+            target = state.home[state.active]
         else:
             target = state.cursors[state.active] + (state.step if action == "jog_up" else -state.step)
         new_cursors = dict(state.cursors)

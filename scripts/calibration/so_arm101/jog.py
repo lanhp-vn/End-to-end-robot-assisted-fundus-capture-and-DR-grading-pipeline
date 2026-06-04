@@ -8,10 +8,10 @@ Controls (torque ON to move):
   1..5          select joint (shoulder_pan shoulder_lift elbow_flex wrist_flex wrist_roll)
   Up / Down     jog active joint + / - step (deg), clamped to calibrated range
   [ / ]         shrink / grow jog step (1..15 deg)
-  h             home active joint to 0 (calibrated mid)
+  h             home active joint to its default-home value (arm_config.yaml quick_poses.home)
   t             toggle torque (off = hand-pose by hand; on = resync + hold)
   s             save current pose to data/arm_jog_poses.yaml (prompts for a name)
-  q / Ctrl+C    return all joints home, release torque, exit
+  q / Ctrl+C    return all joints to the default home, release torque, exit
                 (if torque is OFF, just disconnects in place)
 
 Windows-only: uses msvcrt.getwch for raw key reads. Pure jog logic is in
@@ -32,6 +32,7 @@ from _common import (
     build_follower,
     gentle_velocity,
     load_arm_app_config,
+    load_home_degrees,
     park_home_and_release,
 )
 
@@ -94,6 +95,7 @@ def main() -> int:
         return 1
     calib = load_arm_calibration(CALIB_PATH)
     bounds = {j: degree_bounds(calib[j].range_min, calib[j].range_max) for j in ARM_JOINTS}
+    home = load_home_degrees()
 
     follower = build_follower(cfg, use_degrees=True)
     vel = gentle_velocity(cfg)
@@ -110,7 +112,7 @@ def main() -> int:
         follower.bus.write_calibration(follower.calibration)
         cursors = _present_degrees(follower)
         _hold_at(follower, cursors, vel)
-        state = initial_state(cursors)
+        state = initial_state(cursors, home)
         print(format_status(state, follower.bus.sync_read("Present_Load")))
 
         while True:
@@ -146,7 +148,7 @@ def main() -> int:
         if follower.is_connected:
             if state is not None and state.torque_on:
                 print("Returning to home before releasing torque ...")
-                park_home_and_release(follower, vel)
+                park_home_and_release(follower, home, vel)
                 print("Home reached; torque off.")
             else:
                 follower.bus.disable_torque()

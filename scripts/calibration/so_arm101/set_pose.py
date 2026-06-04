@@ -35,6 +35,7 @@ from _common import (
     build_follower,
     gentle_velocity,
     load_arm_app_config,
+    load_home_degrees,
     park_home_and_release,
 )
 
@@ -92,6 +93,7 @@ def main() -> int:
     cfg = load_arm_app_config()
     follower = build_follower(cfg, use_degrees=True)  # DEGREES
     vel = gentle_velocity(cfg)
+    home = load_home_degrees()
 
     torque_on = False
     print(f"Connecting on {cfg.arm.port}; driving to '{name}' ...")
@@ -118,7 +120,7 @@ def main() -> int:
         if follower.is_connected:
             if torque_on:
                 print("Returning to home before releasing torque ...")
-                park_home_and_release(follower, vel)
+                park_home_and_release(follower, home, vel)
                 print("Home reached; torque off.")
             else:
                 follower.bus.disable_torque()

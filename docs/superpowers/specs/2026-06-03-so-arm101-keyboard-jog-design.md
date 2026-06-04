@@ -238,3 +238,25 @@ unchanged (clamp, drive, hold, return-home-then-release).
 3. **Degrees-from-current, clamped** to the calibrated range; no-jump start.
 4. **Extras included:** torque toggle (hand-pose), per-joint home key, save pose.
 5. **Ignore the GUI** — CLI-only; no GUI-parity constraints.
+
+## 12. Addendum (2026-06-03) — configurable default-home pose
+
+Supersedes the original "home = all joints at calibrated mid (0)" assumption in §4/§5.
+Released-torque-at-mid put the arm sticking out, from which it drops to its folded rest
+anyway. Instead, **"home" is now a configurable default-home pose** = the arm's natural
+folded rest, captured from hardware.
+
+- **Storage:** `data/arm_config.yaml` → `quick_poses.home` (degrees), hand-edited to the
+  captured values (comments preserved). Editable; drivable as `set_pose.py home`.
+- **`_common.load_home_degrees()`** reads `quick_poses.home` (falls back to all-zeros).
+- **`park_home_and_release(follower, home, vel)`** now takes the home pose (degrees),
+  converts each joint to raw encoder steps via `follower.calibration`, and writes raw
+  `Goal_Position` (`normalize=False`) — norm-agnostic, so the shared helper works for
+  `sweep` (RANGE_M100_100) and `set_pose`/`jog` (DEGREES) alike.
+- **All three motion scripts** (sweep, set_pose, jog) load the home and pass it to
+  `park_home_and_release`, returning there before torque-off.
+- **`ArmJogState` gains a `home` dict**; `initial_state(cursors, home)`; jog's `h` key
+  (`home_active`) snaps the active joint to `home[active]` (clamped to bounds) instead of 0.
+- Captured initial values: `{shoulder_pan: 2.1, shoulder_lift: -104.8, elbow_flex: 90.9,
+  wrist_flex: -102.9, wrist_roll: 0.0}` (degrees from calibrated mid; wrist_flex clamped
+  from -103.6 into range).
