@@ -76,13 +76,13 @@ would blur responsibilities. Dedicated script is the KISS choice
 
 ## 4. Files
 
-| File | Action |
-|---|---|
-| `scripts/calibration/so_arm101/capture_pose.py` | Create. |
-| `scripts/calibration/so_arm101/README.md` | Modify: add a `capture_pose.py` row to the §6 helper table + an example. |
-| `CLAUDE.md` | Modify: add a `capture_pose.py` line to the §4 workflow block. |
-| `docs/superpowers/specs/2026-06-04-set-pose-manual-mode-design.md` | Delete (rejected approach). |
-| `docs/superpowers/plans/2026-06-04-set-pose-manual-mode.md` | Delete (rejected approach). |
+| File                                                                 | Action                                                                      |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `scripts/calibration/so_arm101/capture_pose.py`                    | Create.                                                                     |
+| `scripts/calibration/so_arm101/README.md`                          | Modify: add a `capture_pose.py` row to the §6 helper table + an example. |
+| `CLAUDE.md`                                                        | Modify: add a `capture_pose.py` line to the §4 workflow block.           |
+| `docs/superpowers/specs/2026-06-04-set-pose-manual-mode-design.md` | Delete (rejected approach).                                                 |
+| `docs/superpowers/plans/2026-06-04-set-pose-manual-mode.md`        | Delete (rejected approach).                                                 |
 
 ## 5. Testing
 
