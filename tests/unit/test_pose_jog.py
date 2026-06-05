@@ -3,8 +3,10 @@ from arm101_hand.hand.pose_jog import (
     FINGERS,
     HandJogState,
     apply_action,
+    format_hand_status,
     key_to_action,
 )
+from arm101_hand.hand.range_calib import STEP_MAX, STEP_MIN
 
 LIMITS = {
     "index": DofLimits(base_min=-20, base_max=70, side_min=-40, side_max=35),
@@ -41,12 +43,12 @@ def test_side_clamps_to_calibrated_min():
 
 
 def test_step_bounds():
-    state = HandJogState(step=1)
+    state = HandJogState(step=STEP_MIN)
     state = apply_action(state, "step-", LIMITS)
-    assert state.step == 1  # STEP_MIN
-    state = HandJogState(step=15)
+    assert state.step == STEP_MIN
+    state = HandJogState(step=STEP_MAX)
     state = apply_action(state, "step+", LIMITS)
-    assert state.step == 15  # STEP_MAX
+    assert state.step == STEP_MAX
 
 
 def test_home_active_only():
@@ -72,3 +74,11 @@ def test_save_and_quit_are_state_noops():
     state = HandJogState(active="ring")
     assert apply_action(state, "save", LIMITS) == state
     assert apply_action(state, "quit", LIMITS) == state
+
+
+def test_format_hand_status_marks_active_finger() -> None:
+    state = apply_action(HandJogState(active="index"), "base+", LIMITS)
+    line = format_hand_status(state)
+    assert "*ind" in line
+    assert "mid" in line and "rin" in line and "thu" in line
+    assert "step=" in line

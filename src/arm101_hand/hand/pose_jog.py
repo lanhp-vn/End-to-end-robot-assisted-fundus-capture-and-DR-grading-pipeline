@@ -74,6 +74,7 @@ def apply_action(
     """
     if action in _SELECT:
         return replace(state, active=_SELECT[action])
+    # kinematics.clamp returns float; int() keeps the cursor integer-valued.
     if action == "step+":
         return replace(state, step=int(clamp(state.step + 1, STEP_MIN, STEP_MAX)))
     if action == "step-":
