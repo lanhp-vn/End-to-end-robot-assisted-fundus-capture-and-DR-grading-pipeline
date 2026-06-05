@@ -14,13 +14,14 @@ This script runs a complete sequence of movements for the 4-finger AmazingHand
 It reads calibration values from 'AmazingHand_calib_values.yaml' and is intended
 to be the final end-to-end sanity check that proves the calibration is correct.
 """
+
 import contextlib
 import time
 from pathlib import Path
 
-import yaml
 from rustypot import Scs0009PyController
 
+from arm101_hand.config import load_hand_calibration
 from arm101_hand.hand import compose_finger, degrees_to_servo_radians
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -30,27 +31,25 @@ YAML_PATH = SCRIPT_DIR / "AmazingHand_calib_values.yaml"
 MaxSpeed = 7
 CloseSpeed = 3
 
-
-with open(YAML_PATH) as f:
-    _config = yaml.safe_load(f)
-
-_FINGERS = _config["fingers"]
+_cfg = load_hand_calibration(YAML_PATH)
+_FINGERS = _cfg.fingers
 
 c = Scs0009PyController(
-    serial_port=_config["com_port"],
-    baudrate=_config["baudrate"],
-    timeout=_config["timeout"],
+    serial_port=_cfg.com_port,
+    baudrate=_cfg.baudrate,
+    timeout=_cfg.timeout,
 )
 
 
 # ---------- per-finger motion helpers ----------
 
+
 def _move(name, base, side, speed):
     block = _FINGERS[name]
-    id1 = block["servo_1"]["id"]
-    id2 = block["servo_2"]["id"]
-    mp1 = block["servo_1"]["middle_pos"]
-    mp2 = block["servo_2"]["middle_pos"]
+    id1 = block.servo_1.id
+    id2 = block.servo_2.id
+    mp1 = block.servo_1.middle_pos
+    mp2 = block.servo_2.middle_pos
     pos1, pos2 = compose_finger(base, side)
     c.write_goal_speed(id1, speed)
     time.sleep(0.0002)
@@ -62,7 +61,7 @@ def _move(name, base, side, speed):
 
 
 def _limits(name):
-    return _FINGERS[name]["limits"]
+    return _FINGERS[name].limits
 
 
 def Move_Index(base, side, speed):  # noqa: N802
@@ -91,19 +90,20 @@ _MOVERS = {
 
 # ---------- poses (right hand) ----------
 
+
 def _close(name):
-    return _limits(name)["base_max"], 0
+    return _limits(name).base_max, 0
 
 
 def _open(name):
-    return _limits(name)["base_min"], 0
+    return _limits(name).base_min, 0
 
 
 def _spread_pose(name, frac):
     # An isolation pose: nearly open, spread by ``frac`` of the side range.
     lim = _limits(name)
-    side = int((lim["side_max"] if frac > 0 else lim["side_min"]) * abs(frac))
-    return lim["base_min"], side
+    side = int((lim.side_max if frac > 0 else lim.side_min) * abs(frac))
+    return lim.base_min, side
 
 
 def InitialPose():  # noqa: N802
@@ -154,8 +154,8 @@ def ThumbOnly():  # noqa: N802
 
 def main():
     for finger in _FINGERS.values():
-        c.write_torque_enable(finger["servo_1"]["id"], 1)
-        c.write_torque_enable(finger["servo_2"]["id"], 1)
+        c.write_torque_enable(finger.servo_1.id, 1)
+        c.write_torque_enable(finger.servo_2.id, 1)
 
     print("Running AmazingHand full-hand demo (right hand, one cycle)...")
     try:
@@ -185,9 +185,9 @@ def main():
         print("\n^C -- aborting")
     finally:
         for finger in _FINGERS.values():
-            for servo_key in ("servo_1", "servo_2"):
+            for servo in (finger.servo_1, finger.servo_2):
                 with contextlib.suppress(Exception):
-                    c.write_torque_enable(finger[servo_key]["id"], 0)
+                    c.write_torque_enable(servo.id, 0)
 
 
 if __name__ == "__main__":
