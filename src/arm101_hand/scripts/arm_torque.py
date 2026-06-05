@@ -43,10 +43,7 @@ def main() -> int:
         print(f"app_config.yaml failed validation:\n{e}", file=sys.stderr)
         return 1
 
-    motors = {
-        name: Motor(motor_id, "sts3215", MotorNormMode.DEGREES)
-        for name, motor_id in _ARM_MOTOR_IDS
-    }
+    motors = {name: Motor(motor_id, "sts3215", MotorNormMode.DEGREES) for name, motor_id in _ARM_MOTOR_IDS}
     motor_ids = [m for _, m in _ARM_MOTOR_IDS]
     bus = FeetechMotorsBus(port=cfg.arm.port, motors=motors)
 

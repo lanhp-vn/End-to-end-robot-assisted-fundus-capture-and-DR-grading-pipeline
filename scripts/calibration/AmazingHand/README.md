@@ -300,6 +300,22 @@ uv run python scripts/calibration/AmazingHand/AmazingHand_SetPose.py close
 uv run python scripts/calibration/AmazingHand/AmazingHand_SetPose.py        # prompts open/close
 ```
 
+### Utility — jog all fingers and save a pose
+
+**Script:** `scripts/calibration/AmazingHand/jog.py`
+
+Not a calibration step — a convenience for posing the whole hand by keyboard and saving
+the result. Torque stays ON; you jog each finger within its calibrated limits, then save
+the whole-hand pose by name into `data/hand_config.yaml` (the same store the unified GUI's
+pose manager reads). Mirrors the arm's `so_arm101/jog.py`.
+
+```powershell
+uv run python scripts/calibration/AmazingHand/jog.py
+```
+
+Controls: `1`-`4` select finger; arrows jog base/side; `[`/`]` step; `h`/`H` home
+finger/all; `s` save (prompts for a name); `q` release torque and exit.
+
 ---
 
 ## 4. Where the calibration lives
@@ -312,6 +328,9 @@ com_port: COM18
 baudrate: 1000000
 timeout: 0.5
 speed: 6
+speeds:
+  open: 5
+  close: 3
 fingers:
   index:
     servo_1: { id: 1, middle_pos: 0 }
@@ -336,7 +355,7 @@ fingers:
 - `servo_1` is the odd-ID (right) servo, `servo_2` is the even-ID (left) servo of the pair.
 - `fingers.<finger>.limits` — the per-finger motion envelope in logical frame: `base` (flexion, positive = close) min/max and `side` (abduction/spread) min/max, in degrees relative to the calibrated middle. Measured by `AmazingHand_RangeCalib.py` (Step 4) and consumed by the audit scripts + kinematics.
 
-Editing the YAML by hand is fine — the scripts preserve any top-level keys you add.
+The scripts load and save this file through the typed `HandCalibration` schema (`extra='forbid'`), so the recognized fields are validated; hand edits to those fields are fine, but unknown top-level keys are rejected.
 
 ---
 

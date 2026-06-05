@@ -21,22 +21,25 @@ from arm101_hand.hand.range_calib import (
 
 
 # | raw key bytes      | expected action  | desc                       |
-@pytest.mark.parametrize("key,action,desc", [
-    ("UP",          "base+",      "up arrow flexes (base+)"),
-    ("DOWN",        "base-",      "down arrow extends (base-)"),
-    ("RIGHT",       "side+",      "right arrow spreads (side+)"),
-    ("LEFT",        "side-",      "left arrow spreads (side-)"),
-    ("[",           "step-",      "[ shrinks step"),
-    ("]",           "step+",      "] grows step"),
-    ("1",           "mark_base_min", "1 marks base_min"),
-    ("2",           "mark_base_max", "2 marks base_max"),
-    ("3",           "mark_side_min", "3 marks side_min"),
-    ("4",           "mark_side_max", "4 marks side_max"),
-    ("h",           "home",       "h homes"),
-    ("s",           "save",       "s saves"),
-    ("q",           "quit",       "q quits"),
-    ("z",           None,         "unmapped key is ignored"),
-])
+@pytest.mark.parametrize(
+    "key,action,desc",
+    [
+        ("UP", "base+", "up arrow flexes (base+)"),
+        ("DOWN", "base-", "down arrow extends (base-)"),
+        ("RIGHT", "side+", "right arrow spreads (side+)"),
+        ("LEFT", "side-", "left arrow spreads (side-)"),
+        ("[", "step-", "[ shrinks step"),
+        ("]", "step+", "] grows step"),
+        ("1", "mark_base_min", "1 marks base_min"),
+        ("2", "mark_base_max", "2 marks base_max"),
+        ("3", "mark_side_min", "3 marks side_min"),
+        ("4", "mark_side_max", "4 marks side_max"),
+        ("h", "home", "h homes"),
+        ("s", "save", "s saves"),
+        ("q", "quit", "q quits"),
+        ("z", None, "unmapped key is ignored"),
+    ],
+)
 def test_key_to_action(key, action, desc):
     assert key_to_action(key) == action, desc
 
@@ -64,12 +67,15 @@ def test_jog_clamps_to_safety_envelope():
 
 
 # | start_step | action  | expected_step | desc                       |
-@pytest.mark.parametrize("start,action,expected,desc", [
-    (STEP_DEFAULT, "step-", STEP_DEFAULT - 1, "step- shrinks by 1"),
-    (STEP_DEFAULT, "step+", STEP_DEFAULT + 1, "step+ increments by 1"),
-    (STEP_MIN,     "step-", STEP_MIN,         "step- floors at STEP_MIN"),
-    (STEP_MAX,     "step+", STEP_MAX,         "step+ ceils at STEP_MAX"),
-])
+@pytest.mark.parametrize(
+    "start,action,expected,desc",
+    [
+        (STEP_DEFAULT, "step-", STEP_DEFAULT - 1, "step- shrinks by 1"),
+        (STEP_DEFAULT, "step+", STEP_DEFAULT + 1, "step+ increments by 1"),
+        (STEP_MIN, "step-", STEP_MIN, "step- floors at STEP_MIN"),
+        (STEP_MAX, "step+", STEP_MAX, "step+ ceils at STEP_MAX"),
+    ],
+)
 def test_step_changes(start, action, expected, desc):
     state = JogState(step=start)
     s2, _ = apply_action(state, action)
@@ -92,12 +98,15 @@ def test_mark_returns_named_limit():
 
 
 # | load1 | load2 | threshold | warns | desc                     |
-@pytest.mark.parametrize("l1,l2,thr,warns,desc", [
-    (10, 10, 60, False, "low load: no warning"),
-    (80, 10, 60, True,  "servo 1 over threshold warns"),
-    (10, 95, 60, True,  "servo 2 over threshold warns"),
-    (80, 95, 60, True,  "both servos over threshold warns"),
-])
+@pytest.mark.parametrize(
+    "l1,l2,thr,warns,desc",
+    [
+        (10, 10, 60, False, "low load: no warning"),
+        (80, 10, 60, True, "servo 1 over threshold warns"),
+        (10, 95, 60, True, "servo 2 over threshold warns"),
+        (80, 95, 60, True, "both servos over threshold warns"),
+    ],
+)
 def test_load_warning(l1, l2, thr, warns, desc):
     msg = load_warning(l1, l2, thr)
     assert (msg is not None) == warns, desc

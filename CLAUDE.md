@@ -67,6 +67,7 @@ uv run python scripts/calibration/AmazingHand/AmazingHand_MotorReset.py
 uv run python scripts/calibration/AmazingHand/AmazingHand_MiddlePos_FingerCalib.py
 uv run python scripts/calibration/AmazingHand/AmazingHand_RangeCalib.py      # Step 4: per-finger DOF limits
 uv run python scripts/calibration/AmazingHand/AmazingHand_FingerTest.py
+uv run python scripts/calibration/AmazingHand/jog.py                       # jog all fingers; save whole-hand pose to data/hand_config.yaml
 
 # SO-ARM101 follower calibration (full procedure in scripts/calibration/so_arm101/README.md)
 # Output JSON lands at scripts/calibration/so_arm101/<id>.json (subclass default).

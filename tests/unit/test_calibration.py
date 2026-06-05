@@ -42,12 +42,15 @@ def test_valid_doc_parses():
 
 
 # | mutation                              | desc                                   |
-@pytest.mark.parametrize("mutate,desc", [
-    (lambda d: d.pop("schema_version"),          "rejects v1 doc (no schema_version)"),
-    (lambda d: d.__setitem__("schema_version", 1), "rejects schema_version < 2"),
-    (lambda d: d["fingers"]["index"].pop("limits"), "rejects a finger missing limits"),
-    (lambda d: d["fingers"]["index"]["limits"].__setitem__("extra", 1), "rejects unknown limit key"),
-])
+@pytest.mark.parametrize(
+    "mutate,desc",
+    [
+        (lambda d: d.pop("schema_version"), "rejects v1 doc (no schema_version)"),
+        (lambda d: d.__setitem__("schema_version", 1), "rejects schema_version < 2"),
+        (lambda d: d["fingers"]["index"].pop("limits"), "rejects a finger missing limits"),
+        (lambda d: d["fingers"]["index"]["limits"].__setitem__("extra", 1), "rejects unknown limit key"),
+    ],
+)
 def test_rejects_bad_docs(mutate, desc):
     doc = _valid_doc()
     mutate(doc)
@@ -56,11 +59,14 @@ def test_rejects_bad_docs(mutate, desc):
 
 
 # | base_min | base_max | side_min | side_max | desc                          |
-@pytest.mark.parametrize("bmin,bmax,smin,smax,desc", [
-    (110, -30, -40, 40, "rejects base_min >= base_max"),
-    (-30, 110, 40, -40, "rejects side_min >= side_max"),
-    (0, 0, -40, 40, "rejects base_min == base_max (strict <)"),
-])
+@pytest.mark.parametrize(
+    "bmin,bmax,smin,smax,desc",
+    [
+        (110, -30, -40, 40, "rejects base_min >= base_max"),
+        (-30, 110, 40, -40, "rejects side_min >= side_max"),
+        (0, 0, -40, 40, "rejects base_min == base_max (strict <)"),
+    ],
+)
 def test_limit_ordering_validated(bmin, bmax, smin, smax, desc):
     with pytest.raises(ValidationError):
         DofLimits(base_min=bmin, base_max=bmax, side_min=smin, side_max=smax)

@@ -89,15 +89,15 @@ def apply_action(
         base, side = state.fingers[state.active]
         lim = limits_by_finger[state.active]
         if action == "base+":
-            base = clamp(base + state.step, lim.base_min, lim.base_max)
+            base = int(clamp(base + state.step, lim.base_min, lim.base_max))
         elif action == "base-":
-            base = clamp(base - state.step, lim.base_min, lim.base_max)
+            base = int(clamp(base - state.step, lim.base_min, lim.base_max))
         elif action == "side+":
-            side = clamp(side + state.step, lim.side_min, lim.side_max)
+            side = int(clamp(side + state.step, lim.side_min, lim.side_max))
         else:  # side-
-            side = clamp(side - state.step, lim.side_min, lim.side_max)
+            side = int(clamp(side - state.step, lim.side_min, lim.side_max))
         fingers = dict(state.fingers)
-        fingers[state.active] = (int(base), int(side))
+        fingers[state.active] = (base, side)
         return replace(state, fingers=fingers)
     return state  # save / quit / unmapped
 
