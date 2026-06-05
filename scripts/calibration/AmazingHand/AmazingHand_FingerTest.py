@@ -15,12 +15,13 @@ Step 4 with ``AmazingHand_RangeCalib.py``). It makes no changes to the
 calibration values -- it only drives the finger so you can watch for clean
 endpoints, no buzz, and a symmetric spread. Press Ctrl+C to stop.
 """
+
 import time
 from pathlib import Path
 
-import yaml
 from rustypot import Scs0009PyController
 
+from arm101_hand.config import load_hand_calibration
 from arm101_hand.hand import compose_finger, degrees_to_servo_radians
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -53,39 +54,38 @@ def build_sequence(limits):
     neutral flexion, with a brief return to neutral between the two phases.
     """
     return [
-        ("close  (full flexion)", limits["base_max"], 0, 3.0),
-        ("open   (full extension)", limits["base_min"], 0, 2.0),
+        ("close  (full flexion)", limits.base_max, 0, 3.0),
+        ("open   (full extension)", limits.base_min, 0, 2.0),
         ("neutral", 0, 0, 1.0),
-        ("abduct (spread +)", 0, limits["side_max"], 2.0),
-        ("adduct (spread -)", 0, limits["side_min"], 2.0),
+        ("abduct (spread +)", 0, limits.side_max, 2.0),
+        ("adduct (spread -)", 0, limits.side_min, 2.0),
         ("neutral", 0, 0, 1.0),
     ]
 
 
 def main():
-    with open(YAML_PATH) as f:
-        config = yaml.safe_load(f)
+    cfg = load_hand_calibration(YAML_PATH)
 
     finger = prompt_finger()
-    block = config["fingers"][finger]
-    id1 = block["servo_1"]["id"]
-    id2 = block["servo_2"]["id"]
-    mp1 = block["servo_1"]["middle_pos"]
-    mp2 = block["servo_2"]["middle_pos"]
-    limits = block["limits"]
-    speed = config["speed"]
+    block = cfg.fingers[finger]
+    id1 = block.servo_1.id
+    id2 = block.servo_2.id
+    mp1 = block.servo_1.middle_pos
+    mp2 = block.servo_2.middle_pos
+    limits = block.limits
+    speed = cfg.speed
 
     sequence = build_sequence(limits)
 
     c = Scs0009PyController(
-        serial_port=config["com_port"],
-        baudrate=config["baudrate"],
-        timeout=config["timeout"],
+        serial_port=cfg.com_port,
+        baudrate=cfg.baudrate,
+        timeout=cfg.timeout,
     )
     c.write_torque_enable(id1, 1)
     c.write_torque_enable(id2, 1)
 
-    print(f"[finger={finger}, ID_1={id1}, ID_2={id2}] limits={limits}")
+    print(f"[finger={finger}, ID_1={id1}, ID_2={id2}] limits={limits.model_dump()}")
     print("cycling flexion + abduction (from calibrated limits) -- Ctrl+C to stop")
 
     try:
