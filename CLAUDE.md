@@ -48,7 +48,7 @@ AmazingHand-ARM101-Follower/
 ├── tests/                     # host unit tests (tests/unit) + hardware-gated (tests/hardware)
 ├── docs/
 │   ├── BOM.md                 # bill of materials + host PC spec
-│   └── conventions/           # 00–06 normative rules
+│   └── conventions/           # 00–07 normative rules
 ├── references/                # 5 git submodules — never modify (IL-2)
 └── .claude/                   # local Claude Code config
 ```
