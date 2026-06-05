@@ -1,10 +1,10 @@
 """Pydantic schema for ``scripts/calibration/AmazingHand/AmazingHand_calib_values.yaml``.
 
-Read-only consumer — the calibration scripts under
-``scripts/calibration/AmazingHand/`` own writing this file. The GUI and audit
-scripts import the per-servo ``middle_pos`` (for calibration-aware slider math,
-see ``hand/kinematics.degrees_to_servo_radians``) and the per-finger DOF
-``limits`` (``base``/``side`` min/max, logical frame) that bound motion.
+Loads the YAML via :func:`load_hand_calibration` and writes it back atomically
+via :func:`save_hand_calibration`. The GUI and audit scripts consume the
+per-servo ``middle_pos`` (for calibration-aware slider math, see
+``hand/kinematics.degrees_to_servo_radians``) and the per-finger DOF ``limits``
+(``base``/``side`` min/max, logical frame) that bound motion.
 """
 
 from __future__ import annotations

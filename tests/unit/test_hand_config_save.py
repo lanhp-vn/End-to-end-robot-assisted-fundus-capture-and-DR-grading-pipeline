@@ -7,7 +7,13 @@ from arm101_hand.config import (
     save_hand_calibration,
 )
 
-SEED = Path("scripts/calibration/AmazingHand/AmazingHand_calib_values.yaml")
+SEED = (
+    Path(__file__).resolve().parents[2]
+    / "scripts"
+    / "calibration"
+    / "AmazingHand"
+    / "AmazingHand_calib_values.yaml"
+)
 
 
 def test_pose_speeds_default_when_absent():
