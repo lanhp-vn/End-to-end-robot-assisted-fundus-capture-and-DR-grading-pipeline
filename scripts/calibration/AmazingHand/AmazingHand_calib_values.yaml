@@ -2,7 +2,7 @@ schema_version: 2
 com_port: COM18
 baudrate: 1000000
 timeout: 0.5
-speed: 6
+speed: 4
 fingers:
   index:
     servo_1: {id: 1, middle_pos: 30}

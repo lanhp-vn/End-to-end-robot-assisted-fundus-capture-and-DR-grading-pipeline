@@ -36,7 +36,7 @@ VALID_POSES = ("open", "close")
 # Gentler speed when curling in (close) so the fingers settle softly against the
 # flexion limit; quicker on the way out (open). Independent of the YAML 'speed'
 # (which is the calibration jog speed).
-OPEN_SPEED = 7
+OPEN_SPEED = 5
 CLOSE_SPEED = 3
 
 
