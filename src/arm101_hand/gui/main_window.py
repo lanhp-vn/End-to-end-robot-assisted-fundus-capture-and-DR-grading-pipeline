@@ -153,7 +153,7 @@ class MainWindow(QMainWindow):
         arm_pose_name = self._config.safety.safe_park.arm_pose
 
         def arm_resolver() -> dict[str, float] | None:
-            pose = arm_poses.quick_poses.get(arm_pose_name) or arm_poses.poses.get(arm_pose_name)
+            pose = arm_poses.poses.get(arm_pose_name)
             if pose is None:
                 return None
             return pose.as_dict()

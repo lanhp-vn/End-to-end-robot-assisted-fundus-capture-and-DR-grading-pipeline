@@ -2,15 +2,15 @@
 
 Select a joint (1-5) and nudge it in degrees (clamped to its calibrated range). Toggle
 torque to hand-pose the arm, home a single joint, or save the current pose to
-data/arm_jog_poses.yaml (drivable later by set_pose.py).
+data/arm_config.yaml (drivable later by set_pose.py).
 
 Controls (torque ON to move):
   1..5          select joint (shoulder_pan shoulder_lift elbow_flex wrist_flex wrist_roll)
   Up / Down     jog active joint + / - step (deg), clamped to calibrated range
   [ / ]         shrink / grow jog step (1..15 deg)
-  h             home active joint to its default-home value (arm_config.yaml quick_poses.home)
+  h             home active joint to its default-home value (arm_config.yaml poses.home)
   t             toggle torque (off = hand-pose by hand; on = resync + hold)
-  s             save current pose to data/arm_jog_poses.yaml (prompts for a name)
+  s             save current pose to data/arm_config.yaml (prompts for a name)
   q / Ctrl+C    return all joints to the default home, release torque, exit
                 (if torque is OFF, just disconnects in place)
 
@@ -27,7 +27,7 @@ import msvcrt
 import sys
 
 from _common import (
-    ARM_JOG_POSES_PATH,
+    ARM_CONFIG_PATH,
     CALIB_PATH,
     build_follower,
     gentle_velocity,
@@ -73,7 +73,7 @@ def _hold_at(follower, cursors: dict[str, float], vel: int) -> None:
 
 
 def _save_pose(follower) -> None:
-    """Prompt for a name and save current LIVE present pose to arm_jog_poses.yaml."""
+    """Prompt for a name and save current LIVE present pose to arm_config.yaml."""
     try:
         name = input("\n  save pose as (name, blank to cancel): ").strip()
     except (EOFError, KeyboardInterrupt):
@@ -82,10 +82,10 @@ def _save_pose(follower) -> None:
     if not name:
         print("  save cancelled")
         return
-    config = load_arm_poses(ARM_JOG_POSES_PATH) if ARM_JOG_POSES_PATH.is_file() else ArmPoseConfig()
+    config = load_arm_poses(ARM_CONFIG_PATH) if ARM_CONFIG_PATH.is_file() else ArmPoseConfig()
     config.poses[name] = ArmPose(**_present_degrees(follower))
-    save_arm_poses(ARM_JOG_POSES_PATH, config)
-    print(f"  saved '{name}' -> {ARM_JOG_POSES_PATH}")
+    save_arm_poses(ARM_CONFIG_PATH, config)
+    print(f"  saved '{name}' -> {ARM_CONFIG_PATH}")
 
 
 def main() -> int:

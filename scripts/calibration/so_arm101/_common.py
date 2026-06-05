@@ -20,7 +20,6 @@ from arm101_hand.robots.calibration_summary import ARM_JOINTS, STS3215_RESOLUTIO
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_CONFIG_PATH = _REPO_ROOT / "data" / "app_config.yaml"
 ARM_CONFIG_PATH = _REPO_ROOT / "data" / "arm_config.yaml"
-ARM_JOG_POSES_PATH = _REPO_ROOT / "data" / "arm_jog_poses.yaml"
 CALIB_PATH = Path(__file__).resolve().parent / "so101_follower.json"
 
 # id="so101_follower" -> SO101FollowerNoGripper loads <calibration_dir>/so101_follower.json,
@@ -69,13 +68,13 @@ def gentle_velocity(cfg) -> int:
 
 
 def load_home_degrees() -> dict[str, float]:
-    """Per-joint default-home target in degrees, from arm_config.yaml ``quick_poses['home']``.
+    """Per-joint default-home target in degrees, from arm_config.yaml ``poses['home']``.
 
     This is the pose the motion scripts return to before releasing torque. Falls back to
     all-zeros (the calibrated mid) if the file or the ``home`` pose is absent.
     """
     if ARM_CONFIG_PATH.is_file():
-        home = load_arm_poses(ARM_CONFIG_PATH).quick_poses.get("home")
+        home = load_arm_poses(ARM_CONFIG_PATH).poses.get("home")
         if home is not None:
             return home.as_dict()
     return dict.fromkeys(ARM_JOINTS, 0.0)

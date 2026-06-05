@@ -84,8 +84,8 @@ truth and **never write `so101_follower.json`** (IL-5). All read `arm.port` from
 | `show_calib.py` | no | off | DEGREES | Print per-joint calibration (id, homing, range, degree span, midpoint). `--live` also reads present position. |
 | `scan.py` | no | off | raw | Ping motors 1–5; report position/load/voltage/temperature. Exit 1 if any motor is missing. |
 | `sweep.py` | yes | on→off | RANGE_M100_100 | Drive a joint (or `all`) to its calibrated endpoints (`±margin`, default 90) and back; verify no buzz/stall. |
-| `set_pose.py` | yes | on→off | DEGREES | Drive to a `quick_poses` pose from `data/arm_config.yaml` (`home` — the folded storage pose) and hold until Enter. |
-| `jog.py` | yes | on→off | DEGREES | Keyboard-jog each motor in degrees (clamped to range); `t` hand-pose toggle; `h` home a joint; `s` save current pose to `data/arm_jog_poses.yaml`. Returns home before releasing torque. |
+| `set_pose.py` | yes | on→off | DEGREES | Drive to a `poses` entry from `data/arm_config.yaml` (`home` — the folded storage pose) and hold until Enter. |
+| `jog.py` | yes | on→off | DEGREES | Keyboard-jog each motor in degrees (clamped to range); `t` hand-pose toggle; `h` home a joint; `s` save current pose to `data/arm_config.yaml`. Returns home before releasing torque. |
 
 ```powershell
 uv run python scripts/calibration/so_arm101/show_calib.py            # offline dump
@@ -109,14 +109,14 @@ not, so its live degrees assume the motors still hold the committed calibration 
 last calibrate run.
 
 **Safe release (motion scripts).** `sweep.py`, `set_pose.py`, and `jog.py` always return the
-arm to the **default-home pose** (`data/arm_config.yaml` → `quick_poses.home`, degrees)
+arm to the **default-home pose** (`data/arm_config.yaml` → `poses.home`, degrees)
 before disabling torque — on normal completion, on `Ctrl+C`/`Enter`/EOF, and after an error
 once torque is on. The default home is the arm's natural folded rest captured from hardware,
 so torque-off barely moves it; this avoids the wrist (and the mounted AmazingHand) dropping
 under gravity from an extended pose. It mirrors the `safe_park` intent in
 `data/app_config.yaml` and is implemented once in `_common.park_home_and_release`, which
 converts the home degrees to raw encoder steps so it works in any norm mode. To change the
-home, edit `quick_poses.home` (or jog there and read `show_calib`/`scan`, then update it).
+home, edit `poses.home` (or jog there and read `show_calib`/`scan`, then update it).
 (`scan.py` and `show_calib.py` are read-only — they never enable torque or move, so there is
 nothing to re-home. `jog.py` exited via the `t` torque-off / hand-pose path disconnects in
 place rather than re-homing.)
@@ -128,13 +128,12 @@ place rather than re-homing.)
 | `1`–`5` | select joint (shoulder_pan … wrist_roll) |
 | `↑` / `↓` | jog active joint ± step (deg), clamped to calibrated range |
 | `[` / `]` | shrink / grow step (1–15°) |
-| `h` | home active joint to its default-home value (`quick_poses.home`) |
+| `h` | home active joint to its default-home value (`poses.home`) |
 | `t` | toggle torque (off = hand-pose by hand; on = resync + hold) |
-| `s` | save current pose to `data/arm_jog_poses.yaml` (prompts for a name) |
+| `s` | save current pose to `data/arm_config.yaml` (prompts for a name) |
 | `q` / `Ctrl+C` | return home, release torque, exit (if torque off: disconnect in place) |
 
-Saved poses land in `data/arm_jog_poses.yaml` (a separate file from `arm_config.yaml`) and
-are drivable by name with `set_pose.py`, which resolves from both files.
+Saved poses land in `data/arm_config.yaml` and are drivable by name with `set_pose.py`.
 
 **Recommended order:** `scan` (all 5 respond?) → `show_calib` (numbers sane?) →
 `sweep` per joint (endpoints clean?) → `set_pose home` (parks cleanly?).

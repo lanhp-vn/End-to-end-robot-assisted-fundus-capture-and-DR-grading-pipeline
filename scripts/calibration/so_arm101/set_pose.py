@@ -1,13 +1,9 @@
 """Drive the SO-ARM101 to a named pose (degrees) and hold it under torque until Enter.
 
-Poses come from data/arm_config.yaml ``quick_poses`` (home -- the folded storage pose)
-merged with data/arm_jog_poses.yaml ``poses`` (saved via jog.py; a jog pose wins on a
-name collision)
--- this script invents none (IL-7). Targets are in DEGREES (relative to each joint's
-calibrated mid) and
-are clamped to the joint's usable window [-span/2, +span/2]; an out-of-range value is
-warned and that joint is skipped, matching the behavior arm_config.yaml documents for
-the GUI.
+Poses come from data/arm_config.yaml ``poses`` (home -- the folded storage pose -- plus any
+poses saved via jog.py). Targets are in DEGREES relative to each joint's calibrated mid.
+An out-of-range value is warned and that joint is skipped, matching the behavior
+arm_config.yaml documents for the GUI.
 
 After connect() the script pushes the on-file calibration to the motors so degree targets
 physically match the recorded range (writes the MOTORS, never the JSON -- IL-5).
@@ -30,7 +26,6 @@ import time
 
 from _common import (
     ARM_CONFIG_PATH,
-    ARM_JOG_POSES_PATH,
     CALIB_PATH,
     build_follower,
     gentle_velocity,
@@ -62,14 +57,9 @@ def _resolve_pose_name(argv: list[str], available: list[str]) -> str:
 
 
 def main() -> int:
-    quick = load_arm_poses(ARM_CONFIG_PATH).quick_poses
-    jog = load_arm_poses(ARM_JOG_POSES_PATH).poses if ARM_JOG_POSES_PATH.is_file() else {}
-    poses = {**quick, **jog}
+    poses = load_arm_poses(ARM_CONFIG_PATH).poses
     if not poses:
-        print(
-            f"no poses defined in {ARM_CONFIG_PATH} (quick_poses) or {ARM_JOG_POSES_PATH} (poses)",
-            file=sys.stderr,
-        )
+        print(f"no poses defined in {ARM_CONFIG_PATH} (poses)", file=sys.stderr)
         return 1
     available = sorted(poses)
     name = _resolve_pose_name(sys.argv, available)
