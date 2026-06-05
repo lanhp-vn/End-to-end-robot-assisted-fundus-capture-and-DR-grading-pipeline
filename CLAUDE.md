@@ -83,8 +83,8 @@ uv run python scripts/calibration/so_arm101/find_port.py
 uv run python scripts/calibration/so_arm101/scan.py                       # pre-flight bus health check (torque off)
 uv run python scripts/calibration/so_arm101/show_calib.py [--live]        # dump calibration; --live compares present pos
 uv run python scripts/calibration/so_arm101/sweep.py <joint|all>          # range-verify sweep to endpoints (--margin 90)
-uv run python scripts/calibration/so_arm101/set_pose.py home              # drive to a quick_poses pose (home = folded storage), hold
-uv run python scripts/calibration/so_arm101/jog.py                       # interactive keyboard jog; reads clamp range, saves poses to data/arm_jog_poses.yaml
+uv run python scripts/calibration/so_arm101/set_pose.py home              # drive to a poses entry (home = folded storage), hold
+uv run python scripts/calibration/so_arm101/jog.py                       # interactive keyboard jog; reads clamp range, saves poses to data/arm_config.yaml
 
 # Lint / format / type-check / test
 uv run ruff format .
@@ -104,6 +104,7 @@ uv run pytest -m 'not hardware'           # host unit tests (no bus)
 | `docs/conventions/04-testing-verification.md` | Test pyramid; `@pytest.mark.hardware` for bus-required tests. |
 | `docs/conventions/05-git-workflow.md` | Branches, commit format, atomic cross-device commit rule. |
 | `docs/conventions/06-documentation-protocol.md` | When to refresh CLAUDE.md/README.md; DRY registry. |
+| `docs/conventions/07-kiss-simplicity.md` | KISS — prefer the simplest design that satisfies the requirement + Iron Laws. |
 
 ## 6. Don'ts (compressed)
 
