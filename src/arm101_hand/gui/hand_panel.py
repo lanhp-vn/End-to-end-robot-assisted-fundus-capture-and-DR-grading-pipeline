@@ -30,10 +30,8 @@ Keyboard handling (panel-scope ``keyPressEvent`` per spec §5.3):
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 
-import yaml
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
@@ -47,13 +45,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from arm101_hand.config import AppConfig, HandPose, HandPoseConfig, load_hand_poses
+from arm101_hand.config import AppConfig, HandPose, HandPoseConfig, load_hand_poses, save_hand_poses
 from arm101_hand.gui.pose_manager import PoseManagerWidget
 from arm101_hand.gui.widgets import LabeledSlider
 from arm101_hand.hand.kinematics import (
     compose_finger,
     decompose_finger,
     even_id_inversion,
+    finger_positions_to_servo_frame,
     validate_pose_name,
 )
 
@@ -474,15 +473,20 @@ class HandPanel(QWidget):
         """Build the YAML positions array from the current sliders.
 
         Slider state is in logical frame; the YAML stores the servo frame
-        (even-ID pre-inverted). ``even_id_inversion`` is self-inverse, so
-        applying it once converts logical → servo.
+        (even-ID pre-inverted). Delegates to the shared kinematics converter.
         """
         out = [0] * 8
         for row in self._fingers:
-            base, side = row.base_value(), row.side_value()
-            pos1_logical, pos2_logical = compose_finger(base, side, _SERVO_LOGICAL_MIN, _SERVO_LOGICAL_MAX)
-            out[row.odd_id - 1] = int(even_id_inversion(row.odd_id, float(pos1_logical)))
-            out[row.even_id - 1] = int(even_id_inversion(row.even_id, float(pos2_logical)))
+            odd_val, even_val = finger_positions_to_servo_frame(
+                row.odd_id,
+                row.even_id,
+                row.base_value(),
+                row.side_value(),
+                _SERVO_LOGICAL_MIN,
+                _SERVO_LOGICAL_MAX,
+            )
+            out[row.odd_id - 1] = odd_val
+            out[row.even_id - 1] = even_val
         return out
 
     def _apply_positions(self, positions: list[int]) -> None:
@@ -497,11 +501,8 @@ class HandPanel(QWidget):
             row.set_side(side, emit=False)
 
     def _write_yaml(self) -> None:
-        """Atomic write to ``self._poses_path`` (tmp + os.replace, spec §8.4)."""
-        payload = self._poses.model_dump(mode="python")
-        tmp = self._poses_path.with_suffix(self._poses_path.suffix + ".tmp")
-        tmp.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
-        os.replace(tmp, self._poses_path)
+        """Atomic write to ``self._poses_path`` via the shared save path."""
+        save_hand_poses(self._poses_path, self._poses)
 
 
 # Module-level helper for tests / external callers needing the finger table

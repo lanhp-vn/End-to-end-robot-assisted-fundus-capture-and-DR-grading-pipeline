@@ -16,7 +16,14 @@ from .calibration import (
     load_hand_calibration,
     save_hand_calibration,
 )
-from .hand_poses import POSITIONS_LEN, HandPose, HandPoseConfig, HandSequence, load_hand_poses
+from .hand_poses import (
+    POSITIONS_LEN,
+    HandPose,
+    HandPoseConfig,
+    HandSequence,
+    load_hand_poses,
+    save_hand_poses,
+)
 
 __all__ = [
     "ARM_MOTORS",
@@ -37,4 +44,5 @@ __all__ = [
     "load_hand_calibration",
     "save_hand_calibration",
     "load_hand_poses",
+    "save_hand_poses",
 ]

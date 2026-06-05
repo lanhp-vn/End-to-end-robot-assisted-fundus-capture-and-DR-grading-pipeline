@@ -41,3 +41,23 @@ def test_calibration_round_trip(tmp_path):
     save_hand_calibration(out, cfg)
     reloaded = load_hand_calibration(out)
     assert reloaded.model_dump() == cfg.model_dump()
+
+
+def test_save_hand_poses_preserves_sequences(tmp_path):
+    from arm101_hand.config import (
+        HandPose,
+        HandPoseConfig,
+        HandSequence,
+        load_hand_poses,
+        save_hand_poses,
+    )
+
+    cfg = HandPoseConfig(
+        poses={"grip": HandPose(positions=[1, 2, 3, 4, 5, 6, 7, 8])},
+        sequences={"wave": HandSequence(steps=["SLEEP:1s"])},
+    )
+    out = tmp_path / "hand_config.yaml"
+    save_hand_poses(out, cfg)
+    reloaded = load_hand_poses(out)
+    assert reloaded.poses["grip"].positions == [1, 2, 3, 4, 5, 6, 7, 8]
+    assert reloaded.sequences["wave"].steps == ["SLEEP:1s"]

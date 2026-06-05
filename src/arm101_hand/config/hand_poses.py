@@ -9,6 +9,7 @@ loaded ``HandCalibration`` is available.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import yaml
@@ -56,3 +57,15 @@ def load_hand_poses(path: Path) -> HandPoseConfig:
     """Parse and validate ``data/hand_config.yaml``."""
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return HandPoseConfig.model_validate(raw)
+
+
+def save_hand_poses(path: Path, config: HandPoseConfig) -> None:
+    """Write a ``HandPoseConfig`` to YAML atomically (tmp + ``os.replace``).
+
+    The whole model is dumped, so ``sequences:`` and every other pose survive a
+    load-modify-save round-trip. Shared by the GUI pose manager and ``jog.py``.
+    """
+    payload = config.model_dump(mode="python")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    os.replace(tmp, path)
