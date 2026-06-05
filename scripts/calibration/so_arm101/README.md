@@ -86,6 +86,7 @@ truth and **never write `so101_follower.json`** (IL-5). All read `arm.port` from
 | `sweep.py` | yes | on→off | RANGE_M100_100 | Drive a joint (or `all`) to its calibrated endpoints (`±margin`, default 90) and back; verify no buzz/stall. |
 | `set_pose.py` | yes | on→off | DEGREES | Drive to a `poses` entry from `data/arm_config.yaml` (`home` — the folded storage pose) and hold until Enter. |
 | `jog.py` | yes | on→off | DEGREES | Keyboard-jog each motor in degrees (clamped to range); `t` hand-pose toggle; `h` home a joint; `s` save current pose to `data/arm_config.yaml`. Returns home before releasing torque. |
+| `capture_pose.py` | yes | off→on→off | DEGREES | Torque off so you hand-pose the arm; Enter captures the present degrees and holds; save to `data/arm_config.yaml` `poses`. `h` = home & capture another, `q` = home & quit (both park home first). |
 
 ```powershell
 uv run python scripts/calibration/so_arm101/show_calib.py            # offline dump
@@ -94,6 +95,7 @@ uv run python scripts/calibration/so_arm101/scan.py                  # bus healt
 uv run python scripts/calibration/so_arm101/sweep.py wrist_flex --margin 70
 uv run python scripts/calibration/so_arm101/set_pose.py home
 uv run python scripts/calibration/so_arm101/jog.py                  # interactive keyboard jog
+uv run python scripts/calibration/so_arm101/capture_pose.py            # hand-pose the arm, capture + save
 ```
 
 **Norm-mode split.** `sweep.py` uses `RANGE_M100_100`, where the calibrated range maps

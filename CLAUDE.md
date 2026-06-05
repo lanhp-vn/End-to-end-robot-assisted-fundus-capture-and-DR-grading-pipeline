@@ -85,6 +85,7 @@ uv run python scripts/calibration/so_arm101/show_calib.py [--live]        # dump
 uv run python scripts/calibration/so_arm101/sweep.py <joint|all>          # range-verify sweep to endpoints (--margin 90)
 uv run python scripts/calibration/so_arm101/set_pose.py home              # drive to a poses entry (home = folded storage), hold
 uv run python scripts/calibration/so_arm101/jog.py                       # interactive keyboard jog; reads clamp range, saves poses to data/arm_config.yaml
+uv run python scripts/calibration/so_arm101/capture_pose.py               # hand-pose the arm by hand, capture present degrees, save as a pose
 
 # Lint / format / type-check / test
 uv run ruff format .
