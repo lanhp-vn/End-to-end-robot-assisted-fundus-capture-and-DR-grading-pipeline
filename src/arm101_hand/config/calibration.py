@@ -9,6 +9,7 @@ see ``hand/kinematics.degrees_to_servo_radians``) and the per-finger DOF
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import yaml
@@ -17,6 +18,15 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 # Canonical finger labels, per IL-3. The GUI displays "Pointer" instead of
 # "index", but the schema-level name stays "index".
 FINGER_NAMES = ("index", "middle", "ring", "thumb")
+
+
+class PoseSpeeds(BaseModel):
+    """SetPose's open/close motion speeds (1-7 scale), distinct from the jog ``speed``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    open: int = Field(default=5, ge=1, le=7)  # extension (quicker)
+    close: int = Field(default=3, ge=1, le=7)  # flexion (gentler settle)
 
 
 class DofLimits(BaseModel):
@@ -72,6 +82,7 @@ class HandCalibration(BaseModel):
     baudrate: int = Field(ge=9600)
     timeout: float = Field(ge=0.0, le=5.0)
     speed: int = Field(ge=1, le=7)
+    speeds: PoseSpeeds = Field(default_factory=PoseSpeeds)
     fingers: dict[str, FingerCalibration]
 
     def middle_pos_by_id(self) -> dict[int, float]:
@@ -91,3 +102,16 @@ def load_hand_calibration(path: Path) -> HandCalibration:
     """Parse and validate the AmazingHand calibration YAML."""
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return HandCalibration.model_validate(raw)
+
+
+def save_hand_calibration(path: Path, config: HandCalibration) -> None:
+    """Write a ``HandCalibration`` to YAML atomically (tmp file + ``os.replace``).
+
+    The whole model is dumped, so a load-modify-save round-trip preserves every field;
+    the per-finger partial writes the calib scripts used to do by hand are unnecessary.
+    Block-style YAML (no custom inline dumper) -- matches the arm's ``save_arm_poses``.
+    """
+    payload = config.model_dump(mode="python")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    os.replace(tmp, path)

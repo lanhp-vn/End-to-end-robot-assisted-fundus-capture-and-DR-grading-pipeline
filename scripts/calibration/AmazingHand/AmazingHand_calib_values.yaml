@@ -3,6 +3,9 @@ com_port: COM18
 baudrate: 1000000
 timeout: 0.5
 speed: 4
+speeds:
+  open: 5
+  close: 3
 fingers:
   index:
     servo_1: {id: 1, middle_pos: 30}
