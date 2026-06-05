@@ -132,17 +132,15 @@ def main():
         baudrate=cfg.baudrate,
         timeout=cfg.timeout,
     )
-    for sid in all_ids:
-        c.write_torque_enable(sid, 1)
-
     state = HandJogState()
     print(__doc__)
-    for name in FINGERS:
-        base, side = state.fingers[name]
-        drive_finger(c, cfg.fingers[name], base, side, cfg.speed)
-    print("  " + format_hand_status(state))
-
     try:
+        for sid in all_ids:
+            c.write_torque_enable(sid, 1)
+        for name in FINGERS:
+            base, side = state.fingers[name]
+            drive_finger(c, cfg.fingers[name], base, side, cfg.speed)
+        print("  " + format_hand_status(state))
         while True:
             action = key_to_action(read_key())
             if action is None:
