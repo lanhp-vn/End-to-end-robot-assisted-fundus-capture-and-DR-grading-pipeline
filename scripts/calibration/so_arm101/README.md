@@ -84,7 +84,7 @@ truth and **never write `so101_follower.json`** (IL-5). All read `arm.port` from
 | `show_calib.py` | no | off | DEGREES | Print per-joint calibration (id, homing, range, degree span, midpoint). `--live` also reads present position. |
 | `scan.py` | no | off | raw | Ping motors 1–5; report position/load/voltage/temperature. Exit 1 if any motor is missing. |
 | `sweep.py` | yes | on→off | RANGE_M100_100 | Drive a joint (or `all`) to its calibrated endpoints (`±margin`, default 90) and back; verify no buzz/stall. |
-| `set_pose.py` | yes | on→off | DEGREES | Drive to a `quick_poses` pose from `data/arm_config.yaml` (zero/home/rest) and hold until Enter. |
+| `set_pose.py` | yes | on→off | DEGREES | Drive to a `quick_poses` pose from `data/arm_config.yaml` (`home` — the folded storage pose) and hold until Enter. |
 | `jog.py` | yes | on→off | DEGREES | Keyboard-jog each motor in degrees (clamped to range); `t` hand-pose toggle; `h` home a joint; `s` save current pose to `data/arm_jog_poses.yaml`. Returns home before releasing torque. |
 
 ```powershell
@@ -92,7 +92,7 @@ uv run python scripts/calibration/so_arm101/show_calib.py            # offline d
 uv run python scripts/calibration/so_arm101/show_calib.py --live     # + live position
 uv run python scripts/calibration/so_arm101/scan.py                  # bus health (pre-flight)
 uv run python scripts/calibration/so_arm101/sweep.py wrist_flex --margin 70
-uv run python scripts/calibration/so_arm101/set_pose.py rest
+uv run python scripts/calibration/so_arm101/set_pose.py home
 uv run python scripts/calibration/so_arm101/jog.py                  # interactive keyboard jog
 ```
 
@@ -137,4 +137,4 @@ Saved poses land in `data/arm_jog_poses.yaml` (a separate file from `arm_config.
 are drivable by name with `set_pose.py`, which resolves from both files.
 
 **Recommended order:** `scan` (all 5 respond?) → `show_calib` (numbers sane?) →
-`sweep` per joint (endpoints clean?) → `set_pose home`/`rest` (parks cleanly?).
+`sweep` per joint (endpoints clean?) → `set_pose home` (parks cleanly?).

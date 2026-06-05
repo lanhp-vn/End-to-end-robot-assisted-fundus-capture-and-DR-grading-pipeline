@@ -15,34 +15,18 @@ schema_version: 1
 # is out-of-range for the current calibration JSON.
 
 quick_poses:
-  # Electrical zero on every joint. Usually a "stick straight up" pose; verify
-  # against your specific calibration before relying on it.
-  zero:
-    shoulder_pan: 0
-    shoulder_lift: 0
-    elbow_flex: 0
-    wrist_flex: 0
-    wrist_roll: 0
-
-  # Default home — the pose the motion scripts (sweep/set_pose/jog) return to before
-  # releasing torque (see _common.park_home_and_release / load_home_degrees). Captured
-  # from the arm's current pose on 2026-06-03 (clamped into the calibrated range), so
-  # torque-off settles it the last 1-3 deg to exactly this rest. Re-capture by posing
-  # the arm, running scan.py, and updating these values.
+  # Default home / storage pose — the arm folded against the base. This is the
+  # pose the motion scripts (sweep/set_pose/jog) return to before releasing torque
+  # (see _common.park_home_and_release / load_home_degrees). Captured from the arm's
+  # current pose on 2026-06-03 (clamped into the calibrated range), so torque-off
+  # settles it the last 1-3 deg to exactly this rest. Re-capture by posing the arm,
+  # running scan.py, and updating these values.
   home:
     shoulder_pan: 80.2
     shoulder_lift: -104.9
     elbow_flex: 91.0
     wrist_flex: -102.9
     wrist_roll: -0.2
-
-  # Storage / rest pose — arm folded against the base.
-  rest:
-    shoulder_pan: 0
-    shoulder_lift: -90
-    elbow_flex: 0
-    wrist_flex: 0
-    wrist_roll: 0
 
 # User-saved free-form poses populated via the GUI.
 poses: {}

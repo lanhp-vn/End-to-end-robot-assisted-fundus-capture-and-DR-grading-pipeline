@@ -46,7 +46,7 @@ class SafePark(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = True
-    arm_pose: str = "rest"
+    arm_pose: str = "home"
     hand_pose: str = "middle"
     park_velocity_arm: int = Field(default=600, ge=0, le=4095)
     park_velocity_hand: int = Field(default=2, ge=1, le=5)

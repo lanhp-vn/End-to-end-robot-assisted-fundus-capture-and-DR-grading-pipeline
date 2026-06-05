@@ -45,7 +45,7 @@ safety:
   # this and goes straight to disable_torque_all().
   safe_park:
     enabled: true
-    arm_pose: rest                  # name from data/arm_config.yaml (quick_poses or poses)
+    arm_pose: home                  # name from data/arm_config.yaml (quick_poses or poses); home = folded storage pose
     hand_pose: middle               # name from data/hand_config.yaml poses
     park_velocity_arm: 600          # STS3215 Profile_Velocity register units (gentler than runtime default)
     park_velocity_hand: 2           # 1..5 hand speed scale; 2 is gentle but still moves promptly

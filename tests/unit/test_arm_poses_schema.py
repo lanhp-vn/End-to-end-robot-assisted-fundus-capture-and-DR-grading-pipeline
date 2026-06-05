@@ -16,11 +16,9 @@ SEEDED_PATH = REPO_ROOT / "data" / "arm_config.yaml"
 def test_seeded_yaml_loads_clean() -> None:
     cfg = load_arm_poses(SEEDED_PATH)
     assert cfg.schema_version == 1, "schema_version of seeded YAML"
-    assert {"zero", "home", "rest"} <= set(cfg.quick_poses.keys()), (
-        "seeded YAML has zero/home/rest quick-poses"
-    )
-    rest = cfg.quick_poses["rest"]
-    assert rest.shoulder_lift == -90, "rest pose folds shoulder back (default safe-park target)"
+    assert "home" in cfg.quick_poses, "seeded YAML has the home quick-pose"
+    home = cfg.quick_poses["home"]
+    assert home.shoulder_lift == -104.9, "home folds the shoulder back (folded storage / safe-park target)"
 
 
 def test_arm_motors_constant_is_canonical() -> None:
