@@ -13,31 +13,29 @@ Both poses are taken from the per-finger ``limits`` in
   * open  -> every finger at ``base_min``, neutral spread (side = 0)
   * close -> every finger at ``base_max``, neutral spread (side = 0)
 
+Speeds (open / close) are read from the ``speeds:`` block in
+``AmazingHand_calib_values.yaml``.
+
 Usage:
   uv run python scripts/calibration/AmazingHand/AmazingHand_SetPose.py open
   uv run python scripts/calibration/AmazingHand/AmazingHand_SetPose.py close
   uv run python scripts/calibration/AmazingHand/AmazingHand_SetPose.py   # prompts
 """
+
 import contextlib
 import sys
 import time
 from pathlib import Path
 
-import yaml
 from rustypot import Scs0009PyController
 
+from arm101_hand.config import load_hand_calibration
 from arm101_hand.hand import compose_finger, degrees_to_servo_radians
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 YAML_PATH = SCRIPT_DIR / "AmazingHand_calib_values.yaml"
 
 VALID_POSES = ("open", "close")
-
-# Gentler speed when curling in (close) so the fingers settle softly against the
-# flexion limit; quicker on the way out (open). Independent of the YAML 'speed'
-# (which is the calibration jog speed).
-OPEN_SPEED = 5
-CLOSE_SPEED = 3
 
 
 def prompt_pose():
@@ -60,14 +58,14 @@ def resolve_pose(argv):
 
 def pose_base(limits, pose):
     """Target ``base`` for the pose; spread stays neutral (side = 0)."""
-    return limits["base_max"] if pose == "close" else limits["base_min"]
+    return limits.base_max if pose == "close" else limits.base_min
 
 
 def move_finger(c, block, base, side, speed):
-    id1 = block["servo_1"]["id"]
-    id2 = block["servo_2"]["id"]
-    mp1 = block["servo_1"]["middle_pos"]
-    mp2 = block["servo_2"]["middle_pos"]
+    id1 = block.servo_1.id
+    id2 = block.servo_2.id
+    mp1 = block.servo_1.middle_pos
+    mp2 = block.servo_2.middle_pos
     pos1, pos2 = compose_finger(base, side)
     c.write_goal_speed(id1, speed)
     time.sleep(0.0002)
@@ -80,35 +78,34 @@ def move_finger(c, block, base, side, speed):
 
 def main():
     pose = resolve_pose(sys.argv)
-    speed = CLOSE_SPEED if pose == "close" else OPEN_SPEED
 
-    with open(YAML_PATH) as f:
-        config = yaml.safe_load(f)
-    fingers = config["fingers"]
+    cfg = load_hand_calibration(YAML_PATH)
+    speed = cfg.speeds.close if pose == "close" else cfg.speeds.open
+    fingers = cfg.fingers
 
     c = Scs0009PyController(
-        serial_port=config["com_port"],
-        baudrate=config["baudrate"],
-        timeout=config["timeout"],
+        serial_port=cfg.com_port,
+        baudrate=cfg.baudrate,
+        timeout=cfg.timeout,
     )
 
     for block in fingers.values():
-        c.write_torque_enable(block["servo_1"]["id"], 1)
-        c.write_torque_enable(block["servo_2"]["id"], 1)
+        c.write_torque_enable(block.servo_1.id, 1)
+        c.write_torque_enable(block.servo_2.id, 1)
 
     print(f"Setting hand to '{pose}' (all fingers, neutral spread)...")
     try:
         for block in fingers.values():
-            move_finger(c, block, pose_base(block["limits"], pose), 0, speed)
+            move_finger(c, block, pose_base(block.limits, pose), 0, speed)
         print(f"Hand held at '{pose}' under torque.")
         input("Press Enter to release torque and exit... ")
     except KeyboardInterrupt:
         print("\n^C -- releasing")
     finally:
         for block in fingers.values():
-            for servo_key in ("servo_1", "servo_2"):
+            for servo in (block.servo_1, block.servo_2):
                 with contextlib.suppress(Exception):
-                    c.write_torque_enable(block[servo_key]["id"], 0)
+                    c.write_torque_enable(servo.id, 0)
 
 
 if __name__ == "__main__":
