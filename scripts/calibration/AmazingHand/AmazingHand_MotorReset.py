@@ -7,42 +7,20 @@ electrical 0° (center) position. The motors will hold this position under torqu
 allowing you to attach the servo horns in the correct neutral orientation.
 It also resets the 'middle_pos' values for that finger to 0 in the YAML file.
 """
+
 import contextlib
 import time
 from pathlib import Path
 
 import numpy as np
-import yaml
 from rustypot import Scs0009PyController
+
+from arm101_hand.config import load_hand_calibration, save_hand_calibration
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 YAML_PATH = SCRIPT_DIR / "AmazingHand_calib_values.yaml"
 
 VALID_FINGERS = ("index", "middle", "ring", "thumb")
-
-
-class InlineDict(dict):
-    pass
-
-
-def _inline_dict_representer(dumper, data):
-    return dumper.represent_mapping("tag:yaml.org,2002:map", data, flow_style=True)
-
-
-yaml.SafeDumper.add_representer(InlineDict, _inline_dict_representer)
-
-
-def save_config(path, data):
-    out = {k: v for k, v in data.items() if k != "fingers"}
-    out["fingers"] = {}
-    for finger, block in data["fingers"].items():
-        out["fingers"][finger] = {
-            "servo_1": InlineDict(block["servo_1"]),
-            "servo_2": InlineDict(block["servo_2"]),
-            "limits": InlineDict(block["limits"]),
-        }
-    with open(path, "w") as f:
-        yaml.safe_dump(out, f, sort_keys=False, default_flow_style=False)
 
 
 WARNING = """
@@ -92,15 +70,14 @@ def main():
         print("Aborted.")
         return
 
-    with open(YAML_PATH) as f:
-        config = yaml.safe_load(f)
+    cfg = load_hand_calibration(YAML_PATH)
 
     c = Scs0009PyController(
-        serial_port=config["com_port"],
-        baudrate=config["baudrate"],
-        timeout=config["timeout"],
+        serial_port=cfg.com_port,
+        baudrate=cfg.baudrate,
+        timeout=cfg.timeout,
     )
-    speed = config["speed"]
+    speed = cfg.speed
 
     touched = set()
     try:
@@ -108,17 +85,17 @@ def main():
             finger = prompt_finger()
             if finger is None:
                 break
-            block = config["fingers"][finger]
-            id1 = block["servo_1"]["id"]
-            id2 = block["servo_2"]["id"]
+            block = cfg.fingers[finger]
+            id1 = block.servo_1.id
+            id2 = block.servo_2.id
             print(f"\n--- {finger} finger: servo_1={id1}, servo_2={id2} ---")
             reset_motor(c, id1, speed)
             touched.add(id1)
             reset_motor(c, id2, speed)
             touched.add(id2)
-            block["servo_1"]["middle_pos"] = 0
-            block["servo_2"]["middle_pos"] = 0
-            save_config(YAML_PATH, config)
+            block.servo_1.middle_pos = 0
+            block.servo_2.middle_pos = 0
+            save_hand_calibration(YAML_PATH, cfg)
             print(f"  {finger}.middle_pos -> 0, YAML saved")
     except KeyboardInterrupt:
         print("\n^C -- exiting")
