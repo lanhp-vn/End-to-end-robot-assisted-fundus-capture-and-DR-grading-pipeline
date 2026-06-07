@@ -221,9 +221,13 @@ def main():
         except (EOFError, KeyboardInterrupt):
             choice = ""
         if choice == "h":
-            for name in FINGERS:
-                drive_finger(c, cfg.fingers[name], 0, 0, cfg.speed)
-            print("Homed all fingers to neutral.")
+            # Guarded so a homing failure can't skip the torque-off below (IL-4).
+            try:
+                for name in FINGERS:
+                    drive_finger(c, cfg.fingers[name], 0, 0, cfg.speed)
+                print("Homed all fingers to neutral.")
+            except Exception as e:
+                print(f"  (homing interrupted: {e!r}) -- releasing torque anyway")
         for sid in all_ids:
             try:
                 c.write_torque_enable(sid, 0)
