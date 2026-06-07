@@ -25,6 +25,7 @@ the known-good envelope. Windows-only: uses ``msvcrt`` for raw keys.
 """
 
 import msvcrt
+import time
 from pathlib import Path
 
 from rustypot import Scs0009PyController
@@ -225,6 +226,7 @@ def main():
             try:
                 for name in FINGERS:
                     drive_finger(c, cfg.fingers[name], 0, 0, cfg.speed)
+                time.sleep(1.0)  # let the fingers reach neutral before torque-off
                 print("Homed all fingers to neutral.")
             except Exception as e:
                 print(f"  (homing interrupted: {e!r}) -- releasing torque anyway")

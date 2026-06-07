@@ -80,21 +80,37 @@ def load_home_degrees() -> dict[str, float]:
     return dict.fromkeys(ARM_JOINTS, 0.0)
 
 
-def _drive_home(follower, home: dict[str, float], vel: int, settle_s: float = 2.0) -> None:
+def _drive_home(
+    follower,
+    home: dict[str, float],
+    vel: int,
+    tolerance: int = 25,
+    timeout_s: float = 8.0,
+    poll_s: float = 0.05,
+) -> None:
     """Drive all joints to the ``home`` pose (degrees) at gentle ``vel``. Does NOT disable torque.
 
     ``home`` is per-joint degrees relative to each joint's calibrated mid; converted here to raw
     encoder steps and written with ``normalize=False``, so it works for ANY follower norm mode
-    (DEGREES or RANGE_M100_100).
+    (DEGREES or RANGE_M100_100). Then WAITS until every joint is within ``tolerance`` raw steps
+    of its target instead of a blind sleep -- so a long, gentle move actually completes before
+    the caller releases torque. Gives up after ``timeout_s`` (prints a note) so it never hangs.
     """
-    follower.bus.sync_write("Goal_Velocity", dict.fromkeys(ARM_JOINTS, vel))
     goal_raw: dict[str, int] = {}
     for j in ARM_JOINTS:
         cal = follower.calibration[j]
         mid = (cal.range_min + cal.range_max) / 2
         goal_raw[j] = int(round(mid + home[j] * (STS3215_RESOLUTION - 1) / 360))
+    follower.bus.sync_write("Goal_Velocity", dict.fromkeys(ARM_JOINTS, vel))
     follower.bus.sync_write("Goal_Position", goal_raw, normalize=False)
-    time.sleep(settle_s)
+
+    start = time.monotonic()
+    while time.monotonic() - start < timeout_s:
+        present = follower.bus.sync_read("Present_Position", normalize=False)
+        if all(abs(present[j] - goal_raw[j]) <= tolerance for j in ARM_JOINTS):
+            return
+        time.sleep(poll_s)
+    print("  (home not fully reached within timeout -- releasing anyway)", file=sys.stderr)
 
 
 def confirm_and_release(follower, torque_on: bool, home: dict[str, float], vel: int) -> None:
