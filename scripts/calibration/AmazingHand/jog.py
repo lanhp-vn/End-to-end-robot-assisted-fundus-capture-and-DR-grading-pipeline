@@ -17,8 +17,10 @@ Controls (torque ON the whole time):
   s             save the current whole-hand pose (prompts for a name)
   q / Ctrl+C    release torque on all 8 servos and exit
 
-Each finger's cursor is clamped to its calibrated base/side limits, so you can only
-build poses inside the known-good envelope. Windows-only: uses ``msvcrt`` for raw keys.
+On startup the cursor is initialized from the hand's CURRENT position (no auto-home) and
+torque holds that pose without a jump; use ``h``/``H`` to home explicitly. Each finger's
+cursor is clamped to its calibrated base/side limits, so you can only build poses inside
+the known-good envelope. Windows-only: uses ``msvcrt`` for raw keys.
 """
 
 import msvcrt
@@ -35,9 +37,11 @@ from arm101_hand.config import (
 )
 from arm101_hand.hand import (
     compose_finger,
+    decompose_finger,
     degrees_to_servo_radians,
     finger_positions_to_servo_frame,
     load_warning,
+    servo_radians_to_degrees,
     validate_pose_name,
 )
 from arm101_hand.hand.pose_jog import (
@@ -66,11 +70,48 @@ def read_key():
     return ch
 
 
-def read_loads(c, id1, id2):
-    def _scalar(v):
-        return int(v[0]) if isinstance(v, (list, tuple)) else int(v)
+def _scalar(v):
+    """Unwrap rustypot's single-element list reads (``read_<reg>`` returns a list)."""
+    return v[0] if isinstance(v, (list, tuple)) else v
 
-    return _scalar(c.read_present_load(id1)), _scalar(c.read_present_load(id2))
+
+def read_loads(c, id1, id2):
+    return int(_scalar(c.read_present_load(id1))), int(_scalar(c.read_present_load(id2)))
+
+
+def hold_present_and_read_state(c, cfg):
+    """Hold the hand's CURRENT pose without a jump and seed the jog cursor from it.
+
+    For each servo: read present position, command it as the goal, then enable torque
+    (goal == present, so no motion -- mirrors the arm jog's ``_hold_at``). The cursor is
+    the present pose decomposed to logical ``(base, side)`` per finger, clamped to each
+    finger's calibrated limits, so jogging continues from where the hand already is
+    instead of snapping every finger to neutral.
+    """
+    fingers = {}
+    for name in FINGERS:
+        block = cfg.fingers[name]
+        lim = block.limits
+        s1, s2 = block.servo_1, block.servo_2
+        rad1 = float(_scalar(c.read_present_position(s1.id)))
+        rad2 = float(_scalar(c.read_present_position(s2.id)))
+        # No-jump hold: command present, then enable torque.
+        c.write_goal_position(s1.id, rad1)
+        c.write_goal_position(s2.id, rad2)
+        c.write_torque_enable(s1.id, 1)
+        c.write_torque_enable(s2.id, 1)
+        pos1 = servo_radians_to_degrees(s1.id, rad1, s1.middle_pos)
+        pos2 = servo_radians_to_degrees(s2.id, rad2, s2.middle_pos)
+        base, side = decompose_finger(
+            round(pos1),
+            round(pos2),
+            side_min=lim.side_min,
+            side_max=lim.side_max,
+            base_min=lim.base_min,
+            base_max=lim.base_max,
+        )
+        fingers[name] = (int(base), int(side))
+    return HandJogState(fingers=fingers)
 
 
 def drive_finger(c, block, base, side, speed):
@@ -132,14 +173,10 @@ def main():
         baudrate=cfg.baudrate,
         timeout=cfg.timeout,
     )
-    state = HandJogState()
     print(__doc__)
     try:
-        for sid in all_ids:
-            c.write_torque_enable(sid, 1)
-        for name in FINGERS:
-            base, side = state.fingers[name]
-            drive_finger(c, cfg.fingers[name], base, side, cfg.speed)
+        # Start from the hand's current pose (no-jump hold), not a forced neutral.
+        state = hold_present_and_read_state(c, cfg)
         print("  " + format_hand_status(state))
         while True:
             action = key_to_action(read_key())
