@@ -8,9 +8,10 @@ arm_config.yaml documents for the GUI.
 After connect() the script pushes the on-file calibration to the motors so degree targets
 physically match the recorded range (writes the MOTORS, never the JSON -- IL-5).
 
-On exit (Enter, Ctrl+C, or EOF) the script never auto-homes. It prompts: type 'h' to drive
-back to home first, or just Enter to release torque in place (the arm sags under gravity from
-a raised pose). Then torque is released.
+On exit (Enter, Ctrl+C, or EOF) the script never auto-homes a held pose. For any pose except
+'home' it prompts: type 'h' to drive back to home first, or just Enter to release torque in
+place (the arm sags under gravity from a raised pose). When driving to 'home' there is nothing
+to return to, so it simply settles at home and releases without prompting. Then torque is off.
 
 Usage:
   uv run python scripts/calibration/so_arm101/set_pose.py home
@@ -104,10 +105,11 @@ def main() -> int:
     except (EOFError, KeyboardInterrupt):
         print("\n^C/EOF -- exiting")
     finally:
-        # Never auto-home on exit. confirm_and_release offers 'h' (drive home first) or
-        # Enter (release in place), then always releases torque.
+        # Never auto-home a held pose. For any pose except 'home' itself, confirm_and_release
+        # offers 'h' (drive home first) or Enter (release in place). When driving to 'home',
+        # there is nothing to return to -- it settles at home and releases without prompting.
         if follower.is_connected:
-            confirm_and_release(follower, torque_on, home, vel)
+            confirm_and_release(follower, torque_on, home, vel, offer_home=(name != "home"))
             follower.disconnect()
             print("Bus closed.")
     return 0

@@ -113,15 +113,27 @@ def _drive_home(
     print("  (home not fully reached within timeout -- releasing anyway)", file=sys.stderr)
 
 
-def confirm_and_release(follower, torque_on: bool, home: dict[str, float], vel: int) -> None:
-    """On exit, release torque after asking whether to return home first (never auto-homes).
+def confirm_and_release(
+    follower, torque_on: bool, home: dict[str, float], vel: int, *, offer_home: bool = True
+) -> None:
+    """On exit, release torque after handling the home pose (never auto-homes a held pose).
 
-    If the arm is holding a pose under torque, prompt: type ``h`` to drive back to the
-    configured home before releasing, or just Enter to release in place (it will sag under
-    gravity from a raised pose). Ctrl+C / EOF at the prompt releases in place. Torque is
-    ALWAYS disabled before returning (IL-4). If torque is already off, just ensures it is off.
+    - ``offer_home=True`` (default): if the arm is holding a pose under torque, prompt -- type
+      ``h`` to drive back to the configured home before releasing, or just Enter to release in
+      place (it will sag under gravity from a raised pose). Ctrl+C / EOF releases in place.
+    - ``offer_home=False``: the caller is already parking AT home (e.g. ``set_pose.py home``),
+      so there is nothing to "return" to -- just settle at home (wait until reached) and
+      release, with no prompt.
+
+    Torque is ALWAYS disabled before returning (IL-4). If torque is already off, just ensures it.
     """
-    if torque_on:
+    if torque_on and not offer_home:
+        print("Settling at home, then releasing torque ...")
+        try:
+            _drive_home(follower, home, vel)
+        except BaseException as e:
+            print(f"  (settle interrupted: {e!r}) -- releasing anyway", file=sys.stderr)
+    elif torque_on:
         print(
             "\nReminder: the arm is holding its pose under torque and will SAG under gravity when released."
         )
