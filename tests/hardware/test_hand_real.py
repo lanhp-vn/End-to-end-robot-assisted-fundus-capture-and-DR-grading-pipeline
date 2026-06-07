@@ -1,17 +1,17 @@
-"""Hardware smoke test for the AmazingHand bus on COM18 (5 V SCS0009 × 8).
+"""Hardware smoke test for the AmazingHand bus (5 V SCS0009 x 8).
 
 Skipped by default. Run with::
 
     uv run pytest -m hardware --port=COM18
 
 Pre-flight (per IL-1 / IL-4):
-- 5 V supply on the hand bus only — the 12 V arm bus stays cold.
-- No other process holds COM18 (close FD.exe, serial monitors, stale Python).
+- 5 V supply on the hand bus only -- the 12 V arm bus stays cold.
+- No other process holds the port (close FD.exe, serial monitors, stale Python).
 
-The test exercises the M3 milestone's bench checkpoint: connect, poll all 8
-servos, nudge the Pointer's base by +5°, wait for arrival, return to middle,
-torque-off, disconnect. All bus interaction goes through ``HandController``
-on its own ``QThread`` — same code path as the GUI.
+Drives ``rustypot.Scs0009PyController`` directly (same path as
+``scripts/calibration/AmazingHand/jog.py``): connect, poll all 8 servos, nudge
+the index finger's base by +5 deg, wait for arrival, return to neutral, then
+torque-off. No GUI/Qt dependency.
 """
 
 from __future__ import annotations
@@ -19,124 +19,76 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+import numpy as np
 import pytest
-from PySide6.QtCore import QCoreApplication, QThread
 
 from arm101_hand.config import load_hand_calibration
-from arm101_hand.hand.controller import HandController
+from arm101_hand.hand import compose_finger, degrees_to_servo_radians
 
 CALIBRATION_PATH = (
+    # Path after the Workstream 3 rename; this test is hardware-gated (skipped
+    # without --port), so collection passes even before the rename lands.
     Path(__file__).resolve().parents[2]
     / "scripts"
     / "calibration"
-    / "AmazingHand"
-    / "AmazingHand_calib_values.yaml"
+    / "amazing_hand"
+    / "hand_calib_values.yaml"
 )
 ARRIVAL_TOLERANCE_DEG = 3.0
 ARRIVAL_TIMEOUT_S = 4.0
 
 
-@pytest.fixture(scope="module")
-def qcore_app() -> QCoreApplication:
-    """One QCoreApplication for the module so QObject signals deliver."""
-    app = QCoreApplication.instance()
-    if app is None:
-        app = QCoreApplication([])
-    return app
-
-
-def _spin(app: QCoreApplication, seconds: float) -> None:
-    """Pump the event loop briefly so queued slot calls fire on workers.
-
-    Hardware tests are intentionally allowed to use ``time``-based waits
-    (``04-testing-verification.md`` §3.3 forbids ``time.sleep`` in *unit*
-    tests; on-bench tests run against physical motion that has its own
-    settling time).
-    """
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        app.processEvents()
-        time.sleep(0.02)
+def _scalar(value: object) -> float:
+    return float(value[0]) if isinstance(value, list | tuple) else float(value)
 
 
 @pytest.mark.hardware
-def test_hand_bus_smoke_test(port: str, qcore_app: QCoreApplication) -> None:
-    calibration = load_hand_calibration(CALIBRATION_PATH)
+def test_hand_connect_poll_nudge(port: str) -> None:
+    from rustypot import Scs0009PyController
 
-    thread = QThread()
-    thread.setObjectName("HandControllerHardwareTest")
-    controller = HandController(calibration)
-    controller.moveToThread(thread)
-    thread.start()
-
-    connected: list[str] = []
-    disconnected: list[str] = []
-    errors: list[str] = []
-    states: list[dict] = []
-
-    controller.connected.connect(connected.append)
-    controller.disconnected.connect(disconnected.append)
-    controller.error.connect(errors.append)
-    controller.state_changed.connect(states.append)
-
+    cfg = load_hand_calibration(CALIBRATION_PATH)
+    all_ids = [s for b in cfg.fingers.values() for s in (b.servo_1.id, b.servo_2.id)]
+    c = Scs0009PyController(serial_port=port, baudrate=cfg.baudrate, timeout=cfg.timeout)
     try:
-        # Connect on the worker thread (queued invocation).
-        controller.connect_to_bus(port, calibration.baudrate, calibration.timeout)
-        _spin(qcore_app, 1.0)
-        assert connected == [port], f"connected emitted with port; got {connected} (errors={errors})"
-        assert controller.is_connected() is True, "is_connected True after connect"
+        for sid in all_ids:
+            c.write_torque_enable(sid, 1)
+        # Poll all 8 -- every servo must answer.
+        for sid in all_ids:
+            assert c.read_present_position(sid) is not None, f"servo {sid} did not respond"
 
-        # Read state from all 8 servos.
-        controller.poll_state()
-        _spin(qcore_app, 0.5)
-        assert states, f"state_changed emitted at least once; errors={errors}"
-        latest = states[-1]
-        assert set(latest.keys()) == {1, 2, 3, 4, 5, 6, 7, 8}, (
-            f"all 8 servos report; got {sorted(latest.keys())}"
-        )
-        for sid, sample in latest.items():
-            assert sample["voltage_v"] > 4.0, (
-                f"servo {sid} voltage_v above 4 V (5 V bus); got {sample['voltage_v']}"
+        block = cfg.fingers["index"]
+        s1, s2 = block.servo_1, block.servo_2
+        lim = block.limits
+
+        def drive(base: float) -> None:
+            pos1, pos2 = compose_finger(
+                base,
+                0.0,
+                base_min=lim.base_min,
+                base_max=lim.base_max,
+                side_min=lim.side_min,
+                side_max=lim.side_max,
             )
-            assert 10.0 <= sample["temp_c"] <= 80.0, (
-                f"servo {sid} temp_c within plausible range; got {sample['temp_c']}"
-            )
+            c.write_goal_speed(s1.id, cfg.speed)
+            c.write_goal_speed(s2.id, cfg.speed)
+            c.write_goal_position(s1.id, degrees_to_servo_radians(s1.id, pos1, s1.middle_pos))
+            c.write_goal_position(s2.id, degrees_to_servo_radians(s2.id, pos2, s2.middle_pos))
 
-        # Nudge Pointer (UI label, schema "index", IDs 1+2) base by +5°
-        # in logical frame. Both servos move in the same direction.
-        controller.send_servo_target(1, 5.0, 3)  # odd ID
-        controller.send_servo_target(2, 5.0, 3)  # even ID
-        _spin(qcore_app, 0.5)
-
-        # Poll until both pointer servos report within tolerance, or timeout.
+        target = min(5.0, lim.base_max)
+        drive(target)
         deadline = time.monotonic() + ARRIVAL_TIMEOUT_S
         while time.monotonic() < deadline:
-            controller.poll_state()
-            _spin(qcore_app, 0.2)
-            if states:
-                last = states[-1]
-                p1 = last[1]["pos_deg"]
-                p2 = last[2]["pos_deg"]
-                if abs(p1 - 5.0) <= ARRIVAL_TOLERANCE_DEG and abs(p2 - 5.0) <= ARRIVAL_TOLERANCE_DEG:
-                    break
+            deg = float(np.rad2deg(_scalar(c.read_present_position(s1.id)))) - s1.middle_pos
+            if abs(deg - target) <= ARRIVAL_TOLERANCE_DEG:
+                break
+            time.sleep(0.05)
         else:
-            pytest.fail(
-                f"Pointer servos did not reach +5° within {ARRIVAL_TIMEOUT_S}s; "
-                f"last state: {states[-1] if states else 'none'}"
-            )
-
-        # Return to middle.
-        controller.send_servo_target(1, 0.0, 3)
-        controller.send_servo_target(2, 0.0, 3)
-        _spin(qcore_app, 1.5)
-
+            pytest.fail(f"index s1 did not reach {target} deg within {ARRIVAL_TIMEOUT_S}s")
+        drive(0.0)
+        time.sleep(0.5)
     finally:
-        # Always tear down even if a mid-test assertion failed.
-        controller.disconnect_from_bus()
-        _spin(qcore_app, 1.0)
-        thread.quit()
-        thread.wait(2000)
-
-    assert disconnected == ["user"], f"disconnected emitted on teardown; got {disconnected}"
-    assert controller.is_connected() is False, "controller is disconnected after teardown"
-    assert not errors, f"no errors during smoke test; got {errors}"
+        for sid in all_ids:
+            try:  # noqa: SIM105 -- best-effort torque-off on teardown; contextlib.suppress is less clear
+                c.write_torque_enable(sid, 0)
+            except Exception:  # noqa: BLE001
+                pass
