@@ -17,8 +17,10 @@ def test_seeded_yaml_loads_clean() -> None:
     cfg = load_arm_poses(SEEDED_PATH)
     assert cfg.schema_version == 1, "schema_version of seeded YAML"
     assert "home" in cfg.poses, "seeded YAML has the home pose"
-    home = cfg.poses["home"]
-    assert home.shoulder_lift == -104.9, "home folds the shoulder back (folded storage / safe-park target)"
+    # ``home`` is operator data (re-captured via capture_pose.py / jog.py), so assert its
+    # structure -- all five joints, loads clean -- not a hardcoded degree value that changes
+    # every time the operator re-homes.
+    assert set(cfg.poses["home"].as_dict()) == set(ARM_MOTORS), "home pose defines all five joints"
 
 
 def test_arm_motors_constant_is_canonical() -> None:
