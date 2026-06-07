@@ -15,7 +15,8 @@ Controls (torque ON the whole time):
   h             home the active finger to (0, 0) neutral
   H             home ALL fingers to (0, 0) neutral
   s             save the current whole-hand pose (prompts for a name)
-  q / Ctrl+C    release torque on all 8 servos and exit (prints a reminder + asks to confirm)
+  q / Ctrl+C    on quit, prompts: 'h' to home all fingers to neutral first, or Enter to
+                release torque on all 8 servos and exit
 
 On startup the cursor is initialized from the hand's CURRENT position (no auto-home) and
 torque holds that pose without a jump; use ``h``/``H`` to home explicitly. Each finger's
@@ -207,13 +208,22 @@ def main():
     except KeyboardInterrupt:
         print("\n^C -- exiting")
     finally:
-        # No auto-home on quit. Remind + confirm before releasing torque (the fingers relax
-        # in place; light SCS0009s don't drop, but kept consistent with the arm tools).
-        print("\nReminder: releasing torque lets the fingers relax where they are (no auto-home).")
+        # Never auto-home on quit. Offer 'h' to home all fingers to neutral first, or Enter
+        # to release in place (light SCS0009s relax harmlessly either way).
         try:
-            input("Press Enter to release torque... ")
+            choice = (
+                input(
+                    "\nType 'h' + Enter to home all fingers to neutral first, or just Enter to release in place: "
+                )
+                .strip()
+                .lower()
+            )
         except (EOFError, KeyboardInterrupt):
-            print()
+            choice = ""
+        if choice == "h":
+            for name in FINGERS:
+                drive_finger(c, cfg.fingers[name], 0, 0, cfg.speed)
+            print("Homed all fingers to neutral.")
         for sid in all_ids:
             try:
                 c.write_torque_enable(sid, 0)

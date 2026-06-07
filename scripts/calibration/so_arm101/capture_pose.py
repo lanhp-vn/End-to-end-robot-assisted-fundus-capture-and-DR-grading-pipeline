@@ -5,11 +5,11 @@ pose by hand, then Enter captures the present motor degrees and holds the pose u
 so it does not sag. You can save the captured degrees under a name (e.g. ``home``). Then:
 
   h   release torque (in place) and capture another pose
-  q   release torque (in place) and quit
+  q   release torque and quit -- then prompts whether to return home first
 
-There is no auto-home (that would be a surprise movement). On quit the script prints a
-reminder and waits for Enter before releasing torque, so you can move the arm to a resting
-pose by hand first; otherwise it sags under gravity from the held pose.
+There is no auto-home. On quit the script prompts: type 'h' to drive back to home before
+releasing torque, or just Enter to release in place (it sags under gravity from the held
+pose otherwise).
 
 Usage:
   uv run python scripts/calibration/so_arm101/capture_pose.py
@@ -30,6 +30,7 @@ from _common import (
     confirm_and_release,
     gentle_velocity,
     load_arm_app_config,
+    load_home_degrees,
 )
 
 from arm101_hand.config import ArmPose, ArmPoseConfig, load_arm_poses, save_arm_poses
@@ -74,6 +75,7 @@ def main() -> int:
     cfg = load_arm_app_config()
     follower = build_follower(cfg, use_degrees=True)  # DEGREES
     vel = gentle_velocity(cfg)
+    home = load_home_degrees()
 
     torque_on = False
     print(f"Connecting on {cfg.arm.port} ...")
@@ -117,10 +119,10 @@ def main() -> int:
     except (EOFError, KeyboardInterrupt):
         print("\n^C/EOF -- exiting")
     finally:
-        # No auto-home on quit (a surprise movement). Release torque in place; if still
-        # holding the captured pose, confirm_and_release reminds + waits for Enter first.
+        # Never auto-home on quit. confirm_and_release offers 'h' (drive home first) or
+        # Enter (release in place), then always releases torque.
         if follower.is_connected:
-            confirm_and_release(follower, torque_on)
+            confirm_and_release(follower, torque_on, home, vel)
             follower.disconnect()
             print("Bus closed.")
     return 0

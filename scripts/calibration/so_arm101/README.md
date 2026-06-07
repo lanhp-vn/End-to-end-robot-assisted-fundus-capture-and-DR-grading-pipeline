@@ -112,13 +112,12 @@ last calibrate run.
 
 **Release on exit (motion scripts).** `sweep.py`, `set_pose.py`, `jog.py`, and `capture_pose.py`
 **never auto-return the arm to home on exit** — that would be a surprise movement. Instead, if
-the arm is still holding a pose under torque, they print a reminder and wait for `Enter` before
-releasing, so you can move the arm to home / a resting pose by hand first; otherwise it sags
-under gravity from an extended pose. `Ctrl+C`/EOF at the prompt releases anyway (IL-4). This is
-implemented once in `_common.confirm_and_release`. To park the arm at home, drive there
-explicitly with `set_pose.py home`. (`scan.py` and `show_calib.py` are read-only — they never
-enable torque or move. `jog.py` left in the `t` torque-off / hand-pose state just disconnects
-in place.)
+the arm is still holding a pose under torque, they prompt: type `h` to drive back to home
+first, or just `Enter` to release torque in place (it sags under gravity from a raised pose).
+`Ctrl+C`/EOF at the prompt releases in place. Torque is always released on exit (IL-4). This is
+implemented once in `_common.confirm_and_release`. (`scan.py` and `show_calib.py` are read-only
+— they never enable torque or move. `jog.py` left in the `t` torque-off / hand-pose state just
+disconnects in place.)
 
 **Jog controls (`jog.py`).** Torque ON to move; `msvcrt` raw keys:
 
@@ -130,7 +129,7 @@ in place.)
 | `h` | home active joint to its default-home value (`poses.home`) |
 | `t` | toggle torque (off = hand-pose by hand; on = resync + hold) |
 | `s` | save current pose to `data/arm_config.yaml` (prompts for a name) |
-| `q` / `Ctrl+C` | release torque & exit in place — no auto-home; reminder + confirm first (if torque off: disconnect in place) |
+| `q` / `Ctrl+C` | on quit, prompts `h` (return home first) or `Enter` (release in place); never auto-homes (if torque off: disconnect in place) |
 
 Saved poses land in `data/arm_config.yaml` and are drivable by name with `set_pose.py`.
 

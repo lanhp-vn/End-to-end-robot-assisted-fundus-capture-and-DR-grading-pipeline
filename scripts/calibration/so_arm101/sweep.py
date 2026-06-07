@@ -10,10 +10,10 @@ After connect() the script pushes the on-file calibration to the motors
 regardless of the motors' current EEPROM offsets. This writes the MOTORS, never the JSON
 (IL-5).
 
-On every exit path -- normal completion, Ctrl+C, or an error after torque-on -- torque is
-released IN PLACE (no auto-home; that would be a surprise movement). After a normal sweep each
-joint is back at mid-range (0); on an early exit a joint may be mid-sweep. The script prints a
-reminder and waits for Enter before releasing, so you can park the arm by hand if needed.
+On every exit path -- normal completion, Ctrl+C, or an error after torque-on -- the script
+never auto-homes. It prompts: type 'h' to drive back to home first, or just Enter to release
+torque in place. After a normal sweep each joint is back at mid-range (0); on an early exit a
+joint may be mid-sweep, so use 'h' (or park by hand) if needed.
 
 Usage:
   uv run python scripts/calibration/so_arm101/sweep.py shoulder_pan
@@ -33,6 +33,7 @@ from _common import (
     confirm_and_release,
     gentle_velocity,
     load_arm_app_config,
+    load_home_degrees,
 )
 
 from arm101_hand.robots.calibration_summary import ARM_JOINTS
@@ -74,6 +75,7 @@ def main() -> int:
     cfg = load_arm_app_config()
     follower = build_follower(cfg, use_degrees=False)  # RANGE_M100_100
     vel = gentle_velocity(cfg)
+    home = load_home_degrees()
 
     torque_on = False
     print(f"Connecting on {cfg.arm.port} ...")
@@ -105,10 +107,10 @@ def main() -> int:
     except KeyboardInterrupt:
         print("\n^C -- stopping")
     finally:
-        # No auto-home on exit (a surprise movement). Release torque in place; if still
-        # holding, confirm_and_release prints a reminder + waits for Enter before releasing.
+        # Never auto-home on exit. confirm_and_release offers 'h' (drive home first) or
+        # Enter (release in place), then always releases torque.
         if follower.is_connected:
-            confirm_and_release(follower, torque_on)
+            confirm_and_release(follower, torque_on, home, vel)
             follower.disconnect()
             print("Bus closed.")
     return 0

@@ -8,9 +8,9 @@ arm_config.yaml documents for the GUI.
 After connect() the script pushes the on-file calibration to the motors so degree targets
 physically match the recorded range (writes the MOTORS, never the JSON -- IL-5).
 
-On exit (Enter, Ctrl+C, or EOF) torque is released IN PLACE -- no auto-home (that would be a
-surprise movement). The script first prints a reminder and waits for Enter, so you can move
-the arm to home / a resting pose by hand before it goes limp and sags under gravity.
+On exit (Enter, Ctrl+C, or EOF) the script never auto-homes. It prompts: type 'h' to drive
+back to home first, or just Enter to release torque in place (the arm sags under gravity from
+a raised pose). Then torque is released.
 
 Usage:
   uv run python scripts/calibration/so_arm101/set_pose.py home
@@ -31,6 +31,7 @@ from _common import (
     confirm_and_release,
     gentle_velocity,
     load_arm_app_config,
+    load_home_degrees,
 )
 
 from arm101_hand.config import load_arm_poses
@@ -82,6 +83,7 @@ def main() -> int:
     cfg = load_arm_app_config()
     follower = build_follower(cfg, use_degrees=True)  # DEGREES
     vel = gentle_velocity(cfg)
+    home = load_home_degrees()
 
     torque_on = False
     print(f"Connecting on {cfg.arm.port}; driving to '{name}' ...")
@@ -102,10 +104,10 @@ def main() -> int:
     except (EOFError, KeyboardInterrupt):
         print("\n^C/EOF -- exiting")
     finally:
-        # No auto-home on exit (a surprise movement). Release torque in place; if still
-        # holding, confirm_and_release prints a reminder + waits for Enter before releasing.
+        # Never auto-home on exit. confirm_and_release offers 'h' (drive home first) or
+        # Enter (release in place), then always releases torque.
         if follower.is_connected:
-            confirm_and_release(follower, torque_on)
+            confirm_and_release(follower, torque_on, home, vel)
             follower.disconnect()
             print("Bus closed.")
     return 0

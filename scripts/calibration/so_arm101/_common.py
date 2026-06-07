@@ -9,10 +9,12 @@ of one script run. IL-5: reads ``so101_follower.json``; never writes it.
 
 from __future__ import annotations
 
+import sys
+import time
 from pathlib import Path
 
 from arm101_hand.config import load_app_config, load_arm_poses
-from arm101_hand.robots.calibration_summary import ARM_JOINTS
+from arm101_hand.robots.calibration_summary import ARM_JOINTS, STS3215_RESOLUTION
 
 # scripts/calibration/so_arm101/_common.py -> repo root is parents[3].
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -78,23 +80,48 @@ def load_home_degrees() -> dict[str, float]:
     return dict.fromkeys(ARM_JOINTS, 0.0)
 
 
-def confirm_and_release(follower, torque_on: bool) -> None:
-    """On exit, release torque WITHOUT auto-homing, after a reminder + confirmation.
+def _drive_home(follower, home: dict[str, float], vel: int, settle_s: float = 2.0) -> None:
+    """Drive all joints to the ``home`` pose (degrees) at gentle ``vel``. Does NOT disable torque.
 
-    No script returns the arm to home on quit (that would be a surprise movement). Instead,
-    if the arm is still holding a pose under torque, remind the operator that it will sag
-    under gravity when released and wait for an explicit Enter, so they can move it to home /
-    a resting pose (or brace it) by hand first. Ctrl+C / EOF at the prompt releases anyway
-    (IL-4: torque must come off on exit). If torque is already off, just ensures it is off.
+    ``home`` is per-joint degrees relative to each joint's calibrated mid; converted here to raw
+    encoder steps and written with ``normalize=False``, so it works for ANY follower norm mode
+    (DEGREES or RANGE_M100_100).
+    """
+    follower.bus.sync_write("Goal_Velocity", dict.fromkeys(ARM_JOINTS, vel))
+    goal_raw: dict[str, int] = {}
+    for j in ARM_JOINTS:
+        cal = follower.calibration[j]
+        mid = (cal.range_min + cal.range_max) / 2
+        goal_raw[j] = int(round(mid + home[j] * (STS3215_RESOLUTION - 1) / 360))
+    follower.bus.sync_write("Goal_Position", goal_raw, normalize=False)
+    time.sleep(settle_s)
+
+
+def confirm_and_release(follower, torque_on: bool, home: dict[str, float], vel: int) -> None:
+    """On exit, release torque after asking whether to return home first (never auto-homes).
+
+    If the arm is holding a pose under torque, prompt: type ``h`` to drive back to the
+    configured home before releasing, or just Enter to release in place (it will sag under
+    gravity from a raised pose). Ctrl+C / EOF at the prompt releases in place. Torque is
+    ALWAYS disabled before returning (IL-4). If torque is already off, just ensures it is off.
     """
     if torque_on:
         print(
-            "\nReminder: the arm is holding its pose under torque and will SAG under gravity "
-            "when released -- there is no auto-home. Move it to home or a resting pose by hand "
-            "(or brace it) now."
+            "\nReminder: the arm is holding its pose under torque and will SAG under gravity when released."
         )
         try:
-            input("Press Enter to release torque... ")
+            choice = (
+                input("Type 'h' + Enter to return home first, or just Enter to release in place: ")
+                .strip()
+                .lower()
+            )
         except (EOFError, KeyboardInterrupt):
-            print()
+            choice = ""
+        if choice == "h":
+            print("Returning to home ...")
+            try:
+                _drive_home(follower, home, vel)
+                print("Home reached.")
+            except BaseException as e:
+                print(f"  (homing interrupted: {e!r}) -- releasing torque anyway", file=sys.stderr)
     follower.bus.disable_torque()

@@ -11,8 +11,8 @@ Controls (torque ON to move):
   h             home active joint to its default-home value (arm_config.yaml poses.home)
   t             toggle torque (off = hand-pose by hand; on = resync + hold)
   s             save current pose to data/arm_config.yaml (prompts for a name)
-  q / Ctrl+C    release torque and exit IN PLACE -- no auto-home; prints a reminder and
-                asks for confirmation before releasing (if torque is OFF, disconnects in place)
+  q / Ctrl+C    on quit, prompts: 'h' to return home first, or Enter to release torque in
+                place and exit (never auto-homes; if torque is OFF, disconnects in place)
 
 Windows-only: uses msvcrt.getwch for raw key reads. Pure jog logic is in
 arm101_hand.robots.arm_jog (unit-tested); this file only does I/O.
@@ -143,10 +143,10 @@ def main() -> int:
     except KeyboardInterrupt:
         print("\n^C -- exiting")
     finally:
-        # No auto-home on quit (a surprise movement). Release torque in place; if the arm is
-        # still holding a pose, confirm_and_release reminds + waits for Enter first.
+        # Never auto-home on quit. confirm_and_release offers 'h' (drive home first) or
+        # Enter (release in place), then always releases torque.
         if follower.is_connected:
-            confirm_and_release(follower, bool(state is not None and state.torque_on))
+            confirm_and_release(follower, bool(state is not None and state.torque_on), home, vel)
             follower.disconnect()
             print("Bus closed.")
     return 0
