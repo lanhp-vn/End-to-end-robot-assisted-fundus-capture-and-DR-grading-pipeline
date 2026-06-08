@@ -23,10 +23,9 @@ def test_seeded_yaml_loads_clean() -> None:
     )
 
 
-def test_empty_poses_and_sequences_are_valid() -> None:
-    cfg = HandPoseConfig.model_validate({"schema_version": 1, "poses": {}, "sequences": {}})
+def test_empty_poses_are_valid() -> None:
+    cfg = HandPoseConfig.model_validate({"schema_version": 1, "poses": {}})
     assert cfg.poses == {}, "empty poses dict accepted"
-    assert cfg.sequences == {}, "empty sequences dict accepted"
 
 
 # | positions | description                                          |
@@ -54,20 +53,7 @@ def test_extra_fields_rejected_on_pose() -> None:
         HandPoseConfig.model_validate({"poses": {"x": {"positions": [0] * 8, "garbage": 1}}})
 
 
-# | step | valid | description                                              |
-@pytest.mark.parametrize(
-    "step,valid,desc",
-    [
-        ("middle:3,3,3,3,3,3,3,3|2.0s", True, "well-formed pose step accepted"),
-        ("SLEEP:0.5s", True, "well-formed sleep step accepted"),
-        ("middle:3,3,3,3,3,3,3,3", False, "pose step missing |delay rejected"),
-        ("just-a-string", False, "freeform string rejected"),
-    ],
-)
-def test_sequence_step_format(step: str, valid: bool, desc: str) -> None:
-    payload = {"sequences": {"demo": {"steps": [step]}}}
-    if valid:
-        HandPoseConfig.model_validate(payload)  # no raise
-    else:
-        with pytest.raises(ValidationError):
-            HandPoseConfig.model_validate(payload)
+def test_sequences_field_rejected() -> None:
+    """The removed ``sequences`` block is now an extra field (extra='forbid')."""
+    with pytest.raises(ValidationError):
+        HandPoseConfig.model_validate({"poses": {}, "sequences": {}})

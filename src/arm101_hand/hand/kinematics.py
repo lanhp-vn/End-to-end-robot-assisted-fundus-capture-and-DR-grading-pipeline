@@ -142,8 +142,8 @@ def compose_finger(
     ``base + side``, so ``decompose_finger`` round-trips cleanly.
 
     The limit kwargs are **opt-in**: with none supplied, behavior is identical to
-    the legacy per-servo-only clamp (callers like ``gui/hand_panel.py`` are
-    unaffected). Calibrated callers pass per-finger values from
+    the legacy per-servo-only clamp, so positional callers that pass no limits are
+    unaffected. Calibrated callers pass per-finger values from
     ``FingerCalibration.limits``.
     """
     if base_min is not None and base_max is not None:

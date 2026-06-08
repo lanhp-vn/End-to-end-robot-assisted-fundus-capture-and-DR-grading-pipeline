@@ -4,8 +4,8 @@ Three YAML files plus this README. All loaded and validated by pydantic schemas 
 
 | File | Schema owner | Purpose |
 |---|---|---|
-| `app_config.yaml` | `arm101_hand.config.app_config` | COM ports per bus, baudrates, default speeds, safety thresholds. Read by the diagnostics (`scripts/diagnostics/scan.py`) and arm scripts at startup. |
-| `hand_config.yaml` | `arm101_hand.config.hand_poses` | Named hand poses + sequences (calibration-aware degrees, even-ID pre-inverted). Hand poses are saved by `scripts/calibration/amazing_hand/jog.py`. |
+| `app_config.yaml` | `arm101_hand.config.app_config` | Arm COM port, diagnostics warn thresholds (temp/voltage), and the gentle safe-park velocity. Read by the diagnostics (`scripts/diagnostics/scan.py`) and arm scripts at startup. (The hand bus port/baudrate/speed live in the hand calibration YAML.) |
+| `hand_config.yaml` | `arm101_hand.config.hand_poses` | Named hand poses (calibration-aware degrees, even-ID pre-inverted). Saved by `scripts/calibration/amazing_hand/jog.py`. |
 | `arm_config.yaml` | `arm101_hand.config.arm_poses` | Named arm poses (e.g. `home` — the folded storage pose — plus any saved via the scripts). Joint values in degrees, soft-clamped to the calibrated range from `scripts/calibration/so_arm101/so101_follower.json`. Arm poses are saved by `scripts/calibration/so_arm101/jog.py` and `capture_pose.py`. |
 
 ## Editing rules

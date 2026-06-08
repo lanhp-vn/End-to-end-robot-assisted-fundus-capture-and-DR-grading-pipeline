@@ -20,7 +20,6 @@ from .hand_poses import (
     POSITIONS_LEN,
     HandPose,
     HandPoseConfig,
-    HandSequence,
     load_hand_poses,
     save_hand_poses,
 )
@@ -37,7 +36,6 @@ __all__ = [
     "PoseSpeeds",
     "HandPose",
     "HandPoseConfig",
-    "HandSequence",
     "load_app_config",
     "load_arm_poses",
     "save_arm_poses",

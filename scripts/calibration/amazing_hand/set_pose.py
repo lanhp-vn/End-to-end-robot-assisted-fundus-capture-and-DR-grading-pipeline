@@ -1,25 +1,27 @@
 """
 AmazingHand Set-Pose Utility
 
-Drives the whole 4-finger AmazingHand to a single static pose -- ``open`` (full
-extension) or ``close`` (full flexion) -- and holds it there under torque until
-you press Enter, then releases. Unlike the test scripts it does not cycle; it
-just parks the hand in one position.
+Drives the whole 4-finger AmazingHand to a single static pose and holds it there
+under torque until you press Enter, then releases. Unlike the test scripts it
+does not cycle; it just parks the hand in one position.
 
-Both poses are taken from the per-finger ``limits`` in
-``hand_calib_values.yaml`` (measured at Step 4 with
-``range_calib.py``):
+Two pose sources are accepted (resolved by ``arm101_hand.hand.resolve_hand_pose_targets``):
 
-  * open  -> every finger at ``base_min``, neutral spread (side = 0)
-  * close -> every finger at ``base_max``, neutral spread (side = 0)
+  * Built-in ``open`` / ``close`` -- every finger at ``base_min + 5`` / ``base_max - 5``
+    (neutral spread). The 5-degree margin backs each pose off the calibrated
+    endpoints (measured at Step 4 with ``range_calib.py``) so the fingers never
+    slam the measured limits while still staying inside the range.
+  * Any named pose stored in ``data/hand_config.yaml`` (e.g. ``grab``, ``middle``,
+    saved via ``jog.py``).
 
-Speeds (open / close) are read from the ``speeds:`` block in
-``hand_calib_values.yaml``.
+Speeds: built-in open/close use the ``speeds:`` block in ``hand_calib_values.yaml``;
+named poses use the default jog ``speed``.
 
 Usage:
   uv run python scripts/calibration/amazing_hand/set_pose.py open
   uv run python scripts/calibration/amazing_hand/set_pose.py close
-  uv run python scripts/calibration/amazing_hand/set_pose.py   # prompts
+  uv run python scripts/calibration/amazing_hand/set_pose.py grab
+  uv run python scripts/calibration/amazing_hand/set_pose.py        # prompts
 """
 
 import contextlib
@@ -29,59 +31,57 @@ from pathlib import Path
 
 from rustypot import Scs0009PyController
 
-from arm101_hand.config import load_hand_calibration
-from arm101_hand.hand import compose_finger, degrees_to_servo_radians
+from arm101_hand.config import HandPoseConfig, load_hand_calibration, load_hand_poses
+from arm101_hand.hand import BUILTIN_POSES, available_pose_names, resolve_hand_pose_targets
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 YAML_PATH = SCRIPT_DIR / "hand_calib_values.yaml"
+# scripts/calibration/amazing_hand/set_pose.py -> repo root is parents[2].
+HAND_CONFIG_PATH = SCRIPT_DIR.parents[2] / "data" / "hand_config.yaml"
 
-VALID_POSES = ("open", "close")
 
-
-def prompt_pose():
+def prompt_pose(valid):
     while True:
-        choice = input(f"Pose? ({'/'.join(VALID_POSES)}): ").strip().lower()
-        if choice in VALID_POSES:
+        choice = input(f"Pose? ({'/'.join(valid)}): ").strip().lower()
+        if choice in valid:
             return choice
-        print(f"  invalid -- pick one of {VALID_POSES}")
+        print(f"  invalid -- pick one of {valid}")
 
 
-def resolve_pose(argv):
+def resolve_pose(argv, valid):
     """Pose from argv[1] if valid, else prompt. Warn on a bad explicit arg."""
     if len(argv) > 1:
         arg = argv[1].strip().lower()
-        if arg in VALID_POSES:
+        if arg in valid:
             return arg
-        print(f"  '{argv[1]}' is not a valid pose -- pick one of {VALID_POSES}")
-    return prompt_pose()
+        print(f"  '{argv[1]}' is not a valid pose -- pick one of {valid}")
+    return prompt_pose(valid)
 
 
-def pose_base(limits, pose):
-    """Target ``base`` for the pose; spread stays neutral (side = 0)."""
-    return limits.base_max if pose == "close" else limits.base_min
-
-
-def move_finger(c, block, base, side, speed):
-    id1 = block.servo_1.id
-    id2 = block.servo_2.id
-    mp1 = block.servo_1.middle_pos
-    mp2 = block.servo_2.middle_pos
-    pos1, pos2 = compose_finger(base, side)
-    c.write_goal_speed(id1, speed)
-    time.sleep(0.0002)
-    c.write_goal_speed(id2, speed)
-    time.sleep(0.0002)
-    c.write_goal_position(id1, degrees_to_servo_radians(id1, pos1, mp1))
-    c.write_goal_position(id2, degrees_to_servo_radians(id2, pos2, mp2))
-    time.sleep(0.005)
+def drive_targets(c, targets, speed):
+    """Command every servo to its wire-radians target at ``speed`` (torque already on)."""
+    for sid in sorted(targets):
+        c.write_goal_speed(sid, speed)
+        time.sleep(0.0002)
+    for sid in sorted(targets):
+        c.write_goal_position(sid, targets[sid])
+        time.sleep(0.0002)
 
 
 def main():
-    pose = resolve_pose(sys.argv)
-
     cfg = load_hand_calibration(YAML_PATH)
-    speed = cfg.speeds.close if pose == "close" else cfg.speeds.open
-    fingers = cfg.fingers
+    poses_cfg = load_hand_poses(HAND_CONFIG_PATH) if HAND_CONFIG_PATH.is_file() else HandPoseConfig()
+
+    valid = available_pose_names(poses_cfg)
+    pose = resolve_pose(sys.argv, valid)
+
+    targets = resolve_hand_pose_targets(cfg, poses_cfg, pose)
+    if pose == "close":
+        speed = cfg.speeds.close
+    elif pose == "open":
+        speed = cfg.speeds.open
+    else:
+        speed = cfg.speed
 
     c = Scs0009PyController(
         serial_port=cfg.com_port,
@@ -89,23 +89,22 @@ def main():
         timeout=cfg.timeout,
     )
 
-    for block in fingers.values():
-        c.write_torque_enable(block.servo_1.id, 1)
-        c.write_torque_enable(block.servo_2.id, 1)
+    for sid in targets:
+        c.write_torque_enable(sid, 1)
 
-    print(f"Setting hand to '{pose}' (all fingers, neutral spread)...")
+    builtin = pose in BUILTIN_POSES
+    detail = " (all fingers, neutral spread)" if builtin else ""
+    print(f"Setting hand to '{pose}'{detail}...")
     try:
-        for block in fingers.values():
-            move_finger(c, block, pose_base(block.limits, pose), 0, speed)
+        drive_targets(c, targets, speed)
         print(f"Hand held at '{pose}' under torque.")
         input("Press Enter to release torque and exit... ")
     except KeyboardInterrupt:
         print("\n^C -- releasing")
     finally:
-        for block in fingers.values():
-            for servo in (block.servo_1, block.servo_2):
-                with contextlib.suppress(Exception):
-                    c.write_torque_enable(servo.id, 0)
+        for sid in targets:
+            with contextlib.suppress(Exception):
+                c.write_torque_enable(sid, 0)
 
 
 if __name__ == "__main__":

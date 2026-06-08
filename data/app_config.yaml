@@ -1,53 +1,17 @@
 schema_version: 1
 
-# Hand bus settings. Default port matches the host's enumerated CH343 bridge for
-# the AmazingHand (5 V SCS0009 bus). Update on first run if your host differs.
-hand:
-  port: COM18
-  baudrate: 1000000
-  timeout: 0.5
-  default_speed: 3                  # 1..5 manual scale; rustypot accepts 1..7 internally
-
 # Arm bus settings. Default port matches the host's Waveshare bus adapter for
 # the SO-ARM101 (12 V STS3215 bus). Update on first run if your host differs.
+# (The hand bus port/baudrate live in the hand calibration YAML, not here.)
 arm:
   port: COM20
-  baudrate: 1000000
-  velocity_profile_default: 1500    # STS3215 register units (Profile_Velocity); tune at first run
 
-# Window / UI persistence. Saved on graceful exit only.
-window:
-  width: 1280
-  height: 800
-  active_tab: hand                  # "hand" | "arm"
-  log_panel_visible: false
-
-# Safety poller + thresholds.
-# Temperature is the servo's internal coil temp (read_present_temperature),
-# not ambient. Manufacturer overload-trip is ~70 °C for both SCS0009 and
-# STS3215; critical=65 leaves a 5 °C safety margin.
-# Voltage thresholds are percent-deviation from each bus's nominal (5 V hand,
-# 12 V arm), matching IL-1.
+# Safety thresholds read by the diagnostics scan (scripts/diagnostics/scan.py),
+# plus the gentle velocity used for safe home moves.
+# Temperature is the servo's internal coil temp (read_present_temperature), not
+# ambient. Voltage threshold is percent-deviation from each bus's nominal.
 safety:
-  poll_rate_hz: 1.0
-  poller_enabled: true
-  temp_warn_c: 50
-  temp_critical_c: 65
-  voltage_warn_pct: 5.0
-  voltage_critical_pct: 10.0
-  auto_disable_torque_on_critical_temp: true
-
-  # Safe-park before disabling torque (spec §7.5).
-  # Soft E-STOP (Esc), critical temp, and graceful exit all route through this
-  # path: command the named park pose at a gentle velocity, wait for arrival
-  # (or timeout), then disable torque. Avoids the wrist + AmazingHand dropping
-  # under gravity from an extended pose. Hard E-STOP (Shift+Esc) bypasses
-  # this and goes straight to disable_torque_all().
+  temp_warn_c: 50          # servo coil temp warn threshold (°C)
+  voltage_warn_pct: 5.0    # warn when bus voltage deviates this % from nominal
   safe_park:
-    enabled: true
-    arm_pose: home                  # name from data/arm_config.yaml poses; home = folded storage pose
-    hand_pose: middle               # name from data/hand_config.yaml poses
-    park_velocity_arm: 600          # STS3215 Profile_Velocity register units (gentler than runtime default)
-    park_velocity_hand: 2           # 1..5 hand speed scale; 2 is gentle but still moves promptly
-    park_timeout_s: 4.0             # max wall-clock for the park motion before forcing torque-off
-    arrival_tolerance_deg: 2.0      # all motors within this of target counts as "parked"
+    park_velocity_arm: 600 # STS3215 Goal_Velocity register units for gentle home moves
