@@ -1,4 +1,4 @@
-"""Capture the SO-ARM101's current hand-posed pose and save it to data/arm_config.yaml.
+"""Capture the SO-ARM101's current hand-posed pose and save it to arm_config.yaml.
 
 Workflow (no jogging, no numeric entry): the arm goes limp so you move it to the desired
 pose by hand, then Enter captures the present motor degrees and holds the pose under torque
@@ -33,10 +33,8 @@ from _common import (
     load_home_degrees,
 )
 
-from arm101_hand.config import ArmPose, ArmPoseConfig, load_arm_poses, save_arm_poses
+from arm101_hand.config import ArmConfig, ArmPose, load_arm_config, save_arm_config
 from arm101_hand.robots.calibration_summary import ARM_JOINTS
-
-_SETTLE_S = 0.5
 
 
 def _present_degrees(follower) -> dict[str, float]:
@@ -53,9 +51,10 @@ def _maybe_save(pose: dict[str, float]) -> None:
         return
     if not name:
         return
-    config = load_arm_poses(ARM_CONFIG_PATH) if ARM_CONFIG_PATH.is_file() else ArmPoseConfig()
+    # Load-modify-save: preserve connection/safety/tuning, only update poses.
+    config = load_arm_config(ARM_CONFIG_PATH) if ARM_CONFIG_PATH.is_file() else ArmConfig()
     config.poses[name] = ArmPose(**pose)
-    save_arm_poses(ARM_CONFIG_PATH, config)
+    save_arm_config(ARM_CONFIG_PATH, config)
     print(f"  saved '{name}' -> {ARM_CONFIG_PATH}")
 
 
@@ -77,13 +76,15 @@ def main() -> int:
     vel = gentle_velocity(cfg)
     home = load_home_degrees()
 
+    settle_s: float = cfg.tuning.settle_capture_s
+
     torque_on = False
-    print(f"Connecting on {cfg.arm.port} ...")
+    print(f"Connecting on {cfg.connection.port} ...")
     try:
         try:
             follower.connect(calibrate=False)
         except (ConnectionError, OSError) as e:
-            print(f"ERROR: could not open {cfg.arm.port}: {e}", file=sys.stderr)
+            print(f"ERROR: could not open {cfg.connection.port}: {e}", file=sys.stderr)
             return 1
         follower.bus.write_calibration(follower.calibration)
         follower.bus.sync_write("Goal_Velocity", dict.fromkeys(ARM_JOINTS, vel))
@@ -104,7 +105,7 @@ def main() -> int:
             follower.send_action({f"{j}.pos": v for j, v in captured.items()})
             follower.bus.enable_torque()
             torque_on = True
-            time.sleep(_SETTLE_S)
+            time.sleep(settle_s)
             pretty = ", ".join(f"{j} {captured[j]:.1f}" for j in ARM_JOINTS)
             print(f"Captured (holding under torque): {pretty}")
 
@@ -122,7 +123,7 @@ def main() -> int:
         # Never auto-home on quit. confirm_and_release offers 'h' (drive home first) or
         # Enter (release in place), then always releases torque.
         if follower.is_connected:
-            confirm_and_release(follower, torque_on, home, vel)
+            confirm_and_release(follower, torque_on, home, vel, tuning=cfg.tuning)
             follower.disconnect()
             print("Bus closed.")
     return 0

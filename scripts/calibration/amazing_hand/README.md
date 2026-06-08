@@ -43,16 +43,7 @@ uv run python scripts/calibration/amazing_hand/finger_test.py
 
 ### 2.2 USB↔TTL bridge & COM port
 
-The Waveshare CH343 bridge enumerates as a COM port on Windows. On this machine it's `COM18`. The port is stored in `hand_calib_values.yaml`:
-
-```yaml
-com_port: COM18
-baudrate: 1000000
-timeout: 0.5
-speed: 6
-```
-
-If the port changes, edit the YAML — every script picks it up automatically. Discover a changed port with:
+The Waveshare CH343 bridge enumerates as a COM port on Windows. On this machine it's `COM18`. The port is stored in `src/arm101_hand/data/hand_config.yaml` under `connection.port` — edit that file if the port changes. Discover a changed port with:
 
 ```powershell
 Get-PnpDevice -Class Ports -Status OK | Select-Object Name, DeviceID | Format-Table -AutoSize
@@ -163,7 +154,7 @@ So the four stored limits map to four physical extremes:
   middle makes the measured limits meaningless.
 - Close any other COM-port holder — FD.exe, serial monitors, a stale Python
   session (IL-4). Only one process may own the bus.
-- 5 V PSU on; bus wired; correct `com_port` in the YAML.
+- 5 V PSU on; bus wired; correct `connection.port` in `src/arm101_hand/data/hand_config.yaml`.
 
 #### 4.3 Run it
 
@@ -306,7 +297,7 @@ uv run python scripts/calibration/amazing_hand/set_pose.py        # prompts open
 
 Not a calibration step — a convenience for posing the whole hand by keyboard and saving
 the result. Torque stays ON; you jog each finger within its calibrated limits, then save
-the whole-hand pose by name into `data/hand_config.yaml`. Mirrors the arm's `so_arm101/jog.py`.
+the whole-hand pose by name into `src/arm101_hand/data/hand_config.yaml`. Mirrors the arm's `so_arm101/jog.py`.
 
 ```powershell
 uv run python scripts/calibration/amazing_hand/jog.py
@@ -319,40 +310,33 @@ finger/all; `s` save (prompts for a name); `q` release torque and exit.
 
 ## 4. Where the calibration lives
 
-Everything sits in `scripts/calibration/amazing_hand/hand_calib_values.yaml`:
+Measurement-only calibration state lives in `scripts/calibration/amazing_hand/hand_calib_values.yaml` (v3 schema):
 
 ```yaml
-schema_version: 2
-com_port: COM18
-baudrate: 1000000
-timeout: 0.5
-speed: 6
-speeds:
-  open: 5
-  close: 3
+schema_version: 3
 fingers:
   index:
-    servo_1: { id: 1, middle_pos: 0 }
-    servo_2: { id: 2, middle_pos: 0 }
+    servo_1: { middle_pos: 0 }
+    servo_2: { middle_pos: 0 }
     limits: { base_min: -30, base_max: 110, side_min: -40, side_max: 40 }
   middle:
-    servo_1: { id: 3, middle_pos: 0 }
-    servo_2: { id: 4, middle_pos: 0 }
+    servo_1: { middle_pos: 0 }
+    servo_2: { middle_pos: 0 }
     limits: { base_min: -30, base_max: 110, side_min: -40, side_max: 40 }
   ring:
-    servo_1: { id: 5, middle_pos: 0 }
-    servo_2: { id: 6, middle_pos: 0 }
+    servo_1: { middle_pos: 0 }
+    servo_2: { middle_pos: 0 }
     limits: { base_min: -30, base_max: 110, side_min: -40, side_max: 40 }
   thumb:
-    servo_1: { id: 7, middle_pos: 0 }
-    servo_2: { id: 8, middle_pos: 0 }
+    servo_1: { middle_pos: 0 }
+    servo_2: { middle_pos: 0 }
     limits: { base_min: -30, base_max: 110, side_min: -40, side_max: 40 }
 ```
 
-- `com_port`, `baudrate`, `timeout`, `speed` — shared serial + motion settings, used by all four scripts.
-- `fingers.<finger>.servo_1` / `servo_2` — per-servo `id` and calibrated `middle_pos` (degrees).
-- `servo_1` is the odd-ID (right) servo, `servo_2` is the even-ID (left) servo of the pair.
+- `fingers.<finger>.servo_1` / `servo_2` — per-servo calibrated `middle_pos` (degrees). `servo_1` is the odd-ID (right) servo, `servo_2` is the even-ID (left) servo of the pair. Servo IDs come from the `FINGER_SERVO_IDS` code canon in `src/arm101_hand/config/motor_ids.py` and are not stored in this file.
 - `fingers.<finger>.limits` — the per-finger motion envelope in logical frame: `base` (flexion, positive = close) min/max and `side` (abduction/spread) min/max, in degrees relative to the calibrated middle. Measured by `range_calib.py` (Step 4) and consumed by the audit scripts + kinematics.
+
+**Connection and motion settings** (`com_port`, `baudrate`, `timeout`, `speed`, `speeds`) are **not** in this file. They live in `src/arm101_hand/data/hand_config.yaml` under `connection` and `tuning`. Edit that file to change the port or speed.
 
 The scripts load and save this file through the typed `HandCalibration` schema (`extra='forbid'`), so the recognized fields are validated; hand edits to those fields are fine, but unknown top-level keys are rejected.
 
@@ -368,7 +352,7 @@ The scripts load and save this file through the typed `HandCalibration` schema (
 | Close/Open motion looks inverted on one finger                 | Odd/even swap on that pair                                                  | Recheck Step 1 — odd ID on the right servo, even on the left                               |
 | Horn sits badly at closed pose no matter what offset you enter | Horn on wrong spline tooth                                                  | Repeat Step 2 for that finger and bump the horn by one tooth                                |
 | Servo buzzes/whines near an endpoint                           | Commanded past the mechanical stop                                          | Reduce the offending `middle_pos` by 1–2° in Step 3                                     |
-| COM port fails to open                                         | Another program holds the port, or the bridge enumerated on a different COM | Close serial monitors / other Python sessions; update `com_port` in the YAML              |
+| COM port fails to open                                         | Another program holds the port, or the bridge enumerated on a different COM | Close serial monitors / other Python sessions; update `connection.port` in `src/arm101_hand/data/hand_config.yaml` |
 | Final offset needs to exceed ±20°                            | Horn on wrong tooth, or IDs swapped                                         | Don't absorb it in software — fix the mechanical/ID issue                                  |
 
 ---

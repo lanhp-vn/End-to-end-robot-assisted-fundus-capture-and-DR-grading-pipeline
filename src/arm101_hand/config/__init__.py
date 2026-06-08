@@ -1,46 +1,58 @@
 """Pydantic schemas for the runtime config + calibration YAML files (primitive layer).
 
-- ``app_config`` → ``data/app_config.yaml``
-- ``hand_poses`` → ``data/hand_config.yaml``
-- ``arm_poses`` → ``data/arm_config.yaml``
+- ``arm_config``  → ``src/arm101_hand/data/arm_config.yaml``
+- ``hand_config`` → ``src/arm101_hand/data/hand_config.yaml``
 - ``calibration`` → ``scripts/calibration/amazing_hand/hand_calib_values.yaml``
 """
 
-from .app_config import AppConfig, load_app_config
-from .arm_poses import ARM_MOTORS, ArmPose, ArmPoseConfig, load_arm_poses, save_arm_poses
+from .arm_config import (
+    ArmConfig,
+    ArmConnection,
+    ArmPose,
+    ArmSafety,
+    ArmTuning,
+    load_arm_config,
+    save_arm_config,
+)
 from .calibration import (
     FINGER_NAMES,
     DofLimits,
     HandCalibration,
-    PoseSpeeds,
     load_hand_calibration,
     save_hand_calibration,
 )
-from .hand_poses import (
-    POSITIONS_LEN,
+from .hand_config import (
+    HandConfig,
+    HandConnection,
     HandPose,
-    HandPoseConfig,
-    load_hand_poses,
-    save_hand_poses,
+    HandSafety,
+    HandSpeeds,
+    HandTuning,
+    load_hand_config,
+    save_hand_config,
 )
+from .motor_ids import FINGER_SERVO_IDS
 
 __all__ = [
-    "ARM_MOTORS",
     "FINGER_NAMES",
-    "POSITIONS_LEN",
-    "AppConfig",
-    "DofLimits",
+    "FINGER_SERVO_IDS",
+    "ArmConfig",
+    "ArmConnection",
     "ArmPose",
-    "ArmPoseConfig",
+    "ArmSafety",
+    "ArmTuning",
+    "DofLimits",
     "HandCalibration",
-    "PoseSpeeds",
+    "HandConfig",
+    "HandConnection",
     "HandPose",
-    "HandPoseConfig",
-    "load_app_config",
-    "load_arm_poses",
-    "save_arm_poses",
+    "HandSafety",
+    "HandSpeeds",
+    "HandTuning",
+    "load_arm_config",
+    "save_arm_config",
     "load_hand_calibration",
+    "load_hand_config",
     "save_hand_calibration",
-    "load_hand_poses",
-    "save_hand_poses",
+    "save_hand_config",
 ]
