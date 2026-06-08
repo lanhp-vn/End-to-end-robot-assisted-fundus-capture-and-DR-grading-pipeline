@@ -655,3 +655,1001 @@ git commit -m "feat(demo): stage grab_sequence (pan->posture->pan->hand) with re
 **Placeholder scan:** No TBD/TODO; every code step shows full code; every run step shows the command and expected output. ✓
 
 **Type/name consistency:** `drive_arm_joints` signature identical in Task 1 (def), Task 3 (calls), and tests. `home_routine` keyword identical in Task 2 (def + tests) and Task 3 (call). `POSTURE_JOINTS`, `PAN_JOINT`, `base_max_deg`, `wait_kw` defined once and used consistently. `_build_arm_plan` returns the 2-tuple consumed in `main`. ✓
+
+---
+
+# Extension (2026-06-08): pre_grab hand pose + hand position polling
+
+**Goal:** Step 2 also drives the hand to a new `pre_grab` pose (commanded with the arm posture, both confirmed before step 3); step 4 closes to `grab`. The `'h'` reverse becomes: hand→`pre_grab` → pan→base_max → posture→home → pan→home → (arm at home) hand→`open`. The hand now confirms each move by **position polling** (timeout-then-continue, so a grip that stalls on an object doesn't hang), and that polling helper is adopted across the hand scripts.
+
+**Decisions (from interview):** lift+elbow stay in step 2 (4 posture joints); "wait for both" in step 2; hand grab-close uses timeout-then-continue; retrofit `set_pose.py`/`finger_test.py`/`full_hand_test.py` now. `pre_grab` already saved to `hand_config.yaml`. Hand poll tolerance = `radians(pose_margin_deg)`; timeout/poll are NEW config knobs (`save_hand_config` round-trips the full model, so they persist).
+
+**New helper API (`src/arm101_hand/hand/motion.py`):** `write_hand_servos` (write only), `wait_hand_reached` (poll only, returns bool), `drive_hand_servos` (write+wait). All wire-radians; never raise/hang.
+
+---
+
+### Task 4: Hand poll tuning knobs `pose_timeout_s` / `pose_poll_s`
+
+**Files:**
+- Modify: `src/arm101_hand/config/hand_config.py` (`HandTuning`)
+- Modify: `src/arm101_hand/data/hand_config.yaml` (add 2 knobs; also commits the saved `pre_grab` pose + the jog-save reformat)
+- Modify: `src/arm101_hand/data/README.md` (document the 2 knobs)
+- Test: `tests/unit/test_hand_config_schema.py`
+
+- [ ] **Step 1: Write the failing tests** — append to `tests/unit/test_hand_config_schema.py` (add `import pytest` and `from pydantic import ValidationError` and `from arm101_hand.config.hand_config import HandTuning` if not already imported there):
+
+```python
+def test_pose_poll_knobs_default():
+    t = HandTuning()
+    assert t.pose_timeout_s == 2.0
+    assert t.pose_poll_s == 0.03
+
+
+def test_pose_poll_knobs_reject_nonpositive():
+    with pytest.raises(ValidationError):
+        HandTuning(pose_timeout_s=0)
+    with pytest.raises(ValidationError):
+        HandTuning(pose_poll_s=0)
+```
+
+- [ ] **Step 2: Run to verify they fail**
+
+Run: `uv run pytest tests/unit/test_hand_config_schema.py -k pose_poll -v`
+Expected: FAIL — `HandTuning` has no `pose_timeout_s` (default path) / `extra="forbid"` rejects the kwarg.
+
+- [ ] **Step 3: Add the two fields** to `HandTuning` in `src/arm101_hand/config/hand_config.py`, immediately after the `pose_margin_deg` line:
+
+```python
+    pose_timeout_s: float = Field(
+        default=2.0, gt=0, description="hand move position-poll timeout (s) before continuing"
+    )
+    pose_poll_s: float = Field(
+        default=0.03, gt=0, description="hand move position-poll interval (s)"
+    )
+```
+
+- [ ] **Step 4: Add the knobs to the committed YAML.** In `src/arm101_hand/data/hand_config.yaml`, under `tuning:`, immediately after the `pose_margin_deg: 5.0` line, insert:
+
+```yaml
+  pose_timeout_s: 2.0
+  pose_poll_s: 0.03
+```
+
+- [ ] **Step 5: Document the knobs.** In `src/arm101_hand/data/README.md`, find where `pose_margin_deg` is documented and add two sibling entries mirroring its style, e.g.:
+
+```
+- `tuning.pose_timeout_s` — seconds to wait for a hand move to position-confirm before continuing (a gripping close that stalls on an object simply times out and continues).
+- `tuning.pose_poll_s` — interval between `read_present_position` polls while waiting for a hand move to arrive.
+```
+
+- [ ] **Step 6: Verify**
+
+Run: `uv run pytest tests/unit/test_hand_config_schema.py -v; uv run pytest tests/unit/test_hand_config_save.py -v; uv run ruff check . ; uv run mypy src`
+Expected: all pass; the round-trip test confirms the new knobs persist through `save_hand_config`.
+
+- [ ] **Step 7: Commit** (stage exactly these four files — the YAML carries `pre_grab` + the knobs + your jog reformat):
+
+```bash
+git add src/arm101_hand/config/hand_config.py src/arm101_hand/data/hand_config.yaml src/arm101_hand/data/README.md tests/unit/test_hand_config_schema.py
+git commit -m "feat(hand): add pose_timeout_s/pose_poll_s poll knobs; commit pre_grab pose"
+```
+
+---
+
+### Task 5: Hand motion helper (`write_hand_servos`, `wait_hand_reached`, `drive_hand_servos`)
+
+**Files:**
+- Create: `src/arm101_hand/hand/motion.py`
+- Modify: `src/arm101_hand/hand/__init__.py` (export the three)
+- Test: `tests/unit/test_hand_motion.py`
+
+- [ ] **Step 1: Write the failing tests** — create `tests/unit/test_hand_motion.py`:
+
+```python
+"""Unit tests for hand motion helpers (fake controller, no bus)."""
+
+from __future__ import annotations
+
+import math
+
+from arm101_hand.hand import drive_hand_servos, wait_hand_reached, write_hand_servos
+
+
+class _FakeController:
+    def __init__(self, *, stuck: bool = False):
+        self.present: dict[int, float] = {}
+        self.torque: dict[int, int] = {}
+        self.speed: dict[int, int] = {}
+        self.calls: list[tuple] = []
+        self._stuck = stuck
+
+    def write_torque_enable(self, sid, on):
+        self.torque[sid] = on
+        self.calls.append(("torque", sid, on))
+
+    def write_goal_speed(self, sid, sp):
+        self.speed[sid] = sp
+        self.calls.append(("speed", sid, sp))
+
+    def write_goal_position(self, sid, rad):
+        self.calls.append(("goal", sid, rad))
+        if not self._stuck:
+            self.present[sid] = rad  # instant arrival unless stuck (gripping)
+
+    def read_present_position(self, sid):
+        return [self.present.get(sid, 0.0)]  # rustypot returns a single-element list
+
+
+def test_write_hand_servos_writes_torque_speed_goal():
+    c = _FakeController()
+    write_hand_servos(c, {1: 0.5, 2: -0.5}, speed=3)
+    assert c.torque == {1: 1, 2: 1}
+    assert c.speed == {1: 3, 2: 3}
+    goals = {sid: rad for kind, sid, rad in c.calls if kind == "goal"}
+    assert goals == {1: 0.5, 2: -0.5}
+
+
+def test_write_hand_servos_can_skip_torque():
+    c = _FakeController()
+    write_hand_servos(c, {1: 0.1}, speed=3, enable_torque=False)
+    assert c.torque == {}
+    assert any(kind == "goal" for kind, *_ in c.calls)
+
+
+def test_wait_hand_reached_true_when_within_tolerance():
+    c = _FakeController()
+    c.present = {1: 0.50, 2: -0.50}
+    assert (
+        wait_hand_reached(
+            c, {1: 0.51, 2: -0.49}, tolerance_rad=math.radians(5), timeout_s=1.0, poll_s=0.0
+        )
+        is True
+    )
+
+
+def test_wait_hand_reached_empty_is_true_without_reads():
+    c = _FakeController()
+    assert wait_hand_reached(c, {}, tolerance_rad=0.1, timeout_s=1.0, poll_s=0.0) is True
+    assert c.calls == []
+
+
+def test_wait_hand_reached_times_out_returns_false(capsys):
+    c = _FakeController(stuck=True)
+    c.present = {1: 0.0}
+    ok = wait_hand_reached(c, {1: 1.0}, tolerance_rad=math.radians(5), timeout_s=0.05, poll_s=0.0)
+    assert ok is False
+    assert "hand not fully reached within timeout" in capsys.readouterr().err
+
+
+def test_drive_hand_servos_writes_then_confirms():
+    c = _FakeController()  # not stuck -> goal write sets present -> reaches immediately
+    ok = drive_hand_servos(
+        c, {1: 0.2, 2: 0.3}, speed=3, tolerance_rad=math.radians(5), timeout_s=1.0, poll_s=0.0
+    )
+    assert ok is True
+    assert c.torque == {1: 1, 2: 1}
+
+
+def test_drive_hand_servos_timeout_then_continue_returns_false(capsys):
+    c = _FakeController(stuck=True)
+    c.present = {1: 0.0}
+    ok = drive_hand_servos(
+        c, {1: 1.0}, speed=3, tolerance_rad=math.radians(5), timeout_s=0.05, poll_s=0.0
+    )
+    assert ok is False  # stalled (gripping) -> continues, never hangs
+    assert "hand not fully reached within timeout" in capsys.readouterr().err
+```
+
+- [ ] **Step 2: Run to verify they fail**
+
+Run: `uv run pytest tests/unit/test_hand_motion.py -v`
+Expected: FAIL at import — `cannot import name 'drive_hand_servos' from 'arm101_hand.hand'`.
+
+- [ ] **Step 3: Create `src/arm101_hand/hand/motion.py`** with exactly:
+
+```python
+"""Hand motion helpers: command SCS0009 servos and confirm arrival by position-polling.
+
+Mirrors the arm's ``drive_arm_joints`` position-wait so BOTH devices confirm a move
+finished (within tolerance) before the caller proceeds, instead of a blind sleep. A
+gripping close that stalls on an object simply times out and continues
+(timeout-then-continue) -- these helpers never raise and never hang. All positions are
+SCS0009 wire-radians (what ``write_goal_position`` accepts and ``read_present_position``
+returns); convert a degree tolerance with ``math.radians`` at the call site.
+"""
+
+from __future__ import annotations
+
+import sys
+import time
+
+from arm101_hand.hand.protocol import SERVO_SYNC_S
+
+
+def _scalar(v: object) -> float:
+    """Unwrap rustypot's single-element list reads (``read_<reg>`` returns a list)."""
+    if isinstance(v, (list, tuple)):
+        return float(v[0])
+    return float(v)  # type: ignore[arg-type]
+
+
+def write_hand_servos(
+    controller,
+    targets: dict[int, float],
+    speed: int,
+    *,
+    enable_torque: bool = True,
+) -> None:
+    """Command every servo to its wire-radians goal at ``speed`` (no wait).
+
+    Order mirrors the bench-proven sequence: torque on (optional) -> goal speed -> goal
+    position, each goal write spaced by ``SERVO_SYNC_S`` for clean bus arbitration. An
+    empty ``targets`` is a no-op. The caller owns torque-off.
+    """
+    if enable_torque:
+        for sid in targets:
+            controller.write_torque_enable(sid, 1)
+    for sid in sorted(targets):
+        controller.write_goal_speed(sid, speed)
+        time.sleep(SERVO_SYNC_S)
+    for sid in sorted(targets):
+        controller.write_goal_position(sid, targets[sid])
+        time.sleep(SERVO_SYNC_S)
+
+
+def wait_hand_reached(
+    controller,
+    targets: dict[int, float],
+    *,
+    tolerance_rad: float,
+    timeout_s: float,
+    poll_s: float,
+) -> bool:
+    """Poll ``read_present_position`` until every servo in ``targets`` (id -> goal radians) is
+    within ``tolerance_rad`` of its goal. Returns True if all reached; on timeout prints a note
+    to stderr and returns False (never raises, never hangs). Empty ``targets`` -> True.
+    """
+    if not targets:
+        return True
+    start = time.monotonic()
+    while time.monotonic() - start < timeout_s:
+        if all(
+            abs(_scalar(controller.read_present_position(sid)) - goal) <= tolerance_rad
+            for sid, goal in targets.items()
+        ):
+            return True
+        time.sleep(poll_s)
+    print("  (hand not fully reached within timeout -- continuing)", file=sys.stderr)
+    return False
+
+
+def drive_hand_servos(
+    controller,
+    targets: dict[int, float],
+    speed: int,
+    *,
+    tolerance_rad: float,
+    timeout_s: float,
+    poll_s: float,
+    enable_torque: bool = True,
+) -> bool:
+    """``write_hand_servos`` then ``wait_hand_reached``; returns the wait's bool."""
+    write_hand_servos(controller, targets, speed, enable_torque=enable_torque)
+    return wait_hand_reached(
+        controller, targets, tolerance_rad=tolerance_rad, timeout_s=timeout_s, poll_s=poll_s
+    )
+```
+
+- [ ] **Step 4: Export from `src/arm101_hand/hand/__init__.py`.** Add an import block (after the `.kinematics` import) and three `__all__` entries:
+
+```python
+from .motion import (
+    drive_hand_servos,
+    wait_hand_reached,
+    write_hand_servos,
+)
+```
+
+and add `"drive_hand_servos"`, `"wait_hand_reached"`, `"write_hand_servos"` to `__all__`.
+
+- [ ] **Step 5: Verify**
+
+Run: `uv run pytest tests/unit/test_hand_motion.py -v; uv run ruff check . ; uv run mypy src`
+Expected: 7 tests pass; ruff + mypy clean.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/arm101_hand/hand/motion.py src/arm101_hand/hand/__init__.py tests/unit/test_hand_motion.py
+git commit -m "feat(hand): add write/wait/drive hand-servo position-poll helpers"
+```
+
+---
+
+### Task 6: Rewire `grab_sequence.py` for pre_grab + hand polling + new reverse
+
+**Files:** Rewrite `scripts/demos/grab_sequence.py`.
+
+- [ ] **Step 1: Overwrite the file** with exactly:
+
+```python
+"""Grab demo: stage the SO-ARM101 into its ``grab`` pose, close the AmazingHand,
+hold both under torque, and reverse the whole thing on exit.
+
+Forward sequence (each stage position-confirmed -- arm AND hand -- before the next):
+  1. shoulder_pan -> base_max (its calibrated upper bound)
+  2. shoulder_lift + elbow_flex + wrist_flex + wrist_roll -> grab, AND hand -> pre_grab
+     (commanded together, then both polled to completion)
+  3. shoulder_pan -> grab
+  4. hand fingers -> grab (closes onto the object; stalls -> times out -> continues)
+
+The two devices live on separate buses (arm = 12 V STS3215, hand = 5 V SCS0009) on
+different COM ports, so both are held open at once -- no shared rail (IL-1) and one
+owner per bus (IL-4).
+
+On exit:
+  * plain Enter / Ctrl+C / EOF -> release BOTH in place (no movement); the arm will
+    sag from a raised pose -- you are warned at the prompt.
+  * 'h' -> run the sequence in REVERSE: hand -> pre_grab, then shoulder_pan -> base_max,
+    then the four posture joints -> home, then shoulder_pan -> home, then (arm now at
+    home) hand -> open. Each move is position-confirmed. Torque on BOTH buses is always
+    cut at the end, even if a leg fails partway through.
+
+Poses come from version-controlled config (IL-5; never written here):
+  * arm  -> src/arm101_hand/data/arm_config.yaml ``poses['grab']`` / ``poses['home']``
+  * hand -> src/arm101_hand/data/hand_config.yaml ``poses['grab']`` / ``poses['pre_grab']``
+            (``open`` is built-in / limits-derived)
+
+Usage:
+  uv run python scripts/demos/grab_sequence.py
+"""
+
+from __future__ import annotations
+
+import contextlib
+import math
+import sys
+from pathlib import Path
+
+from rustypot import Scs0009PyController
+
+from arm101_hand.config import load_arm_config, load_hand_calibration, load_hand_config
+from arm101_hand.hand import (
+    drive_hand_servos,
+    resolve_hand_pose_targets,
+    wait_hand_reached,
+    write_hand_servos,
+)
+from arm101_hand.robots.calibration_summary import (
+    ARM_JOINTS,
+    clamp_degrees,
+    degree_bounds,
+    load_arm_calibration,
+)
+from arm101_hand.scripts.device_setup import (
+    ARM_CONFIG_PATH,
+    CALIB_PATH,
+    build_follower,
+    confirm_and_release,
+    drive_arm_joints,
+    gentle_velocity,
+    load_arm_app_config,
+    load_home_degrees,
+)
+
+# scripts/demos/grab_sequence.py -> repo root is parents[2].
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+HAND_CALIB_PATH = _REPO_ROOT / "scripts" / "calibration" / "amazing_hand" / "hand_calib_values.yaml"
+HAND_CONFIG_PATH = _REPO_ROOT / "src" / "arm101_hand" / "data" / "hand_config.yaml"
+
+ARM_POSE = "grab"
+HAND_POSE = "grab"
+HAND_PRE_GRAB_POSE = "pre_grab"
+HAND_OPEN_POSE = "open"
+PAN_JOINT = "shoulder_pan"
+# Everything except the base pan -- moved together in forward step 2 / reverse step R2.
+POSTURE_JOINTS = ("shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")
+
+
+def _build_arm_plan() -> tuple[dict[str, float], float]:
+    """Return (clamped ``grab`` targets per joint, shoulder_pan base_max in degrees).
+
+    Grab degrees are clamped to each joint's calibrated window (an out-of-range joint is
+    warned and skipped). ``base_max`` is shoulder_pan's calibrated upper degree bound.
+    """
+    poses = load_arm_config(ARM_CONFIG_PATH).poses
+    if ARM_POSE not in poses:
+        raise SystemExit(f"arm pose {ARM_POSE!r} not in {ARM_CONFIG_PATH} (poses)")
+    pose = poses[ARM_POSE].as_dict()
+    calib = load_arm_calibration(CALIB_PATH)
+    targets: dict[str, float] = {}
+    for joint in ARM_JOINTS:
+        raw = pose[joint]
+        clamped = clamp_degrees(raw, calib[joint].range_min, calib[joint].range_max)
+        if abs(clamped - raw) > 1e-6:
+            print(f"  WARNING: arm {joint} target {raw:.1f} deg out of range -> skipped")
+            continue
+        targets[joint] = clamped
+    if not targets:
+        raise SystemExit("ERROR: all arm joints out of range -- nothing to drive")
+    pan = calib[PAN_JOINT]
+    base_max_deg = degree_bounds(pan.range_min, pan.range_max)[1]
+    return targets, base_max_deg
+
+
+def main() -> int:
+    # Resolve everything before touching hardware -- fail fast, leave no bus open.
+    arm_targets, base_max_deg = _build_arm_plan()
+
+    hand_calib = load_hand_calibration(HAND_CALIB_PATH)
+    hand_cfg = load_hand_config(HAND_CONFIG_PATH) if HAND_CONFIG_PATH.is_file() else None
+    if hand_cfg is None or HAND_POSE not in hand_cfg.poses:
+        raise SystemExit(f"hand pose {HAND_POSE!r} not in {HAND_CONFIG_PATH} (poses)")
+    if HAND_PRE_GRAB_POSE not in hand_cfg.poses:
+        raise SystemExit(f"hand pose {HAND_PRE_GRAB_POSE!r} not in {HAND_CONFIG_PATH} (poses)")
+    hand_targets = resolve_hand_pose_targets(hand_calib, hand_cfg, HAND_POSE)
+    hand_pre_grab_targets = resolve_hand_pose_targets(hand_calib, hand_cfg, HAND_PRE_GRAB_POSE)
+    # Open targets are built-in (limits-derived); used as the final reverse step.
+    hand_open_targets = resolve_hand_pose_targets(hand_calib, hand_cfg, HAND_OPEN_POSE)
+
+    cfg = load_arm_app_config()
+    follower = build_follower(cfg, use_degrees=True)  # DEGREES
+    vel = gentle_velocity(cfg)
+    home = load_home_degrees()
+    arm_tuning = cfg.tuning
+    # The home_* tuning (tolerance/timeout/poll) governs every staged arm move here, not just
+    # homing -- the grab stages use the same position-wait, so we reuse it rather than add new keys.
+    wait_kw = {
+        "tolerance": arm_tuning.home_tolerance_steps,
+        "timeout_s": arm_tuning.home_timeout_s,
+        "poll_s": arm_tuning.home_poll_s,
+    }
+    # Hand position-poll params: tolerance from pose_margin_deg (radians), timeout/poll from config.
+    hand_wait_kw = {
+        "tolerance_rad": math.radians(hand_cfg.tuning.pose_margin_deg),
+        "timeout_s": hand_cfg.tuning.pose_timeout_s,
+        "poll_s": hand_cfg.tuning.pose_poll_s,
+    }
+    hand_speed = hand_cfg.tuning.speed
+    hand_open_speed = hand_cfg.tuning.speeds.open
+
+    # Per-stage arm joint subsets (degrees). Built from arm_targets so a skipped joint drops out.
+    posture_grab = {j: arm_targets[j] for j in POSTURE_JOINTS if j in arm_targets}
+    posture_home = {j: home[j] for j in POSTURE_JOINTS}
+    pan_grab = {PAN_JOINT: arm_targets[PAN_JOINT]} if PAN_JOINT in arm_targets else {}
+    pan_base_max = {PAN_JOINT: base_max_deg}
+    pan_home = {PAN_JOINT: home[PAN_JOINT]}
+
+    hand = Scs0009PyController(
+        serial_port=hand_cfg.connection.port,
+        baudrate=hand_cfg.connection.baudrate,
+        timeout=hand_cfg.connection.timeout,
+    )
+
+    def _staged_reverse() -> None:
+        """Reverse of the forward grab, run when the user types 'h' on exit.
+
+        hand -> pre_grab, then arm pan->base_max / posture->home / pan->home, then (arm at
+        home) hand -> open. The hand holds each pose under torque between stages; both torques
+        are cut by the caller (confirm_and_release for the arm, the outer finally for the hand).
+        """
+        print(f"  [Rh] hand -> '{HAND_PRE_GRAB_POSE}' on {hand_cfg.connection.port} ...")
+        drive_hand_servos(hand, hand_pre_grab_targets, hand_open_speed, **hand_wait_kw)
+        print(f"  [R3] shoulder_pan -> base_max ({base_max_deg:.1f} deg) ...")
+        drive_arm_joints(follower, pan_base_max, vel, **wait_kw)
+        print("  [R2] shoulder_lift/elbow_flex/wrist_flex/wrist_roll -> home ...")
+        drive_arm_joints(follower, posture_home, vel, **wait_kw)
+        print("  [R1] shoulder_pan -> home ...")
+        drive_arm_joints(follower, pan_home, vel, **wait_kw)
+        print(f"  [Ro] arm home -- hand -> '{HAND_OPEN_POSE}' ...")
+        drive_hand_servos(hand, hand_open_targets, hand_open_speed, **hand_wait_kw)
+
+    arm_torque_on = False
+    try:
+        # ---- Arm leg: connect, push on-file calibration, enable torque ----
+        print(f"Connecting arm on {cfg.connection.port} ...")
+        try:
+            follower.connect(calibrate=False)
+        except (ConnectionError, OSError) as e:
+            print(f"ERROR: could not open arm port {cfg.connection.port}: {e}", file=sys.stderr)
+            return 1
+        follower.bus.write_calibration(follower.calibration)
+        follower.bus.enable_torque()
+        arm_torque_on = True
+
+        # ---- Forward grab, staged ----
+        print(f"  [1] shoulder_pan -> base_max ({base_max_deg:.1f} deg) ...")
+        drive_arm_joints(follower, pan_base_max, vel, **wait_kw)
+
+        # Step 2: command the hand (pre_grab) and the arm posture together, then confirm BOTH.
+        print(f"  [2] posture -> grab + hand -> '{HAND_PRE_GRAB_POSE}' (together) ...")
+        write_hand_servos(hand, hand_pre_grab_targets, hand_speed)
+        drive_arm_joints(follower, posture_grab, vel, **wait_kw)
+        wait_hand_reached(hand, hand_pre_grab_targets, **hand_wait_kw)
+
+        if not pan_grab:
+            print("  WARNING: shoulder_pan out of range -- [3] is a no-op; pan stays at base_max")
+        print("  [3] shoulder_pan -> grab ...")
+        drive_arm_joints(follower, pan_grab, vel, **wait_kw)
+        print(f"Arm holding '{ARM_POSE}': {arm_targets}")
+
+        # ---- Hand leg: close into grab (stalls on the object -> timeout -> continue) ----
+        print(f"  [4] hand -> '{HAND_POSE}' on {hand_cfg.connection.port} ...")
+        drive_hand_servos(hand, hand_targets, hand_speed, **hand_wait_kw)
+        print(f"Arm + hand holding '{ARM_POSE}'/'{HAND_POSE}' under torque.")
+    except (EOFError, KeyboardInterrupt):
+        print("\n^C/EOF -- exiting")
+    finally:
+        # Release the arm first: confirm_and_release prompts 'h'/Enter (both stay gripped
+        # during the prompt). 'h' runs _staged_reverse; plain Enter releases in place. The hand
+        # release lives in an inner finally so it ALWAYS runs -- neither bus may be left torqued (IL-4).
+        try:
+            if follower.is_connected:
+                confirm_and_release(
+                    follower,
+                    arm_torque_on,
+                    home,
+                    vel,
+                    offer_home=True,
+                    home_routine=_staged_reverse,
+                    tuning=arm_tuning,
+                )
+                with contextlib.suppress(Exception):
+                    follower.disconnect()
+                print("Arm bus closed.")
+        finally:
+            print("Releasing hand torque.")
+            for sid in hand_targets:
+                with contextlib.suppress(Exception):
+                    hand.write_torque_enable(sid, 0)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+- [ ] **Step 2: Verify (host)**
+
+Run: `uv run ruff format scripts/demos/grab_sequence.py; uv run ruff check . ; uv run python -c "import ast; ast.parse(open(r'scripts/demos/grab_sequence.py', encoding='utf-8').read()); print('parse-ok')"; uv run pytest -m 'not hardware'`
+Expected: ruff clean, `parse-ok`, all tests pass.
+
+- [ ] **Step 3: SKIP the hardware run** — operator-only (see the consolidated hardware checklist at the end of this extension). Note it as pending in the report.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add scripts/demos/grab_sequence.py
+git commit -m "feat(demo): grab_sequence step-2 pre_grab + hand position polling + reverse-to-open"
+```
+
+---
+
+### Task 7: Retrofit `set_pose.py` to position polling
+
+**Files:** Modify `scripts/calibration/amazing_hand/set_pose.py`.
+
+- [ ] **Step 1: Update imports.** Replace:
+
+```python
+import contextlib
+import sys
+import time
+from pathlib import Path
+
+from rustypot import Scs0009PyController
+
+from arm101_hand.config import HandConfig, load_hand_calibration, load_hand_config
+from arm101_hand.hand import BUILTIN_POSES, available_pose_names, resolve_hand_pose_targets
+from arm101_hand.hand.protocol import SERVO_SYNC_S
+```
+
+with:
+
+```python
+import contextlib
+import math
+import sys
+from pathlib import Path
+
+from rustypot import Scs0009PyController
+
+from arm101_hand.config import HandConfig, load_hand_calibration, load_hand_config
+from arm101_hand.hand import (
+    BUILTIN_POSES,
+    available_pose_names,
+    drive_hand_servos,
+    resolve_hand_pose_targets,
+)
+```
+
+- [ ] **Step 2: Delete the local `drive_targets` function** (the whole `def drive_targets(c, targets, speed): ...` block).
+
+- [ ] **Step 3: Replace the drive call.** In `main`, change:
+
+```python
+    print(f"Setting hand to '{pose}'{detail}...")
+    try:
+        drive_targets(c, targets, speed)
+        print(f"Hand held at '{pose}' under torque.")
+        input("Press Enter to release torque and exit... ")
+```
+
+to:
+
+```python
+    print(f"Setting hand to '{pose}'{detail}...")
+    try:
+        drive_hand_servos(
+            c,
+            targets,
+            speed,
+            tolerance_rad=math.radians(hcfg.tuning.pose_margin_deg),
+            timeout_s=hcfg.tuning.pose_timeout_s,
+            poll_s=hcfg.tuning.pose_poll_s,
+            enable_torque=False,  # set_pose already enabled torque above
+        )
+        print(f"Hand held at '{pose}' under torque.")
+        input("Press Enter to release torque and exit... ")
+```
+
+- [ ] **Step 4: Verify (host)**
+
+Run: `uv run ruff format scripts/calibration/amazing_hand/set_pose.py; uv run ruff check . ; uv run python -c "import ast; ast.parse(open(r'scripts/calibration/amazing_hand/set_pose.py', encoding='utf-8').read()); print('parse-ok')"`
+Expected: ruff clean (no unused `time`/`SERVO_SYNC_S`), `parse-ok`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add scripts/calibration/amazing_hand/set_pose.py
+git commit -m "refactor(hand): set_pose.py drives via position-polling drive_hand_servos"
+```
+
+---
+
+### Task 8: Retrofit `finger_test.py` to poll-then-dwell
+
+**Files:** Modify `scripts/calibration/amazing_hand/finger_test.py`.
+
+- [ ] **Step 1: Update imports.** Change:
+
+```python
+from arm101_hand.hand import compose_finger, degrees_to_servo_radians
+```
+
+to:
+
+```python
+import math
+
+from arm101_hand.hand import compose_finger, degrees_to_servo_radians, wait_hand_reached
+```
+
+(Place `import math` with the other stdlib imports at the top; the `wait_hand_reached` goes on the existing `from arm101_hand.hand import` line.)
+
+- [ ] **Step 2: Make `_send_pose` return its goal dict and drop its trailing sleep.** Replace:
+
+```python
+def _send_pose(c, id1, id2, mp1, mp2, base, side, speed):
+    pos1, pos2 = compose_finger(base, side)
+    c.write_goal_speed(id1, speed)
+    c.write_goal_speed(id2, speed)
+    c.write_goal_position(id1, degrees_to_servo_radians(id1, pos1, mp1))
+    c.write_goal_position(id2, degrees_to_servo_radians(id2, pos2, mp2))
+    time.sleep(0.01)
+```
+
+with:
+
+```python
+def _send_pose(c, id1, id2, mp1, mp2, base, side, speed):
+    """Write the finger's two goals; return {id: goal_radians} for arrival polling."""
+    pos1, pos2 = compose_finger(base, side)
+    c.write_goal_speed(id1, speed)
+    c.write_goal_speed(id2, speed)
+    rad1 = degrees_to_servo_radians(id1, pos1, mp1)
+    rad2 = degrees_to_servo_radians(id2, pos2, mp2)
+    c.write_goal_position(id1, rad1)
+    c.write_goal_position(id2, rad2)
+    return {id1: rad1, id2: rad2}
+```
+
+- [ ] **Step 3: Poll arrival before each observation dwell.** In `main`, add the poll params after `speed = hcfg.tuning.speed`:
+
+```python
+    tol_rad = math.radians(hcfg.tuning.pose_margin_deg)
+    timeout_s = hcfg.tuning.pose_timeout_s
+    poll_s = hcfg.tuning.pose_poll_s
+```
+
+and change the loop body:
+
+```python
+            for label, base, side, dwell in sequence:
+                print(f"  -> {label}  (base={base}, side={side})")
+                _send_pose(c, id1, id2, mp1, mp2, base, side, speed)
+                time.sleep(dwell)
+```
+
+to:
+
+```python
+            for label, base, side, dwell in sequence:
+                print(f"  -> {label}  (base={base}, side={side})")
+                targets = _send_pose(c, id1, id2, mp1, mp2, base, side, speed)
+                wait_hand_reached(c, targets, tolerance_rad=tol_rad, timeout_s=timeout_s, poll_s=poll_s)
+                time.sleep(dwell)
+```
+
+- [ ] **Step 4: Verify (host)**
+
+Run: `uv run ruff format scripts/calibration/amazing_hand/finger_test.py; uv run ruff check . ; uv run python -c "import ast; ast.parse(open(r'scripts/calibration/amazing_hand/finger_test.py', encoding='utf-8').read()); print('parse-ok')"`
+Expected: ruff clean, `parse-ok`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add scripts/calibration/amazing_hand/finger_test.py
+git commit -m "refactor(hand): finger_test.py confirms arrival before each observation dwell"
+```
+
+---
+
+### Task 9: Retrofit `full_hand_test.py` to poll-then-dwell
+
+**Files:** Rewrite `scripts/calibration/amazing_hand/full_hand_test.py` with exactly (keep the module docstring; the changes are: `_move`/`Move_*`/`Open/Close/InitialPose` return their `{id: rad}` dicts, a `_wait` helper, and `wait_hand_reached` before each observation dwell):
+
+```python
+"""
+AmazingHand Full-Hand Test Script
+
+This script runs a complete sequence of movements for the 4-finger AmazingHand
+(right hand configuration). It cycles through:
+1. Closing all fingers into a fist
+2. Opening all fingers
+3. Isolating and moving the Index finger
+4. Isolating and moving the Middle finger
+5. Isolating and moving the Ring finger
+6. Isolating and moving the Thumb
+7. Returning to the neutral (initial) pose
+
+It reads calibration values from 'hand_calib_values.yaml' and is intended
+to be the final end-to-end sanity check that proves the calibration is correct.
+"""
+
+import contextlib
+import math
+import time
+from pathlib import Path
+
+from rustypot import Scs0009PyController
+
+from arm101_hand.config import load_hand_calibration, load_hand_config
+from arm101_hand.config.motor_ids import FINGER_SERVO_IDS
+from arm101_hand.hand import compose_finger, degrees_to_servo_radians, wait_hand_reached
+from arm101_hand.hand.protocol import SERVO_SYNC_S
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+YAML_PATH = SCRIPT_DIR / "hand_calib_values.yaml"
+HAND_CONFIG_PATH = SCRIPT_DIR.parents[2] / "src" / "arm101_hand" / "data" / "hand_config.yaml"
+
+_cfg = load_hand_calibration(YAML_PATH)
+_hcfg = load_hand_config(HAND_CONFIG_PATH)
+_FINGERS = _cfg.fingers
+
+# Demo-specific speeds from hand_config.yaml tuning.speeds.
+MaxSpeed = _hcfg.tuning.speeds.open  # extension (quicker)
+CloseSpeed = _hcfg.tuning.speeds.close  # flexion (gentler settle)
+
+# Position-poll params (confirm arrival before each observation dwell).
+_TOL_RAD = math.radians(_hcfg.tuning.pose_margin_deg)
+_TIMEOUT_S = _hcfg.tuning.pose_timeout_s
+_POLL_S = _hcfg.tuning.pose_poll_s
+
+c = Scs0009PyController(
+    serial_port=_hcfg.connection.port,
+    baudrate=_hcfg.connection.baudrate,
+    timeout=_hcfg.connection.timeout,
+)
+
+
+def _wait(targets):
+    """Poll until the just-commanded servos arrive (or timeout); caller keeps its dwell."""
+    wait_hand_reached(c, targets, tolerance_rad=_TOL_RAD, timeout_s=_TIMEOUT_S, poll_s=_POLL_S)
+
+
+# ---------- per-finger motion helpers ----------
+
+
+def _move(name, base, side, speed):
+    block = _FINGERS[name]
+    id1, id2 = FINGER_SERVO_IDS[name]
+    mp1 = block.servo_1.middle_pos
+    mp2 = block.servo_2.middle_pos
+    pos1, pos2 = compose_finger(base, side)
+    c.write_goal_speed(id1, speed)
+    time.sleep(SERVO_SYNC_S)
+    c.write_goal_speed(id2, speed)
+    time.sleep(SERVO_SYNC_S)
+    rad1 = degrees_to_servo_radians(id1, pos1, mp1)
+    rad2 = degrees_to_servo_radians(id2, pos2, mp2)
+    c.write_goal_position(id1, rad1)
+    c.write_goal_position(id2, rad2)
+    return {id1: rad1, id2: rad2}
+
+
+def _limits(name):
+    return _FINGERS[name].limits
+
+
+def Move_Index(base, side, speed):  # noqa: N802
+    return _move("index", base, side, speed)
+
+
+def Move_Middle(base, side, speed):  # noqa: N802
+    return _move("middle", base, side, speed)
+
+
+def Move_Ring(base, side, speed):  # noqa: N802
+    return _move("ring", base, side, speed)
+
+
+def Move_Thumb(base, side, speed):  # noqa: N802
+    return _move("thumb", base, side, speed)
+
+
+_MOVERS = {
+    "index": Move_Index,
+    "middle": Move_Middle,
+    "ring": Move_Ring,
+    "thumb": Move_Thumb,
+}
+
+
+# ---------- poses (right hand) ----------
+
+
+def _close(name):
+    return _limits(name).base_max, 0
+
+
+def _open(name):
+    return _limits(name).base_min, 0
+
+
+def _spread_pose(name, frac):
+    # An isolation pose: nearly open, spread by ``frac`` of the side range.
+    lim = _limits(name)
+    side = int((lim.side_max if frac > 0 else lim.side_min) * abs(frac))
+    return lim.base_min, side
+
+
+def InitialPose():  # noqa: N802
+    targets = {}
+    for name, mover in _MOVERS.items():
+        targets.update(mover(*_open(name), MaxSpeed))
+    return targets
+
+
+def OpenHand():  # noqa: N802
+    targets = {}
+    for name, mover in _MOVERS.items():
+        targets.update(mover(*_open(name), MaxSpeed))
+    return targets
+
+
+def CloseHand():  # noqa: N802
+    targets = {}
+    for name, mover in _MOVERS.items():
+        targets.update(mover(*_close(name), CloseSpeed))
+    return targets
+
+
+def _isolate(active):
+    # Close every finger except ``active``, which sweeps its spread range.
+    targets = {}
+    for name, mover in _MOVERS.items():
+        if name != active:
+            targets.update(mover(*_close(name), MaxSpeed))
+    targets.update(_MOVERS[active](*_open(active), MaxSpeed))
+    _wait(targets)
+    time.sleep(0.6)
+    _wait(_MOVERS[active](*_spread_pose(active, 1.0), MaxSpeed))
+    time.sleep(0.4)
+    _wait(_MOVERS[active](*_spread_pose(active, -1.0), MaxSpeed))
+    time.sleep(0.4)
+    _wait(_MOVERS[active](*_open(active), MaxSpeed))
+
+
+def IndexOnly():  # noqa: N802
+    _isolate("index")
+
+
+def MiddleOnly():  # noqa: N802
+    _isolate("middle")
+
+
+def RingOnly():  # noqa: N802
+    _isolate("ring")
+
+
+def ThumbOnly():  # noqa: N802
+    _isolate("thumb")
+
+
+def main():
+    for finger_name in _FINGERS:
+        id1, id2 = FINGER_SERVO_IDS[finger_name]
+        c.write_torque_enable(id1, 1)
+        c.write_torque_enable(id2, 1)
+
+    print("Running AmazingHand full-hand demo (right hand, one cycle)...")
+    try:
+        _wait(CloseHand())
+        time.sleep(2)
+
+        _wait(OpenHand())
+        time.sleep(1)
+
+        IndexOnly()
+        time.sleep(1.5)
+
+        MiddleOnly()
+        time.sleep(1.5)
+
+        RingOnly()
+        time.sleep(1.5)
+
+        ThumbOnly()
+        time.sleep(1.5)
+
+        _wait(InitialPose())
+        time.sleep(1)
+        print("Cycle complete -- holding middle (initial) pose under torque.")
+        input("Press Enter to release torque and exit... ")
+    except KeyboardInterrupt:
+        print("\n^C -- aborting")
+    finally:
+        for finger_name in _FINGERS:
+            id1, id2 = FINGER_SERVO_IDS[finger_name]
+            for sid in (id1, id2):
+                with contextlib.suppress(Exception):
+                    c.write_torque_enable(sid, 0)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+- [ ] **Step 1b: Verify (host)**
+
+Run: `uv run ruff format scripts/calibration/amazing_hand/full_hand_test.py; uv run ruff check . ; uv run python -c "import ast; ast.parse(open(r'scripts/calibration/amazing_hand/full_hand_test.py', encoding='utf-8').read()); print('parse-ok')"; uv run pytest -m 'not hardware'`
+Expected: ruff clean, `parse-ok`, all tests pass.
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add scripts/calibration/amazing_hand/full_hand_test.py
+git commit -m "refactor(hand): full_hand_test.py confirms arrival before each observation dwell"
+```
+
+---
+
+## Consolidated hardware verification (operator-only, after Tasks 4-9)
+
+> Both buses powered (arm 12 V, hand 5 V), ports free (IL-4). The hand scripts and grab_sequence cannot be unit-tested for motion ordering — these manual checks are the only guard.
+
+- [ ] **grab_sequence forward:** `[1] -> [2] (posture + hand pre_grab together) -> [3] -> [4]`; in step 2 the arm posture and the hand visibly move together, and step 3 does not start until BOTH have settled.
+- [ ] **No `(hand not fully reached within timeout -- continuing)` during pre_grab / open** (free-space moves should reach). It IS expected during `[4]` if a real object is gripped.
+- [ ] **No `(target not fully reached within timeout -- continuing)`** (arm) during any stage.
+- [ ] **grab_sequence exit 'h':** hand -> pre_grab, then pan -> base_max, posture -> home, pan -> home, then hand -> open; both torques release at the end.
+- [ ] **grab_sequence exit Enter / Ctrl+C:** both release in place, no motion.
+- [ ] **set_pose.py `<pose>`:** drives to the pose and holds; for a free-space pose it confirms arrival quietly; `open`/`close` reach; a stalled pose times out then holds.
+- [ ] **finger_test.py:** each endpoint is reached (no buzz) and then dwelt-on for the full observation pause.
+- [ ] **full_hand_test.py:** the cycle runs; each pose confirms arrival before its dwell; releases on Enter.
+
+## Extension self-review
+
+- **Spec coverage:** step-2 hand pre_grab + "wait for both" (Task 6 `write_hand_servos` → `drive_arm_joints` → `wait_hand_reached`); grab-close timeout-then-continue (`drive_hand_servos` returns False on stall, never hangs); reverse hand→pre_grab first + hand→open last (Task 6 `_staged_reverse`); hand polling everywhere (Task 5 helper, retrofits Tasks 7-9); config knobs (Task 4). ✓
+- **Placeholder scan:** all code blocks complete; README edit gives the exact text to add. ✓
+- **Type/name consistency:** `write_hand_servos`/`wait_hand_reached`/`drive_hand_servos` signatures identical across motion.py (def), grab_sequence/set_pose/finger_test/full_hand_test (calls), and tests. `pose_timeout_s`/`pose_poll_s` identical in `HandTuning`, yaml, README, and every reader. `hand_wait_kw` keys (`tolerance_rad`/`timeout_s`/`poll_s`) match `wait_hand_reached`'s keyword-only params. ✓
