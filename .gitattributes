@@ -1,0 +1,15 @@
+# Normalize line endings: store LF in the repo and check out LF everywhere.
+# This silences the recurring "LF will be replaced by CRLF" warnings on Windows.
+# Existing files renormalize only when next staged; no mass rewrite is forced here.
+* text=auto eol=lf
+
+# Binary assets — never apply line-ending conversion.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.stl   binary
+*.step  binary
+*.bin   binary
