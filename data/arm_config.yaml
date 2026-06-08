@@ -1,16 +1,17 @@
 # data/arm_config.yaml -- arm poses (degrees per joint; lerobot use_degrees mode).
 # MACHINE-MANAGED: rewritten by jog.py ('s' to save); do not hand-edit
 # (comments are regenerated on save). 'home' is the default parking / safe-park pose.
-#
-# Joint values are DEGREES relative to each joint's calibrated midpoint. Readers clamp
-# every value to range_min..range_max from so101_follower.json and skip out-of-range
-# joints. 'home' is the folded-against-base storage pose the motion scripts return to
-# before releasing torque; captured from hardware on 2026-06-03.
 schema_version: 1
 poses:
   home:
-    shoulder_pan: 80.2
-    shoulder_lift: -104.9
-    elbow_flex: 91.0
-    wrist_flex: -102.9
-    wrist_roll: -0.2
+    shoulder_pan: 80.79120879120879
+    shoulder_lift: -104.52747252747253
+    elbow_flex: 90.76923076923077
+    wrist_flex: -97.31868131868131
+    wrist_roll: -0.3076923076923077
+  grab:
+    shoulder_pan: 84.21978021978022
+    shoulder_lift: -102.68131868131869
+    elbow_flex: 90.85714285714286
+    wrist_flex: 31.64835164835165
+    wrist_roll: -84.96703296703296

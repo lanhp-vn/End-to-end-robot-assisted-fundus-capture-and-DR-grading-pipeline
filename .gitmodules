@@ -16,9 +16,6 @@
 [submodule "references/SO-ARM100"]
 	path = references/SO-ARM100
 	url = https://github.com/TheRobotStudio/SO-ARM100
-[submodule "references/AmazingHandControl"]
-	path = references/AmazingHandControl
-	url = https://github.com/Betatester777/AmazingHandControl
 [submodule "references/Anthropic/skills"]
 	path = references/Anthropic/skills
 	url = https://github.com/anthropics/skills
