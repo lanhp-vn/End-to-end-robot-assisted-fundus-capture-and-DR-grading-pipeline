@@ -32,3 +32,10 @@ def test_pose_pair_must_be_length_2(tmp_path: Path):
     )
     with pytest.raises(ValidationError):
         load_hand_config(out)
+
+
+def test_extra_key_rejected(tmp_path: Path):
+    out = tmp_path / "bad.yaml"
+    out.write_text("schema_version: 1\nbogus: true\n", encoding="utf-8")
+    with pytest.raises(ValidationError):
+        load_hand_config(out)

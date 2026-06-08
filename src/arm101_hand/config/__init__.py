@@ -7,6 +7,12 @@
 """
 
 from .app_config import AppConfig, load_app_config
+
+# NOTE (transition): arm_config.ArmPose and hand_config.HandPose are intentionally
+# NOT imported here, so the bare names ArmPose / HandPose keep resolving to the
+# legacy arm_poses / hand_poses classes that existing scripts still use. Once
+# arm_poses.py / hand_poses.py are removed in the hand/arm switch tasks, promote
+# the new classes to the bare names and delete this note.
 from .arm_config import ArmConfig, ArmConnection, ArmSafety, ArmTuning, load_arm_config, save_arm_config
 from .arm_poses import ARM_MOTORS, ArmPose, ArmPoseConfig, load_arm_poses, save_arm_poses
 from .calibration import (

@@ -14,8 +14,6 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from arm101_hand.config.motor_ids import FINGER_NAMES
-
 _PAIR = Field(min_length=2, max_length=2)
 
 
@@ -97,17 +95,3 @@ def save_hand_config(path: Path, config: HandConfig) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(_HAND_SAVE_HEADER + body, encoding="utf-8")
     os.replace(tmp, path)
-
-
-# Re-exported so callers don't reach into motor_ids for the canonical order.
-__all__ = [
-    "HandConfig",
-    "HandConnection",
-    "HandSafety",
-    "HandSpeeds",
-    "HandTuning",
-    "HandPose",
-    "load_hand_config",
-    "save_hand_config",
-    "FINGER_NAMES",
-]
