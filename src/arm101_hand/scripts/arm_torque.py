@@ -20,7 +20,6 @@ from arm101_hand.scripts.device_setup import ARM_CONFIG_PATH, build_follower
 
 
 def main() -> int:
-    # Imported lazily so ``--help`` (future) wouldn't pay the lerobot import cost.
     try:
         cfg = load_arm_config(ARM_CONFIG_PATH)
     except FileNotFoundError:

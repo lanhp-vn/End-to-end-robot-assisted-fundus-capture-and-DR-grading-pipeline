@@ -36,7 +36,7 @@ from _common import (
     load_home_degrees,
 )
 
-from arm101_hand.config import ArmPose, load_arm_config, save_arm_config
+from arm101_hand.config import ArmConfig, ArmPose, load_arm_config, save_arm_config
 from arm101_hand.robots.arm_jog import (
     ARM_JOINTS,
     apply_action,
@@ -81,8 +81,6 @@ def _save_pose(follower) -> None:
         print("  save cancelled")
         return
     # Load-modify-save: preserve connection/safety/tuning, only update poses.
-    from arm101_hand.config import ArmConfig
-
     config = load_arm_config(ARM_CONFIG_PATH) if ARM_CONFIG_PATH.is_file() else ArmConfig()
     config.poses[name] = ArmPose(**_present_degrees(follower))
     save_arm_config(ARM_CONFIG_PATH, config)

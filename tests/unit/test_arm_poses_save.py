@@ -17,7 +17,7 @@ _POSE = {
 
 def test_save_then_load_round_trips(tmp_path: Path) -> None:
     path = tmp_path / "arm_config.yaml"
-    cfg = ArmConfig(poses={"a": ArmPose(**_POSE)})  # type: ignore[arg-type]
+    cfg = ArmConfig(poses={"a": ArmPose(**_POSE)})
     save_arm_config(path, cfg)
     loaded = load_arm_config(path)
     assert loaded.poses["a"].as_dict() == _POSE
@@ -25,7 +25,7 @@ def test_save_then_load_round_trips(tmp_path: Path) -> None:
 
 def test_save_upserts_into_existing(tmp_path: Path) -> None:
     path = tmp_path / "arm_config.yaml"
-    cfg = ArmConfig(poses={"a": ArmPose(**_POSE)})  # type: ignore[arg-type]
+    cfg = ArmConfig(poses={"a": ArmPose(**_POSE)})
     save_arm_config(path, cfg)
     # Load-modify-save: add a second pose
     cfg2 = load_arm_config(path)
@@ -38,7 +38,7 @@ def test_save_upserts_into_existing(tmp_path: Path) -> None:
 
 def test_save_preserves_connection_and_tuning(tmp_path: Path) -> None:
     path = tmp_path / "arm_config.yaml"
-    cfg = ArmConfig(poses={"a": ArmPose(**_POSE)})  # type: ignore[arg-type]
+    cfg = ArmConfig(poses={"a": ArmPose(**_POSE)})
     cfg.tuning.load_warn = 333
     save_arm_config(path, cfg)
     loaded = load_arm_config(path)
@@ -48,7 +48,7 @@ def test_save_preserves_connection_and_tuning(tmp_path: Path) -> None:
 
 def test_save_leaves_no_tmp_file(tmp_path: Path) -> None:
     path = tmp_path / "arm_config.yaml"
-    cfg = ArmConfig(poses={"a": ArmPose(**_POSE)})  # type: ignore[arg-type]
+    cfg = ArmConfig(poses={"a": ArmPose(**_POSE)})
     save_arm_config(path, cfg)
     assert path.is_file()
     assert not (tmp_path / "arm_config.yaml.tmp").exists()

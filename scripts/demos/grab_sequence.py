@@ -15,7 +15,7 @@ is released. Torque on BOTH buses is always cut, even if one leg fails partway
 through.
 
 Poses come from version-controlled config (IL-5; never written here):
-  * arm  -> data/arm_config.yaml ``poses['grab']``
+  * arm  -> src/arm101_hand/data/arm_config.yaml ``poses['grab']``
   * hand -> src/arm101_hand/data/hand_config.yaml ``poses['grab']``
 
 Usage:
