@@ -1,4 +1,4 @@
-"""Pure multi-finger jog state machine for ``scripts/calibration/AmazingHand/jog.py``.
+"""Pure multi-finger jog state machine for ``scripts/calibration/amazing_hand/jog.py``.
 
 No hardware, no ``msvcrt`` -- the testable core of the hand jog tool. The script reads
 raw keys, maps them via ``key_to_action``, advances a ``HandJogState`` via

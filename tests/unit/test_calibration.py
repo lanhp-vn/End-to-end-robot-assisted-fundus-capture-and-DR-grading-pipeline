@@ -81,7 +81,7 @@ def test_limits_by_finger_lookup():
 
 def test_loads_canonical_yaml():
     # The committed YAML must satisfy the v2 schema. Load it through the public loader.
-    path = Path("scripts/calibration/AmazingHand/AmazingHand_calib_values.yaml")
+    path = Path("scripts/calibration/amazing_hand/hand_calib_values.yaml")
     cal = load_hand_calibration(path)
     assert cal.schema_version == 2, "committed YAML is v2"
     assert len(cal.fingers) == 4, "committed YAML has all four fingers"

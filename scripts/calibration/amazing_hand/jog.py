@@ -5,7 +5,7 @@ resulting whole-hand pose by name into ``data/hand_config.yaml`` -- the same sto
 unified GUI's pose manager uses. Mirrors the arm's ``so_arm101/jog.py``.
 
 Config (serial + per-finger middle_pos + limits) is read from the canonical
-``AmazingHand_calib_values.yaml`` (IL-5: this script never writes it).
+``hand_calib_values.yaml`` (IL-5: this script never writes it).
 
 Controls (torque ON the whole time):
   1 2 3 4       select active finger (index / middle / ring / thumb)
@@ -55,8 +55,8 @@ from arm101_hand.hand.pose_jog import (
 )
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-YAML_PATH = SCRIPT_DIR / "AmazingHand_calib_values.yaml"
-# scripts/calibration/AmazingHand/jog.py -> repo root is parents[2].
+YAML_PATH = SCRIPT_DIR / "hand_calib_values.yaml"
+# scripts/calibration/amazing_hand/jog.py -> repo root is parents[2].
 REPO_ROOT = SCRIPT_DIR.parents[2]
 HAND_CONFIG_PATH = REPO_ROOT / "data" / "hand_config.yaml"
 

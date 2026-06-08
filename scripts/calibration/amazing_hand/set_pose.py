@@ -7,19 +7,19 @@ you press Enter, then releases. Unlike the test scripts it does not cycle; it
 just parks the hand in one position.
 
 Both poses are taken from the per-finger ``limits`` in
-``AmazingHand_calib_values.yaml`` (measured at Step 4 with
-``AmazingHand_RangeCalib.py``):
+``hand_calib_values.yaml`` (measured at Step 4 with
+``range_calib.py``):
 
   * open  -> every finger at ``base_min``, neutral spread (side = 0)
   * close -> every finger at ``base_max``, neutral spread (side = 0)
 
 Speeds (open / close) are read from the ``speeds:`` block in
-``AmazingHand_calib_values.yaml``.
+``hand_calib_values.yaml``.
 
 Usage:
-  uv run python scripts/calibration/AmazingHand/AmazingHand_SetPose.py open
-  uv run python scripts/calibration/AmazingHand/AmazingHand_SetPose.py close
-  uv run python scripts/calibration/AmazingHand/AmazingHand_SetPose.py   # prompts
+  uv run python scripts/calibration/amazing_hand/set_pose.py open
+  uv run python scripts/calibration/amazing_hand/set_pose.py close
+  uv run python scripts/calibration/amazing_hand/set_pose.py   # prompts
 """
 
 import contextlib
@@ -33,7 +33,7 @@ from arm101_hand.config import load_hand_calibration
 from arm101_hand.hand import compose_finger, degrees_to_servo_radians
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-YAML_PATH = SCRIPT_DIR / "AmazingHand_calib_values.yaml"
+YAML_PATH = SCRIPT_DIR / "hand_calib_values.yaml"
 
 VALID_POSES = ("open", "close")
 

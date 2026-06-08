@@ -1,7 +1,7 @@
 """AmazingHand Range Calibration Script (Step 4) — arrow-key jog-to-limit.
 
 Discovers per-finger DOF limits (logical-frame ``base``/``side`` min/max) on the
-real hardware and writes them into ``AmazingHand_calib_values.yaml``. Run AFTER
+real hardware and writes them into ``hand_calib_values.yaml``. Run AFTER
 middle-position calibration (Step 3).
 
 Controls (torque ON the whole time):
@@ -34,7 +34,7 @@ from arm101_hand.hand import (
 from arm101_hand.hand.range_calib import JogState
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-YAML_PATH = SCRIPT_DIR / "AmazingHand_calib_values.yaml"
+YAML_PATH = SCRIPT_DIR / "hand_calib_values.yaml"
 
 VALID_FINGERS = ("index", "middle", "ring", "thumb")
 

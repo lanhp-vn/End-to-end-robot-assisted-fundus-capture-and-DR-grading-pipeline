@@ -1,7 +1,7 @@
 """Pure jog-to-limit state machine for AmazingHand range calibration.
 
 No hardware, no ``msvcrt`` — this is the testable core of
-``scripts/calibration/AmazingHand/AmazingHand_RangeCalib.py``. The script reads
+``scripts/calibration/amazing_hand/range_calib.py``. The script reads
 raw keys, maps them via ``key_to_action``, advances a ``JogState`` via
 ``apply_action``, then composes the live ``(base, side)`` cursor into servo
 commands (using ``hand.kinematics.compose_finger`` +

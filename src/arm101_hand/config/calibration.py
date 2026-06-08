@@ -1,4 +1,4 @@
-"""Pydantic schema for ``scripts/calibration/AmazingHand/AmazingHand_calib_values.yaml``.
+"""Pydantic schema for ``scripts/calibration/amazing_hand/hand_calib_values.yaml``.
 
 Loads the YAML via :func:`load_hand_calibration` and writes it back atomically
 via :func:`save_hand_calibration`. The GUI and audit scripts consume the
@@ -73,7 +73,7 @@ class FingerCalibration(BaseModel):
 
 
 class HandCalibration(BaseModel):
-    """Top-level shape of ``AmazingHand_calib_values.yaml`` (v2)."""
+    """Top-level shape of ``hand_calib_values.yaml`` (v2)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -99,7 +99,7 @@ class HandCalibration(BaseModel):
 
 
 def load_hand_calibration(path: Path) -> HandCalibration:
-    """Parse and validate the AmazingHand calibration YAML."""
+    """Parse and validate the hand calibration YAML."""
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return HandCalibration.model_validate(raw)
 

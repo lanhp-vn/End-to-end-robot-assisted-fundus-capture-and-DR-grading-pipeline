@@ -6,7 +6,7 @@ middle positions of a specific finger's servos. It cycles the chosen finger
 between closed and open poses, and interactively prompts you to adjust the
 offset (in degrees) for each servo. This compensates for slight misalignments
 due to the discrete teeth on the servo splines. Adjusted values are saved to
-'AmazingHand_calib_values.yaml'.
+'hand_calib_values.yaml'.
 """
 
 import time
@@ -18,7 +18,7 @@ from arm101_hand.config import load_hand_calibration, save_hand_calibration
 from arm101_hand.hand import compose_finger, degrees_to_servo_radians
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-YAML_PATH = SCRIPT_DIR / "AmazingHand_calib_values.yaml"
+YAML_PATH = SCRIPT_DIR / "hand_calib_values.yaml"
 
 VALID_FINGERS = ("index", "middle", "ring", "thumb")
 EXIT_TOKENS = ("save", "q", "quit")

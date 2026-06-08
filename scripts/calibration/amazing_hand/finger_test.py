@@ -10,8 +10,8 @@ degrees of freedom:
   * abduction / adduction (the ``side`` axis): spread one way <-> the other,
 
 returning through neutral between phases. Every endpoint is taken straight from
-the per-finger ``limits`` in ``AmazingHand_calib_values.yaml`` (measured at
-Step 4 with ``AmazingHand_RangeCalib.py``). It makes no changes to the
+the per-finger ``limits`` in ``hand_calib_values.yaml`` (measured at
+Step 4 with ``range_calib.py``). It makes no changes to the
 calibration values -- it only drives the finger so you can watch for clean
 endpoints, no buzz, and a symmetric spread. Press Ctrl+C to stop.
 """
@@ -25,7 +25,7 @@ from arm101_hand.config import load_hand_calibration
 from arm101_hand.hand import compose_finger, degrees_to_servo_radians
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-YAML_PATH = SCRIPT_DIR / "AmazingHand_calib_values.yaml"
+YAML_PATH = SCRIPT_DIR / "hand_calib_values.yaml"
 
 VALID_FINGERS = ("index", "middle", "ring", "thumb")
 

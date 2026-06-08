@@ -1,6 +1,6 @@
 # AmazingHand — Finger Calibration (Python)
 
-Calibration procedure for the 4-finger AmazingHand using the scripts in `scripts/calibration/AmazingHand/`. Follows the *Step 3: Finger calibration with Python* section of `references/AmazingHand/docs/AmazingHand_Assembly.pdf` (pages 21–23), with the manual middle-position tuning replaced by the YAML-driven scripts in this repo.
+Calibration procedure for the 4-finger AmazingHand using the scripts in `scripts/calibration/amazing_hand/`. Follows the *Step 3: Finger calibration with Python* section of `references/AmazingHand/docs/AmazingHand_Assembly.pdf` (pages 21–23), with the manual middle-position tuning replaced by the YAML-driven scripts in this repo.
 
 ---
 
@@ -8,7 +8,7 @@ Calibration procedure for the 4-finger AmazingHand using the scripts in `scripts
 
 - 4 fingers × 2 Feetech **SCS0009** servos = 8 servos on a shared TTL serial bus @ 1 Mbaud.
 - Each finger is a **parallel mechanism**: the two servos combine to produce flexion/extension + abduction/adduction. They must be driven as a pair.
-- All calibration state lives in a single YAML file — `scripts/calibration/AmazingHand/AmazingHand_calib_values.yaml` — that every script reads from and writes to.
+- All calibration state lives in a single YAML file — `scripts/calibration/amazing_hand/hand_calib_values.yaml` — that every script reads from and writes to.
 - Servo-ID convention (right hand, viewing from the palm side as in PDF page 21): **odd ID on the right servo, even ID on the left servo**.
   | Finger | Right servo (odd) | Left servo (even) |
   | ------ | ----------------- | ----------------- |
@@ -36,14 +36,14 @@ uv sync
 Run any calibration script with `uv run`:
 
 ```powershell
-uv run python scripts/calibration/AmazingHand/AmazingHand_FingerTest.py
+uv run python scripts/calibration/amazing_hand/finger_test.py
 ```
 
 `uv run` resolves the interpreter and PYTHONPATH from `.venv/`, so you do not need to activate the env first.
 
 ### 2.2 USB↔TTL bridge & COM port
 
-The Waveshare CH343 bridge enumerates as a COM port on Windows. On this machine it's `COM18`. The port is stored in `AmazingHand_calib_values.yaml`:
+The Waveshare CH343 bridge enumerates as a COM port on Windows. On this machine it's `COM18`. The port is stored in `hand_calib_values.yaml`:
 
 ```yaml
 com_port: COM18
@@ -66,7 +66,7 @@ External **5 V / 2 A+** PSU wired to the servo bus hub. The USB bridge carries s
 
 ## 3. Calibration flow
 
-Six steps, in order. Steps 2–5 all read from and/or update `AmazingHand_calib_values.yaml`.
+Six steps, in order. Steps 2–5 all read from and/or update `hand_calib_values.yaml`.
 
 ### Step 1 — Burn unique IDs 1–8 with FD.exe
 
@@ -90,13 +90,13 @@ When all 8 are burned, wire them all back to the bus and PSU on.
 
 ### Step 2 — Reset motors to 0° before attaching horns
 
-**Script:** `scripts/calibration/AmazingHand/AmazingHand_MotorReset.py`
+**Script:** `scripts/calibration/amazing_hand/motor_reset.py`
 **Replaces:** PDF page 22 ("Place servo horns as following picture").
 
 Each servo needs to be sitting at its electrical 0° when the horn is screwed down — otherwise the finger's neutral pose is mechanically wrong and no software offset can fix it.
 
 1. Make sure **no servo horns are attached yet**.
-2. Run the script (`uv run python scripts/calibration/AmazingHand/AmazingHand_MotorReset.py`), type `yes` at the confirmation.
+2. Run the script (`uv run python scripts/calibration/amazing_hand/motor_reset.py`), type `yes` at the confirmation.
 3. At `Which finger to reset? (index/middle/ring/thumb, 'q' to quit):`, enter a finger.
 4. The script drives that finger's two servos to 0°, holds them under torque, and sets the finger's `middle_pos` values to `0` in the YAML.
 5. Fit each horn onto the spline as close to the matching position on PDF page 22 as the geometry allows, then secure with the **M2×4 servo screw**.
@@ -105,12 +105,12 @@ Each servo needs to be sitting at its electrical 0° when the horn is screwed do
 
 ### Step 3 — Fine-tune middle positions
 
-**Script:** `scripts/calibration/AmazingHand/AmazingHand_MiddlePos_FingerCalib.py`
+**Script:** `scripts/calibration/amazing_hand/middle_calib.py`
 **Follows:** PDF page 23.
 
 Horn splines have discrete teeth (~15° each), so even a well-installed horn has a few degrees of residual offset. Dial it in interactively.
 
-1. Run the script (`uv run python scripts/calibration/AmazingHand/AmazingHand_MiddlePos_FingerCalib.py`), enter a finger at the prompt.
+1. Run the script (`uv run python scripts/calibration/amazing_hand/middle_calib.py`), enter a finger at the prompt.
 2. The finger runs one Close→Open cycle, then:
    ```
    New MiddlePos_1 [current=0] (Enter to keep, 'save'/'q' to exit):
@@ -124,11 +124,11 @@ Horn splines have discrete teeth (~15° each), so even a well-installed horn has
 
 ### Step 4 — Calibrate per-finger motion limits
 
-**Script:** `scripts/calibration/AmazingHand/AmazingHand_RangeCalib.py`
+**Script:** `scripts/calibration/amazing_hand/range_calib.py`
 
 Each finger's reachable envelope (how far it flexes/extends and how far it
 spreads) is measured here and stored as logical-frame `base`/`side` min/max in
-`AmazingHand_calib_values.yaml`. This is the hand's analog of the SO-ARM101
+`hand_calib_values.yaml`. This is the hand's analog of the SO-ARM101
 follower's `range_min`/`range_max` sweep. Torque stays **ON** the whole time; you
 jog the finger to each mechanical stop with the arrow keys and mark the limit
 there. The numbers in the YAML before you run are placeholder seeds — Step 4 is
@@ -168,7 +168,7 @@ So the four stored limits map to four physical extremes:
 #### 4.3 Run it
 
 ```powershell
-uv run python scripts/calibration/AmazingHand/AmazingHand_RangeCalib.py
+uv run python scripts/calibration/amazing_hand/range_calib.py
 ```
 
 1. At `Which finger to range-calibrate? (index/middle/ring/thumb):`, type a
@@ -247,21 +247,21 @@ uv run python scripts/calibration/AmazingHand/AmazingHand_RangeCalib.py
 
 #### 4.4 Verify
 
-Open `AmazingHand_calib_values.yaml` and confirm each finger's `limits` block now
+Open `hand_calib_values.yaml` and confirm each finger's `limits` block now
 holds your measured numbers (no longer the `-30 / 110 / -40 / 40` seeds), and
 that within each block `base_min < base_max` and `side_min < side_max`. These
 limits are what the audit scripts (Step 5/6) and `hand.kinematics` clamp against.
 
 ### Step 5 — Audit with FingerTest
 
-**Script:** `scripts/calibration/AmazingHand/AmazingHand_FingerTest.py`
+**Script:** `scripts/calibration/amazing_hand/finger_test.py`
 
 Sanity check the saved values against the real mechanism. The finger is walked
 through its full calibrated envelope on **both** degrees of freedom: flexion
 (`base_max`↔`base_min` at neutral spread), then abduction (`side_max`↔`side_min`
 at neutral flexion), returning through neutral between phases.
 
-1. Run (`uv run python scripts/calibration/AmazingHand/AmazingHand_FingerTest.py`), enter a finger.
+1. Run (`uv run python scripts/calibration/amazing_hand/finger_test.py`), enter a finger.
 2. The finger cycles indefinitely, driving to each calibrated limit in turn. Each
    pose it moves to is printed (e.g. `-> close (full flexion) (base=110, side=0)`).
 3. Watch for:
@@ -277,17 +277,17 @@ reached early/late or buzzes, revisit Step 4 (range) for that finger.
 
 ### Step 6 — Full-hand demo
 
-**Script:** `scripts/calibration/AmazingHand/AmazingHand_FullHand_Test.py`
+**Script:** `scripts/calibration/amazing_hand/full_hand_test.py`
 
-This script provides a combined "fist → open hand → per-finger isolation" demo. It reads from `AmazingHand_calib_values.yaml` and drives the right hand through a complete cycle.
+This script provides a combined "fist → open hand → per-finger isolation" demo. It reads from `hand_calib_values.yaml` and drives the right hand through a complete cycle.
 
-1. Run the script (`uv run python scripts/calibration/AmazingHand/AmazingHand_FullHand_Test.py`).
+1. Run the script (`uv run python scripts/calibration/amazing_hand/full_hand_test.py`).
 2. The hand will cycle through closing all fingers, opening all fingers, and then exercising each finger independently.
 3. This is the end-to-end sanity check that proves the calibration matches the real mechanism across all fingers.
 
 ### Utility — park the hand open or closed
 
-**Script:** `scripts/calibration/AmazingHand/AmazingHand_SetPose.py`
+**Script:** `scripts/calibration/amazing_hand/set_pose.py`
 
 Not a calibration step — a convenience for driving the whole hand to one static
 pose and holding it. Every finger goes to `base_min` (open) or `base_max`
@@ -295,14 +295,14 @@ pose and holding it. Every finger goes to `base_min` (open) or `base_max`
 under torque until you press Enter, then torque releases.
 
 ```powershell
-uv run python scripts/calibration/AmazingHand/AmazingHand_SetPose.py open
-uv run python scripts/calibration/AmazingHand/AmazingHand_SetPose.py close
-uv run python scripts/calibration/AmazingHand/AmazingHand_SetPose.py        # prompts open/close
+uv run python scripts/calibration/amazing_hand/set_pose.py open
+uv run python scripts/calibration/amazing_hand/set_pose.py close
+uv run python scripts/calibration/amazing_hand/set_pose.py        # prompts open/close
 ```
 
 ### Utility — jog all fingers and save a pose
 
-**Script:** `scripts/calibration/AmazingHand/jog.py`
+**Script:** `scripts/calibration/amazing_hand/jog.py`
 
 Not a calibration step — a convenience for posing the whole hand by keyboard and saving
 the result. Torque stays ON; you jog each finger within its calibrated limits, then save
@@ -310,7 +310,7 @@ the whole-hand pose by name into `data/hand_config.yaml` (the same store the uni
 pose manager reads). Mirrors the arm's `so_arm101/jog.py`.
 
 ```powershell
-uv run python scripts/calibration/AmazingHand/jog.py
+uv run python scripts/calibration/amazing_hand/jog.py
 ```
 
 Controls: `1`-`4` select finger; arrows jog base/side; `[`/`]` step; `h`/`H` home
@@ -320,7 +320,7 @@ finger/all; `s` save (prompts for a name); `q` release torque and exit.
 
 ## 4. Where the calibration lives
 
-Everything sits in `scripts/calibration/AmazingHand/AmazingHand_calib_values.yaml`:
+Everything sits in `scripts/calibration/amazing_hand/hand_calib_values.yaml`:
 
 ```yaml
 schema_version: 2
@@ -353,7 +353,7 @@ fingers:
 - `com_port`, `baudrate`, `timeout`, `speed` — shared serial + motion settings, used by all four scripts.
 - `fingers.<finger>.servo_1` / `servo_2` — per-servo `id` and calibrated `middle_pos` (degrees).
 - `servo_1` is the odd-ID (right) servo, `servo_2` is the even-ID (left) servo of the pair.
-- `fingers.<finger>.limits` — the per-finger motion envelope in logical frame: `base` (flexion, positive = close) min/max and `side` (abduction/spread) min/max, in degrees relative to the calibrated middle. Measured by `AmazingHand_RangeCalib.py` (Step 4) and consumed by the audit scripts + kinematics.
+- `fingers.<finger>.limits` — the per-finger motion envelope in logical frame: `base` (flexion, positive = close) min/max and `side` (abduction/spread) min/max, in degrees relative to the calibrated middle. Measured by `range_calib.py` (Step 4) and consumed by the audit scripts + kinematics.
 
 The scripts load and save this file through the typed `HandCalibration` schema (`extra='forbid'`), so the recognized fields are validated; hand edits to those fields are fine, but unknown top-level keys are rejected.
 
@@ -376,4 +376,4 @@ The scripts load and save this file through the typed `HandCalibration` schema (
 
 ## 6. One-line summary
 
-Burn unique IDs (FD.exe) → reset each finger's motors to 0° and install horns (`AmazingHand_MotorReset.py`) → interactively dial in per-servo offsets (`AmazingHand_MiddlePos_FingerCalib.py`) → measure per-finger motion limits (`AmazingHand_RangeCalib.py`) → audit per-finger with `AmazingHand_FingerTest.py` → run the full-hand demo (`AmazingHand_FullHand_Test.py`). All state lives in `AmazingHand_calib_values.yaml`.
+Burn unique IDs (FD.exe) → reset each finger's motors to 0° and install horns (`motor_reset.py`) → interactively dial in per-servo offsets (`middle_calib.py`) → measure per-finger motion limits (`range_calib.py`) → audit per-finger with `finger_test.py` → run the full-hand demo (`full_hand_test.py`). All state lives in `hand_calib_values.yaml`.

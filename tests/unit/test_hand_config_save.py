@@ -11,8 +11,8 @@ SEED = (
     Path(__file__).resolve().parents[2]
     / "scripts"
     / "calibration"
-    / "AmazingHand"
-    / "AmazingHand_calib_values.yaml"
+    / "amazing_hand"
+    / "hand_calib_values.yaml"
 )
 
 

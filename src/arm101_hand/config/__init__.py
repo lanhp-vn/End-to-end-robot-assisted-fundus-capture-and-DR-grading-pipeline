@@ -3,7 +3,7 @@
 - ``app_config`` → ``data/app_config.yaml``
 - ``hand_poses`` → ``data/hand_config.yaml``
 - ``arm_poses`` → ``data/arm_config.yaml``
-- ``calibration`` → ``scripts/calibration/AmazingHand/AmazingHand_calib_values.yaml``
+- ``calibration`` → ``scripts/calibration/amazing_hand/hand_calib_values.yaml``
 """
 
 from .app_config import AppConfig, load_app_config

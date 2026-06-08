@@ -11,7 +11,7 @@ This script runs a complete sequence of movements for the 4-finger AmazingHand
 6. Isolating and moving the Thumb
 7. Returning to the neutral (initial) pose
 
-It reads calibration values from 'AmazingHand_calib_values.yaml' and is intended
+It reads calibration values from 'hand_calib_values.yaml' and is intended
 to be the final end-to-end sanity check that proves the calibration is correct.
 """
 
@@ -25,7 +25,7 @@ from arm101_hand.config import load_hand_calibration
 from arm101_hand.hand import compose_finger, degrees_to_servo_radians
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-YAML_PATH = SCRIPT_DIR / "AmazingHand_calib_values.yaml"
+YAML_PATH = SCRIPT_DIR / "hand_calib_values.yaml"
 
 # Demo-specific speeds, independent of YAML 'speed' (which is the calibration speed).
 MaxSpeed = 7

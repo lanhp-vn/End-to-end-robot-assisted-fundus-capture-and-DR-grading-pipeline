@@ -18,7 +18,7 @@ from rustypot import Scs0009PyController
 from arm101_hand.config import load_hand_calibration, save_hand_calibration
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-YAML_PATH = SCRIPT_DIR / "AmazingHand_calib_values.yaml"
+YAML_PATH = SCRIPT_DIR / "hand_calib_values.yaml"
 
 VALID_FINGERS = ("index", "middle", "ring", "thumb")
 

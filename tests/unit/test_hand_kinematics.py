@@ -74,7 +74,7 @@ def test_degrees_servo_radians_roundtrip(servo_id: int, deg_rel: float, middle_p
 
 
 def test_degrees_to_servo_radians_matches_calibration_convention() -> None:
-    """Cross-check against the AmazingHand_FullHand_Test convention.
+    """Cross-check against the full_hand_test convention.
 
     Spec §15.3: the existing calibration script writes ``mp + 90`` for servo 1
     "close" and ``mp - 90`` for servo 2 "close". With ``deg_rel = 90``:

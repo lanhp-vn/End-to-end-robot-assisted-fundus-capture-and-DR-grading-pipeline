@@ -15,7 +15,7 @@ Two coordinate frames matter here:
 from logical-frame degrees-relative-to-calibrated-middle to wire-format
 radians (what rustypot's ``Scs0009PyController.write_goal_position`` accepts)
 and back. The middle_pos comes from
-``scripts/calibration/AmazingHand/AmazingHand_calib_values.yaml``.
+``scripts/calibration/amazing_hand/hand_calib_values.yaml``.
 
 Adapted from ``references/AmazingHandControl/hand_logic.py`` (Apache-2.0,
 Ingo Dering, 2026) per IL-2: the `validate_pose_name`, `clamp`, `angle_rad`,
