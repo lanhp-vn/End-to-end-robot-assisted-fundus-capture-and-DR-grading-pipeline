@@ -33,6 +33,7 @@ from rustypot import Scs0009PyController
 
 from arm101_hand.config import load_arm_poses, load_hand_calibration, load_hand_config
 from arm101_hand.hand import resolve_hand_pose_targets
+from arm101_hand.hand.protocol import SERVO_SYNC_S
 from arm101_hand.robots.calibration_summary import ARM_JOINTS, clamp_degrees, load_arm_calibration
 from arm101_hand.scripts.device_setup import (
     ARM_CONFIG_PATH,
@@ -81,10 +82,10 @@ def _drive_hand(c: Scs0009PyController, targets: dict[int, float], speed: int) -
         c.write_torque_enable(sid, 1)
     for sid in sorted(targets):
         c.write_goal_speed(sid, speed)
-        time.sleep(0.0002)
+        time.sleep(SERVO_SYNC_S)
     for sid in sorted(targets):
         c.write_goal_position(sid, targets[sid])
-        time.sleep(0.0002)
+        time.sleep(SERVO_SYNC_S)
 
 
 def main() -> int:

@@ -58,8 +58,8 @@ def test_seed_yaml_is_v3(tmp_path: Path) -> None:
     assert not hasattr(cfg, "speed")
 
 
-def test_middle_pos_by_id_uses_canon_table() -> None:
-    """middle_pos_by_id() derives IDs from FINGER_SERVO_IDS, not stored id fields."""
+def test_middle_pos_survives_calib_round_trip(tmp_path: Path) -> None:
+    """middle_pos values are preserved through save_hand_calibration / load_hand_calibration."""
     cfg = HandCalibration(
         schema_version=3,
         fingers={
@@ -85,16 +85,13 @@ def test_middle_pos_by_id_uses_canon_table() -> None:
             ),
         },
     )
-    by_id = cfg.middle_pos_by_id()
-    assert sorted(by_id.keys()) == list(range(1, 9)), "IDs 1-8 all present"
-    assert by_id[1] == 30.0
-    assert by_id[2] == -2.0
-    assert by_id[3] == -32.0
-    assert by_id[4] == 20.0
-    assert by_id[5] == 22.0
-    assert by_id[6] == 0.0
-    assert by_id[7] == 0.0
-    assert by_id[8] == -12.0
+    out = tmp_path / "calib_midpos.yaml"
+    save_hand_calibration(out, cfg)
+    reloaded = load_hand_calibration(out)
+    assert reloaded.fingers["index"].servo_1.middle_pos == 30.0, "index servo_1 middle_pos survives save/load"
+    assert reloaded.fingers["thumb"].servo_2.middle_pos == -12.0, (
+        "thumb servo_2 middle_pos survives save/load"
+    )
 
 
 def test_hand_config_round_trip(tmp_path: Path) -> None:

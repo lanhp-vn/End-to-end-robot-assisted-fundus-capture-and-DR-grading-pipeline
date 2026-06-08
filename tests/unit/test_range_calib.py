@@ -117,3 +117,23 @@ def test_format_status_includes_cursor_and_loads():
     assert "base=" in line and "side=" in line, "status shows the cursor"
     assert "12" in line and "-7" in line, "status shows live base/side values"
     assert "40" in line and "55" in line, "status shows both load readings"
+
+
+def test_apply_action_respects_custom_bounds():
+    """Custom keyword bounds override the module constants."""
+    # base+ clamped to custom ceiling of 3.0 (module JOG_BASE_MAX is 130).
+    state = JogState(base=0, side=0, step=5)
+    s2, _ = apply_action(
+        state,
+        "base+",
+        jog_base_min=-10.0,
+        jog_base_max=3.0,
+        jog_side_min=-10.0,
+        jog_side_max=10.0,
+    )
+    assert s2.base == 3, "base+ is clamped to custom jog_base_max=3, not module JOG_BASE_MAX=130"
+
+    # step+ clamped to custom ceiling of 2 (module STEP_MAX is 15).
+    s3, _ = apply_action(state, "step+", step_min=1, step_max=2)
+    s4, _ = apply_action(s3, "step+", step_min=1, step_max=2)
+    assert s4.step == 2, "step+ is clamped to custom step_max=2, not module STEP_MAX=15"

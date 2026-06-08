@@ -15,9 +15,8 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 
-from _hand_paths import HAND_CALIB_PATH
+from _hand_paths import HAND_CALIB_PATH, HAND_CONFIG_PATH
 
 from arm101_hand.robots.calibration_summary import (
     ARM_JOINTS,
@@ -76,9 +75,7 @@ def _show_hand(live: bool) -> int:
     from arm101_hand.config.motor_ids import FINGER_SERVO_IDS
     from arm101_hand.hand import servo_radians_to_degrees
 
-    # scripts/diagnostics/show_calib.py -> repo root is parents[2].
-    _repo_root = Path(__file__).resolve().parents[2]
-    hand_config_path = _repo_root / "src" / "arm101_hand" / "data" / "hand_config.yaml"
+    hand_config_path = HAND_CONFIG_PATH
 
     if not HAND_CALIB_PATH.is_file():
         print(f"calibration not found at {HAND_CALIB_PATH}", file=sys.stderr)

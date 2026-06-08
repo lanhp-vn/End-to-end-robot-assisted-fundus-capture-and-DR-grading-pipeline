@@ -67,15 +67,12 @@ def _scan_arm() -> int:
 
 
 def _scan_hand() -> int:
-    from pathlib import Path
-
+    from _hand_paths import HAND_CONFIG_PATH
     from rustypot import Scs0009PyController
 
     from arm101_hand.config import load_hand_config
 
-    # scripts/diagnostics/scan.py -> repo root is parents[2].
-    _repo_root = Path(__file__).resolve().parents[2]
-    hand_config_path = _repo_root / "src" / "arm101_hand" / "data" / "hand_config.yaml"
+    hand_config_path = HAND_CONFIG_PATH
 
     if not hand_config_path.is_file():
         print(f"hand config not found at {hand_config_path}", file=sys.stderr)
