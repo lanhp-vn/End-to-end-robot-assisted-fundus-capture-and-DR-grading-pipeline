@@ -76,8 +76,8 @@ Thin wrapper over `lerobot-find-port` (see `lerobot.scripts.lerobot_find_port`).
 
 These standalone scripts sanity-check the 5 servos and the calibration against the
 real mechanism. They keep `arm101-calibrate-follower` (lerobot) as the source of
-truth and **never write `so101_follower.json`** (IL-5). All read `arm.port` from
-`data/app_config.yaml`. Close any other bus owner first (IL-4).
+truth and **never write `so101_follower.json`** (IL-5). All read `arm.port` and
+tuning settings from `src/arm101_hand/data/arm_config.yaml`. Close any other bus owner first (IL-4).
 
 The read-only diagnostics (`scan.py`, `show_calib.py`, `find_port.py`) now live in
 `scripts/diagnostics/` and are dual-device — pass `--device arm` here (or `--device hand`
@@ -89,9 +89,9 @@ for the AmazingHand). The motion helpers (`sweep.py`, `set_pose.py`, `jog.py`,
 | `diagnostics/show_calib.py --device arm` | no | off | DEGREES | Print per-joint calibration (id, homing, range, degree span, midpoint). `--live` also reads present position. |
 | `diagnostics/scan.py --device arm` | no | off | raw | Ping motors 1–5; report position/load/voltage/temperature. Exit 1 if any motor is missing. |
 | `sweep.py` | yes | on→off | RANGE_M100_100 | Drive a joint (or `all`) to its calibrated endpoints (`±margin`, default 90) and back; verify no buzz/stall. |
-| `set_pose.py` | yes | on→off | DEGREES | Drive to a `poses` entry from `data/arm_config.yaml` (`home` — the folded storage pose) and hold until Enter. |
-| `jog.py` | yes | on→off | DEGREES | Keyboard-jog each motor in degrees (clamped to range); `t` hand-pose toggle; `h` home a joint; `s` save current pose to `data/arm_config.yaml`. Returns home before releasing torque. |
-| `capture_pose.py` | yes | off→on→off | DEGREES | Torque off so you hand-pose the arm; Enter captures the present degrees and holds; save to `data/arm_config.yaml` `poses`. `h` = home & capture another, `q` = home & quit (both park home first). |
+| `set_pose.py` | yes | on→off | DEGREES | Drive to a `poses` entry from `src/arm101_hand/data/arm_config.yaml` (`home` — the folded storage pose) and hold until Enter. |
+| `jog.py` | yes | on→off | DEGREES | Keyboard-jog each motor in degrees (clamped to range); `t` hand-pose toggle; `h` home a joint; `s` save current pose to `src/arm101_hand/data/arm_config.yaml`. Returns home before releasing torque. |
+| `capture_pose.py` | yes | off→on→off | DEGREES | Torque off so you hand-pose the arm; Enter captures the present degrees and holds; save to `src/arm101_hand/data/arm_config.yaml` `poses`. `h` = home & capture another, `q` = home & quit (both park home first). |
 
 ```powershell
 uv run python scripts/diagnostics/show_calib.py --device arm         # offline dump
@@ -133,10 +133,10 @@ disconnects in place.)
 | `[` / `]` | shrink / grow step (1–15°) |
 | `h` | home active joint to its default-home value (`poses.home`) |
 | `t` | toggle torque (off = hand-pose by hand; on = resync + hold) |
-| `s` | save current pose to `data/arm_config.yaml` (prompts for a name) |
+| `s` | save current pose to `src/arm101_hand/data/arm_config.yaml` (prompts for a name) |
 | `q` / `Ctrl+C` | on quit, prompts `h` (return home first) or `Enter` (release in place); never auto-homes (if torque off: disconnect in place) |
 
-Saved poses land in `data/arm_config.yaml` and are drivable by name with `set_pose.py`.
+Saved poses land in `src/arm101_hand/data/arm_config.yaml` and are drivable by name with `set_pose.py`.
 
 **Recommended order:** `scan` (all 5 respond?) → `show_calib` (numbers sane?) →
 `sweep` per joint (endpoints clean?) → `set_pose home` (parks cleanly?).

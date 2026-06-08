@@ -105,7 +105,7 @@ def save_hand_calibration(path: Path, config: HandCalibration) -> None:
 
     The whole model is dumped, so a load-modify-save round-trip preserves every field;
     the per-finger partial writes the calib scripts used to do by hand are unnecessary.
-    Block-style YAML (no custom inline dumper) -- matches the arm's ``save_arm_poses``.
+    Block-style YAML (no custom inline dumper) -- matches the arm's ``save_arm_config``.
     """
     payload = config.model_dump(mode="python")
     tmp = path.with_suffix(path.suffix + ".tmp")

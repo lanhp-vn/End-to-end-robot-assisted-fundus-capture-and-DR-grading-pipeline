@@ -1,30 +1,95 @@
-# `data/` — runtime config and pose state
+# `data/` — operator config files
 
-Three YAML files plus this README. All loaded and validated by pydantic schemas under `src/arm101_hand/config/`. They are read and written by the calibration, jog, and diagnostic scripts — not by any application layer binary.
+Two YAML files, one per device. Each is the **single tuning surface** for that device — the only place an operator edits connection settings, safety thresholds, motion knobs, and named poses. Both are loaded and validated by pydantic schemas in `src/arm101_hand/config/`.
 
 | File | Schema owner | Purpose |
 |---|---|---|
-| `app_config.yaml` | `arm101_hand.config.app_config` | Arm COM port, diagnostics warn thresholds (temp/voltage), and the gentle safe-park velocity. Read by the diagnostics (`scripts/diagnostics/scan.py`) and arm scripts at startup. (The hand bus port/baudrate/speed live in the hand calibration YAML.) |
-| `hand_config.yaml` | `arm101_hand.config.hand_poses` | Named hand poses (calibration-aware degrees, even-ID pre-inverted). Saved by `scripts/calibration/amazing_hand/jog.py`. |
-| `arm_config.yaml` | `arm101_hand.config.arm_poses` | Named arm poses (e.g. `home` — the folded storage pose — plus any saved via the scripts). Joint values in degrees, soft-clamped to the calibrated range from `scripts/calibration/so_arm101/so101_follower.json`. Arm poses are saved by `scripts/calibration/so_arm101/jog.py` and `capture_pose.py`. |
+| `arm_config.yaml` | `arm101_hand.config.arm_config` (`ArmConfig`) | SO-ARM101 port, safety thresholds, motion tuning knobs, and named arm poses (degrees, lerobot `use_degrees` frame). |
+| `hand_config.yaml` | `arm101_hand.config.hand_config` (`HandConfig`) | AmazingHand port/baudrate/timeout, safety thresholds, motion tuning knobs, and named hand poses (per-finger `[servo_1, servo_2]` servo-frame degree pairs). |
+
+---
+
+## File structure — four sections
+
+Both files share the same section layout:
+
+```
+schema_version: 1
+connection:   # COM port, baudrate, timeout — which adapter to open
+safety:       # diagnostics warn thresholds
+tuning:       # operator motion knobs
+poses:        # named poses written by jog.py / capture_pose.py
+```
+
+---
+
+## Arm tuning knobs (`arm_config.yaml` → `tuning`)
+
+| Key | Default | Meaning |
+|---|---|---|
+| `park_velocity` | 600 | Gentle home-move Goal_Velocity (raw units, 0–4095) |
+| `jog_step_min` | 1.0° | Minimum jog step size |
+| `jog_step_max` | 15.0° | Maximum jog step size |
+| `jog_step_default` | 5.0° | Initial jog step on startup |
+| `jog_step_increment` | 1.0° | Amount to grow/shrink step per `[`/`]` keypress |
+| `load_warn` | 600 | Jog high-load warning threshold (raw) |
+| `load_stall` | 600 | Sweep stall-detection threshold (raw) |
+| `sweep_margin_default` | 90.0° | Sweep stop margin inward from each calibrated endpoint |
+| `settle_sweep_s` | 1.2 s | Dwell time after reaching sweep target |
+| `settle_set_pose_s` | 2.0 s | Settle wait after set_pose target is reached |
+| `settle_capture_s` | 0.5 s | Settle wait before capture_pose reads present position |
+| `home_tolerance_steps` | 25 | Home-reach tolerance in raw steps |
+| `home_timeout_s` | 8.0 s | Home-move timeout before giving up |
+| `home_poll_s` | 0.05 s | Poll interval while waiting for home-reach |
+
+---
+
+## Hand tuning knobs (`hand_config.yaml` → `tuning`)
+
+| Key | Default | Meaning |
+|---|---|---|
+| `speed` | 4 | Jog motion speed (1–7, SCS0009 speed scale) |
+| `speeds.open` | 5 | SetPose extension (opening) speed (1–7) |
+| `speeds.close` | 3 | SetPose flexion (closing) speed (1–7) |
+| `step_min` | 1° | Minimum jog step size |
+| `step_max` | 15° | Maximum jog step size |
+| `step_default` | 5° | Initial jog step on startup |
+| `pose_margin_deg` | 5.0° | Back-off from calibrated limits when driving to open/close pose |
+| `load_warn_threshold` | 80 | SCS0009 load % duty warn level (0–100) |
+| `jog_base_min` | −60° | range_calib base-DOF discovery floor (logical deg) |
+| `jog_base_max` | 130° | range_calib base-DOF discovery ceiling (logical deg) |
+| `jog_side_min` | −60° | range_calib side-DOF discovery floor (logical deg) |
+| `jog_side_max` | 60° | range_calib side-DOF discovery ceiling (logical deg) |
+
+---
+
+## Calibration vs. config — the split
+
+These files are **operator config**: connection params, safety warn levels, motion tuning, and named poses. They are the surface a developer adjusts without re-running hardware calibration.
+
+**Calibration files are separate and live under `scripts/calibration/`:**
+
+| File | What it holds | Written by |
+|---|---|---|
+| `scripts/calibration/so_arm101/so101_follower.json` | Per-joint homing offset + range min/max (lerobot format) | `arm101-calibrate-follower` |
+| `scripts/calibration/amazing_hand/hand_calib_values.yaml` | Per-servo `middle_pos` + per-finger DOF `limits` (v3 schema) | `middle_calib.py`, `range_calib.py` |
+
+No data is duplicated between the two layers. Motor IDs for the hand come from the `FINGER_SERVO_IDS` code canon in `src/arm101_hand/config/motor_ids.py` — they are not stored in either file.
+
+---
 
 ## Editing rules
 
-- **Edit via the scripts** (`jog.py`, `capture_pose.py`) when adding or updating poses — they validate names (per `validate_pose_name()`) and clamp each value to the per-device calibrated range before writing.
-- **Hand-edits are allowed** but not validated until the next script run. If you break the schema, the loader exits with a clear error message.
-- **`schema_version` must stay at `1`** for the current schema. Future migrations bump this and ship with a one-shot upgrade routine.
-- **Atomic writes:** save helpers write via `*.tmp` + `os.replace()`. Never hand-edit a file while a script is in the middle of a save.
+- **Poses are written by the scripts.** `jog.py` (arm and hand) and `capture_pose.py` (arm) validate names and clamp values before saving. Hand-editing poses is allowed but not validated until the next script run.
+- **`connection` / `safety` / `tuning` sections are hand-editable** and take effect on the next script run. Invalid values produce a clear pydantic error on load.
+- **`schema_version` must stay at `1`** for the current schema. Future migrations bump this and ship a one-shot upgrade routine.
+- **Comments are regenerated on save.** The save helpers (`save_arm_config`, `save_hand_config`) prepend a fixed header and re-dump the whole model. Per-knob documentation lives here in this README, not as inline YAML comments — any inline comments you add will be lost on the next save.
+- **Atomic writes.** Save helpers write to `*.tmp` then call `os.replace()`. Never hand-edit a file while a script is mid-save.
 - **`yaml.safe_load` only** — never `yaml.load`. Per `02-code-style-python.md` §6.
 
-## Why three files?
-
-- `app_config.yaml` is host/workstation state.
-- `hand_config.yaml` is hand-specific content portable between hands of the same calibration.
-- `arm_config.yaml` is arm-specific content.
-
-A single combined file would cross-couple hand and arm state and risk one user's edits corrupting the other.
+---
 
 ## Iron Law touchpoints
 
-- **IL-5** — calibration state lives in version control. These files are committed; edits are reviewed.
-- **IL-7** — the schemas live in exactly one place (the pydantic models). Documentation here is a pointer, not a restatement.
+- **IL-5** — runtime operator config lives in version control, in-tree only (`src/arm101_hand/data/`). These files are committed; edits are reviewed. Calibration files (measurement outputs) live separately under `scripts/calibration/` — also in-tree, also committed, but regenerated only by running calibration scripts, never hand-tuned.
+- **IL-7** — the pydantic `Field(description=...)` lines in `arm_config.py` / `hand_config.py` point at this README as the single documentation home for what each tuning knob means. Do not duplicate knob descriptions in the schemas themselves.
