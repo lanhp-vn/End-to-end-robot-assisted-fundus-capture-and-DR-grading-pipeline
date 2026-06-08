@@ -43,7 +43,7 @@ class HandSpeeds(BaseModel):
 class HandTuning(BaseModel):
     model_config = ConfigDict(extra="forbid")
     speed: int = Field(default=4, ge=1, le=7, description="jog speed (1-7)")
-    speeds: HandSpeeds = Field(default_factory=HandSpeeds)
+    speeds: HandSpeeds = Field(default_factory=HandSpeeds, description="SetPose open/close motion speeds")
     step_min: int = Field(default=1, ge=1, description="min jog step (deg)")
     step_max: int = Field(default=15, ge=1, description="max jog step (deg)")
     step_default: int = Field(default=5, ge=1, description="initial jog step (deg)")
