@@ -10,7 +10,7 @@ supplies (from calibration_summary.degree_bounds).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from arm101_hand.robots.calibration_summary import ARM_JOINTS
 
@@ -28,6 +28,7 @@ class ArmJogState:
 
     cursors: per-joint target in degrees from the calibrated mid.
     home: per-joint default-home target in degrees (where ``home_active`` snaps a joint).
+    step_min / step_max / step_increment: configurable jog-step bounds (defaults = module constants).
     """
 
     cursors: dict[str, float]
@@ -35,20 +36,35 @@ class ArmJogState:
     home: dict[str, float]
     step: float = JOG_STEP_DEFAULT
     torque_on: bool = True
+    step_min: float = field(default=JOG_STEP_MIN)
+    step_max: float = field(default=JOG_STEP_MAX)
+    step_increment: float = field(default=_STEP_INCREMENT)
 
 
-def initial_state(cursors: dict[str, float], home: dict[str, float]) -> ArmJogState:
+def initial_state(
+    cursors: dict[str, float],
+    home: dict[str, float],
+    *,
+    step_min: float = JOG_STEP_MIN,
+    step_max: float = JOG_STEP_MAX,
+    step_default: float = JOG_STEP_DEFAULT,
+    step_increment: float = _STEP_INCREMENT,
+) -> ArmJogState:
     """Starting state from initial per-joint degree positions + the default-home pose.
 
     active = first joint. ``home`` is the per-joint default-home target (degrees) that the
-    ``h`` key snaps the active joint to.
+    ``h`` key snaps the active joint to. Optional keyword args configure the jog-step range
+    (defaults = module constants so existing callers are unaffected).
     """
     return ArmJogState(
         cursors=dict(cursors),
         active=ARM_JOINTS[0],
         home=dict(home),
-        step=JOG_STEP_DEFAULT,
+        step=step_default,
         torque_on=True,
+        step_min=step_min,
+        step_max=step_max,
+        step_increment=step_increment,
     )
 
 
@@ -92,9 +108,13 @@ def apply_action(
         return (replace(state, active=joint) if joint in state.cursors else state), None
 
     if action == "step_down":
-        return replace(state, step=_clamp(state.step - _STEP_INCREMENT, JOG_STEP_MIN, JOG_STEP_MAX)), None
+        return replace(
+            state, step=_clamp(state.step - state.step_increment, state.step_min, state.step_max)
+        ), None
     if action == "step_up":
-        return replace(state, step=_clamp(state.step + _STEP_INCREMENT, JOG_STEP_MIN, JOG_STEP_MAX)), None
+        return replace(
+            state, step=_clamp(state.step + state.step_increment, state.step_min, state.step_max)
+        ), None
 
     if action == "toggle_torque":
         return replace(state, torque_on=not state.torque_on), "toggle_torque"

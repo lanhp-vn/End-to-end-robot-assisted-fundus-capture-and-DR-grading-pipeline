@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from arm101_hand.robots.calibration_summary import ARM_JOINTS, STS3215_RESOLUTION
 from arm101_hand.scripts.device_setup import (
-    APP_CONFIG_PATH,
     ARM_CONFIG_PATH,
     CALIB_PATH,
     FOLLOWER_ID,
@@ -27,7 +26,6 @@ from arm101_hand.scripts.device_setup import (
 )
 
 __all__ = [
-    "APP_CONFIG_PATH",
     "ARM_CONFIG_PATH",
     "CALIB_PATH",
     "FOLLOWER_ID",

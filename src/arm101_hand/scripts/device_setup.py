@@ -17,13 +17,12 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from arm101_hand.config import load_app_config, load_arm_poses
+from arm101_hand.config import ArmTuning, load_arm_config
 from arm101_hand.robots.calibration_summary import ARM_JOINTS, STS3215_RESOLUTION
 
 # src/arm101_hand/scripts/device_setup.py -> repo root is parents[3].
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-APP_CONFIG_PATH = _REPO_ROOT / "data" / "app_config.yaml"
-ARM_CONFIG_PATH = _REPO_ROOT / "data" / "arm_config.yaml"
+ARM_CONFIG_PATH = _REPO_ROOT / "src" / "arm101_hand" / "data" / "arm_config.yaml"
 CALIB_PATH = _REPO_ROOT / "scripts" / "calibration" / "so_arm101" / "so101_follower.json"
 
 # id="so101_follower" -> SO101FollowerNoGripper loads <calibration_dir>/so101_follower.json,
@@ -32,10 +31,10 @@ FOLLOWER_ID = "so101_follower"
 
 
 def load_arm_app_config():
-    """Load + validate data/app_config.yaml (SystemExit with a clear message if absent)."""
-    if not APP_CONFIG_PATH.is_file():
-        raise SystemExit(f"app_config.yaml not found at {APP_CONFIG_PATH}")
-    return load_app_config(APP_CONFIG_PATH)
+    """Load + validate src/arm101_hand/data/arm_config.yaml (SystemExit with a clear message if absent)."""
+    if not ARM_CONFIG_PATH.is_file():
+        raise SystemExit(f"arm_config.yaml not found at {ARM_CONFIG_PATH}")
+    return load_arm_config(ARM_CONFIG_PATH)
 
 
 def build_follower(cfg, *, use_degrees: bool):
@@ -43,7 +42,7 @@ def build_follower(cfg, *, use_degrees: bool):
     from arm101_hand.robots import SO101FollowerNoGripper, SO101FollowerNoGripperConfig
 
     robot_cfg = SO101FollowerNoGripperConfig(
-        port=cfg.arm.port,
+        port=cfg.connection.port,
         id=FOLLOWER_ID,
         use_degrees=use_degrees,
     )
@@ -59,18 +58,18 @@ def build_raw_bus(cfg):
         name: Motor(motor_id, "sts3215", MotorNormMode.DEGREES)
         for motor_id, name in enumerate(ARM_JOINTS, start=1)
     }
-    return FeetechMotorsBus(port=cfg.arm.port, motors=motors)
+    return FeetechMotorsBus(port=cfg.connection.port, motors=motors)
 
 
 def gentle_velocity(cfg) -> int:
     """Goal_Velocity (STS3215 register 46, raw units) for gentle calibration moves."""
-    return cfg.safety.safe_park.park_velocity_arm
+    return cfg.tuning.park_velocity
 
 
 def load_home_degrees() -> dict[str, float]:
     """Per-joint default-home target in degrees, from arm_config.yaml ``poses['home']``."""
     if ARM_CONFIG_PATH.is_file():
-        home = load_arm_poses(ARM_CONFIG_PATH).poses.get("home")
+        home = load_arm_config(ARM_CONFIG_PATH).poses.get("home")
         if home is not None:
             return home.as_dict()
     return dict.fromkeys(ARM_JOINTS, 0.0)
@@ -117,6 +116,7 @@ def confirm_and_release(
     *,
     offer_home: bool = True,
     on_home: Callable[[], None] | None = None,
+    tuning: ArmTuning | None = None,
 ) -> None:
     """On exit, release torque after handling the home pose (never auto-homes a held pose).
 
@@ -132,12 +132,25 @@ def confirm_and_release(
     (e.g. the grab demo) uses it to bring a second device home too. Its failure is reported
     but never blocks the arm torque-off.
 
+    ``tuning`` (optional ``ArmTuning``): when supplied, overrides ``_drive_home``'s
+    tolerance/timeout/poll defaults with values from ``arm_config.yaml``. If ``None``,
+    the compiled-in defaults (25 steps / 8.0 s / 0.05 s) are used unchanged.
+
     Torque is ALWAYS disabled before returning (IL-4). If torque is already off, just ensures it.
     """
+    # Build overrides from tuning if provided; otherwise _drive_home uses its own defaults.
+    drive_kw: dict[str, object] = {}
+    if tuning is not None:
+        drive_kw = {
+            "tolerance": tuning.home_tolerance_steps,
+            "timeout_s": tuning.home_timeout_s,
+            "poll_s": tuning.home_poll_s,
+        }
+
     if torque_on and not offer_home:
         print("Settling at home, then releasing torque ...")
         try:
-            _drive_home(follower, home, vel)
+            _drive_home(follower, home, vel, **drive_kw)  # type: ignore[arg-type]
         except BaseException as e:
             print(f"  (settle interrupted: {e!r}) -- releasing anyway", file=sys.stderr)
     elif torque_on:
@@ -155,7 +168,7 @@ def confirm_and_release(
         if choice == "h":
             print("Returning to home ...")
             try:
-                _drive_home(follower, home, vel)
+                _drive_home(follower, home, vel, **drive_kw)  # type: ignore[arg-type]
                 print("Home reached.")
             except BaseException as e:
                 print(f"  (homing interrupted: {e!r}) -- releasing torque anyway", file=sys.stderr)

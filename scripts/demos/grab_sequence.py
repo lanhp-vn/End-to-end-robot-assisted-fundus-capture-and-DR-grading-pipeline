@@ -31,7 +31,7 @@ from pathlib import Path
 
 from rustypot import Scs0009PyController
 
-from arm101_hand.config import load_arm_poses, load_hand_calibration, load_hand_config
+from arm101_hand.config import load_arm_config, load_hand_calibration, load_hand_config
 from arm101_hand.hand import resolve_hand_pose_targets
 from arm101_hand.hand.protocol import SERVO_SYNC_S
 from arm101_hand.robots.calibration_summary import ARM_JOINTS, clamp_degrees, load_arm_calibration
@@ -58,7 +58,7 @@ _HAND_SETTLE_S = 1.0
 
 def _build_arm_targets() -> dict[str, float]:
     """Arm ``grab`` degrees per joint, clamped to the calibrated window (out-of-range skipped)."""
-    poses = load_arm_poses(ARM_CONFIG_PATH).poses
+    poses = load_arm_config(ARM_CONFIG_PATH).poses
     if ARM_POSE not in poses:
         raise SystemExit(f"arm pose {ARM_POSE!r} not in {ARM_CONFIG_PATH} (poses)")
     pose = poses[ARM_POSE].as_dict()
@@ -104,6 +104,7 @@ def main() -> int:
     follower = build_follower(cfg, use_degrees=True)  # DEGREES
     vel = gentle_velocity(cfg)
     home = load_home_degrees()
+    arm_tuning = cfg.tuning
 
     hand = Scs0009PyController(
         serial_port=hand_cfg.connection.port,
@@ -120,11 +121,11 @@ def main() -> int:
     arm_torque_on = False
     try:
         # ---- Arm leg: connect, push on-file calibration, gentle velocity, drive grab ----
-        print(f"Connecting arm on {cfg.arm.port}; driving to '{ARM_POSE}' ...")
+        print(f"Connecting arm on {cfg.connection.port}; driving to '{ARM_POSE}' ...")
         try:
             follower.connect(calibrate=False)
         except (ConnectionError, OSError) as e:
-            print(f"ERROR: could not open arm port {cfg.arm.port}: {e}", file=sys.stderr)
+            print(f"ERROR: could not open arm port {cfg.connection.port}: {e}", file=sys.stderr)
             return 1
         follower.bus.write_calibration(follower.calibration)
         follower.bus.sync_write("Goal_Velocity", dict.fromkeys(ARM_JOINTS, vel))
@@ -152,7 +153,13 @@ def main() -> int:
         try:
             if follower.is_connected:
                 confirm_and_release(
-                    follower, arm_torque_on, home, vel, offer_home=True, on_home=_open_hand_on_home
+                    follower,
+                    arm_torque_on,
+                    home,
+                    vel,
+                    offer_home=True,
+                    on_home=_open_hand_on_home,
+                    tuning=arm_tuning,
                 )
                 with contextlib.suppress(Exception):
                     follower.disconnect()

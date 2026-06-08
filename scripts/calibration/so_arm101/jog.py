@@ -2,15 +2,15 @@
 
 Select a joint (1-5) and nudge it in degrees (clamped to its calibrated range). Toggle
 torque to hand-pose the arm, home a single joint, or save the current pose to
-data/arm_config.yaml (drivable later by set_pose.py).
+src/arm101_hand/data/arm_config.yaml (drivable later by set_pose.py).
 
 Controls (torque ON to move):
   1..5          select joint (shoulder_pan shoulder_lift elbow_flex wrist_flex wrist_roll)
   Up / Down     jog active joint + / - step (deg), clamped to calibrated range
-  [ / ]         shrink / grow jog step (1..15 deg)
+  [ / ]         shrink / grow jog step (jog_step_min..jog_step_max from arm_config.yaml)
   h             home active joint to its default-home value (arm_config.yaml poses.home)
   t             toggle torque (off = hand-pose by hand; on = resync + hold)
-  s             save current pose to data/arm_config.yaml (prompts for a name)
+  s             save current pose to src/arm101_hand/data/arm_config.yaml (prompts for a name)
   q / Ctrl+C    on quit, prompts: 'h' to return home first, or Enter to release torque in
                 place and exit (never auto-homes; if torque is OFF, disconnects in place)
 
@@ -36,7 +36,7 @@ from _common import (
     load_home_degrees,
 )
 
-from arm101_hand.config import ArmPose, ArmPoseConfig, load_arm_poses, save_arm_poses
+from arm101_hand.config import ArmPose, load_arm_config, save_arm_config
 from arm101_hand.robots.arm_jog import (
     ARM_JOINTS,
     apply_action,
@@ -45,8 +45,6 @@ from arm101_hand.robots.arm_jog import (
     key_to_action,
 )
 from arm101_hand.robots.calibration_summary import degree_bounds, load_arm_calibration
-
-_LOAD_WARN = 600
 
 
 def read_key() -> str:
@@ -82,9 +80,12 @@ def _save_pose(follower) -> None:
     if not name:
         print("  save cancelled")
         return
-    config = load_arm_poses(ARM_CONFIG_PATH) if ARM_CONFIG_PATH.is_file() else ArmPoseConfig()
+    # Load-modify-save: preserve connection/safety/tuning, only update poses.
+    from arm101_hand.config import ArmConfig
+
+    config = load_arm_config(ARM_CONFIG_PATH) if ARM_CONFIG_PATH.is_file() else ArmConfig()
     config.poses[name] = ArmPose(**_present_degrees(follower))
-    save_arm_poses(ARM_CONFIG_PATH, config)
+    save_arm_config(ARM_CONFIG_PATH, config)
     print(f"  saved '{name}' -> {ARM_CONFIG_PATH}")
 
 
@@ -100,19 +101,28 @@ def main() -> int:
     follower = build_follower(cfg, use_degrees=True)
     vel = gentle_velocity(cfg)
 
+    load_warn: int = cfg.tuning.load_warn
+
     print(__doc__)
-    print(f"Connecting on {cfg.arm.port} ...")
+    print(f"Connecting on {cfg.connection.port} ...")
     state = None
     try:
         try:
             follower.connect(calibrate=False)
         except (ConnectionError, OSError) as e:
-            print(f"ERROR: could not open {cfg.arm.port}: {e}", file=sys.stderr)
+            print(f"ERROR: could not open {cfg.connection.port}: {e}", file=sys.stderr)
             return 1
         follower.bus.write_calibration(follower.calibration)
         cursors = _present_degrees(follower)
         _hold_at(follower, cursors, vel)
-        state = initial_state(cursors, home)
+        state = initial_state(
+            cursors,
+            home,
+            step_min=cfg.tuning.jog_step_min,
+            step_max=cfg.tuning.jog_step_max,
+            step_default=cfg.tuning.jog_step_default,
+            step_increment=cfg.tuning.jog_step_increment,
+        )
         print(format_status(state, follower.bus.sync_read("Present_Load")))
 
         while True:
@@ -137,7 +147,7 @@ def main() -> int:
 
             loads = follower.bus.sync_read("Present_Load") if state.torque_on else {}
             print(format_status(state, loads))
-            high = [j for j, v in loads.items() if abs(v) >= _LOAD_WARN]
+            high = [j for j, v in loads.items() if abs(v) >= load_warn]
             if high:
                 print(f"  WARNING: high load on {high}")
     except KeyboardInterrupt:
@@ -146,7 +156,9 @@ def main() -> int:
         # Never auto-home on quit. confirm_and_release offers 'h' (drive home first) or
         # Enter (release in place), then always releases torque.
         if follower.is_connected:
-            confirm_and_release(follower, bool(state is not None and state.torque_on), home, vel)
+            confirm_and_release(
+                follower, bool(state is not None and state.torque_on), home, vel, tuning=cfg.tuning
+            )
             follower.disconnect()
             print("Bus closed.")
     return 0

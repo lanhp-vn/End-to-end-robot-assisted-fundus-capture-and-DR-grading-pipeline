@@ -2,53 +2,39 @@
 
 Interactive one-shot: prompt for ``e`` (enable) or ``d`` (disable), open the arm
 bus, write ``Torque_Enable`` accordingly, release the port. Reads the arm port
-from ``data/app_config.yaml`` so callers don't hard-code ``COM20``.
+from ``src/arm101_hand/data/arm_config.yaml``; motor identity comes from the
+``SO101FollowerNoGripper`` subclass (single source -- IL-3).
 
-IL-3: motor 6 (gripper) is omitted — physically absent.
+IL-3: motor 6 (gripper) is omitted -- physically absent.
 IL-4: opens the arm bus briefly and releases it; nothing else may hold the port.
 """
 
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 from pydantic import ValidationError
 
-from arm101_hand.config import load_app_config
-
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_APP_CONFIG_PATH = _REPO_ROOT / "data" / "app_config.yaml"
-
-_ARM_MOTOR_IDS: tuple[tuple[str, int], ...] = (
-    ("shoulder_pan", 1),
-    ("shoulder_lift", 2),
-    ("elbow_flex", 3),
-    ("wrist_flex", 4),
-    ("wrist_roll", 5),
-)
+from arm101_hand.config import load_arm_config
+from arm101_hand.scripts.device_setup import ARM_CONFIG_PATH, build_follower
 
 
 def main() -> int:
     # Imported lazily so ``--help`` (future) wouldn't pay the lerobot import cost.
-    from lerobot.motors import Motor, MotorNormMode
-    from lerobot.motors.feetech import FeetechMotorsBus
-
     try:
-        cfg = load_app_config(_APP_CONFIG_PATH)
+        cfg = load_arm_config(ARM_CONFIG_PATH)
     except FileNotFoundError:
-        print(f"app_config.yaml missing at {_APP_CONFIG_PATH}", file=sys.stderr)
+        print(f"arm_config.yaml missing at {ARM_CONFIG_PATH}", file=sys.stderr)
         return 1
     except ValidationError as e:
-        print(f"app_config.yaml failed validation:\n{e}", file=sys.stderr)
+        print(f"arm_config.yaml failed validation:\n{e}", file=sys.stderr)
         return 1
 
-    motors = {name: Motor(motor_id, "sts3215", MotorNormMode.DEGREES) for name, motor_id in _ARM_MOTOR_IDS}
-    motor_ids = [m for _, m in _ARM_MOTOR_IDS]
-    bus = FeetechMotorsBus(port=cfg.arm.port, motors=motors)
+    follower = build_follower(cfg, use_degrees=True)
+    motor_ids = [m.id for m in follower.bus.motors.values()]
 
-    print(f"Opening arm bus on {cfg.arm.port} ...")
-    bus.connect()
+    print(f"Opening arm bus on {cfg.connection.port} ...")
+    follower.bus.connect()
     try:
         while True:
             try:
@@ -57,10 +43,10 @@ def main() -> int:
                 print()  # newline after ^C / EOF
                 break
             if choice == "e":
-                bus.enable_torque()
+                follower.bus.enable_torque()
                 print(f"Torque ENABLED on motors {motor_ids}.")
             elif choice == "d":
-                bus.disable_torque()
+                follower.bus.disable_torque()
                 print(f"Torque DISABLED on motors {motor_ids}.")
             elif choice == "q":
                 break
@@ -71,9 +57,9 @@ def main() -> int:
                 print(f"Unrecognized: {choice!r} — type e, d, or q.")
     finally:
         # Release the port without re-toggling torque (we just set the state
-        # the user asked for — don't let the bus undo it on disconnect).
-        bus.disconnect(disable_torque=False)
-        print(f"Bus closed on {cfg.arm.port}. Torque state preserved.")
+        # the user asked for -- don't let the bus undo it on disconnect).
+        follower.bus.disconnect(disable_torque=False)
+        print(f"Bus closed on {cfg.connection.port}. Torque state preserved.")
 
     return 0
 

@@ -127,3 +127,24 @@ def test_format_status_marks_active_and_shows_torque():
     line = format_status(s, dict.fromkeys(ARM_JOINTS, 0))
     assert "torque ON" in line
     assert f"*{s.active}" in line
+
+
+def test_custom_step_bounds_flow_through():
+    """step_max / step_increment from initial_state override module constants."""
+    s = initial_state(
+        dict.fromkeys(ARM_JOINTS, 0.0),
+        dict.fromkeys(ARM_JOINTS, 0.0),
+        step_min=1.0,
+        step_max=20.0,
+        step_default=10.0,
+        step_increment=2.0,
+    )
+    assert s.step == pytest.approx(10.0)
+    # step_up increases by 2.0 (custom increment), not the module-default 1.0
+    s2, _ = apply_action(s, "step_up", _BOUNDS)
+    assert s2.step == pytest.approx(12.0)
+    # clamps at 20.0 (custom max), not module-default 15.0
+    s3 = s2
+    for _ in range(10):
+        s3, _ = apply_action(s3, "step_up", _BOUNDS)
+    assert s3.step == pytest.approx(20.0)

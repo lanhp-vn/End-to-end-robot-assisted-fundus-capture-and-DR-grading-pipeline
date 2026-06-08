@@ -7,8 +7,8 @@ def test_calib_path_points_at_so_arm101_json():
     assert device_setup.CALIB_PATH.parent.name == "so_arm101"
 
 
-def test_app_config_path_is_repo_data():
-    assert device_setup.APP_CONFIG_PATH.parts[-2:] == ("data", "app_config.yaml")
+def test_arm_config_path_is_package_data():
+    assert device_setup.ARM_CONFIG_PATH.parts[-3:] == ("arm101_hand", "data", "arm_config.yaml")
 
 
 def test_exports_builders():

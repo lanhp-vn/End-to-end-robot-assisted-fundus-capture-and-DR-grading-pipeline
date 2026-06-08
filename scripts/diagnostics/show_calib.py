@@ -50,12 +50,12 @@ def _show_arm(live: bool) -> int:
         return 0
     cfg = load_arm_app_config()
     follower = build_follower(cfg, use_degrees=True)
-    print(f"\nConnecting read-only on {cfg.arm.port} (torque stays off) ...")
+    print(f"\nConnecting read-only on {cfg.connection.port} (torque stays off) ...")
     try:
         try:
             follower.connect(calibrate=False)
         except (ConnectionError, OSError) as e:
-            print(f"ERROR: could not open {cfg.arm.port}: {e}", file=sys.stderr)
+            print(f"ERROR: could not open {cfg.connection.port}: {e}", file=sys.stderr)
             return 1
         obs = follower.get_observation()
         print(f"\n{'joint':<14}{'present_deg':>12}{'mid_deg':>10}")

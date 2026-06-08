@@ -35,13 +35,13 @@ def _scalar(value: object) -> float:
 def _scan_arm() -> int:
     cfg = load_arm_app_config()
     bus = build_raw_bus(cfg)
-    print(f"Opening arm bus on {cfg.arm.port} (read-only, torque off) ...")
+    print(f"Opening arm bus on {cfg.connection.port} (read-only, torque off) ...")
     missing: list[str] = []
     try:
         try:
             bus.connect(handshake=False)
         except (ConnectionError, OSError) as e:
-            print(f"ERROR: could not open {cfg.arm.port}: {e}", file=sys.stderr)
+            print(f"ERROR: could not open {cfg.connection.port}: {e}", file=sys.stderr)
             return 1
         header = f"{'joint':<14}{'id':>3}{'model':>7}{'pos_raw':>9}{'load':>7}{'volt':>7}{'temp_c':>8}"
         print(header)
@@ -62,7 +62,7 @@ def _scan_arm() -> int:
     finally:
         if bus.is_connected:
             bus.disconnect(disable_torque=False)
-            print(f"Bus closed on {cfg.arm.port}.")
+            print(f"Bus closed on {cfg.connection.port}.")
     return _report(missing, len(ARM_JOINTS))
 
 

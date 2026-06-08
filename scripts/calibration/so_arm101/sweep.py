@@ -38,17 +38,13 @@ from _common import (
 
 from arm101_hand.robots.calibration_summary import ARM_JOINTS
 
-# Present_Load magnitude above which we treat the joint as stalling against a stop.
-_LOAD_STALL = 600
-_SETTLE_S = 1.2  # dwell after each commanded target so the joint reaches it
 
-
-def _move(follower, joint: str, target: float) -> None:
+def _move(follower, joint: str, target: float, *, load_stall: int, settle_s: float) -> None:
     """Command one joint to a normalized target (-100..100) and dwell, watching load."""
     follower.send_action({f"{joint}.pos": target})
-    time.sleep(_SETTLE_S)
+    time.sleep(settle_s)
     load = follower.bus.read("Present_Load", joint, normalize=False)
-    flag = "  <-- HIGH LOAD" if abs(load) >= _LOAD_STALL else ""
+    flag = "  <-- HIGH LOAD" if abs(load) >= load_stall else ""
     print(f"  {joint}: target={target:+6.1f}  load={load:>5}{flag}")
 
 
@@ -58,12 +54,12 @@ def main() -> int:
     parser.add_argument(
         "--margin",
         type=float,
-        default=90.0,
-        help="how close to the endpoint to sweep, 1..99 (default 90; values are clamped to <=99 so the hard stop is never commanded)",
+        default=None,
+        help="how close to the endpoint to sweep, 1..99 (default from arm_config.yaml tuning; "
+        "values are clamped to <=99 so the hard stop is never commanded)",
     )
     args = parser.parse_args()
 
-    margin = max(1.0, min(99.0, args.margin))
     if args.joint == "all":
         joints = list(ARM_JOINTS)
     elif args.joint in ARM_JOINTS:
@@ -77,13 +73,20 @@ def main() -> int:
     vel = gentle_velocity(cfg)
     home = load_home_degrees()
 
+    # Resolve margin: CLI arg overrides config default.
+    raw_margin = args.margin if args.margin is not None else cfg.tuning.sweep_margin_default
+    margin = max(1.0, min(99.0, raw_margin))
+
+    load_stall: int = cfg.tuning.load_stall
+    settle_s: float = cfg.tuning.settle_sweep_s
+
     torque_on = False
-    print(f"Connecting on {cfg.arm.port} ...")
+    print(f"Connecting on {cfg.connection.port} ...")
     try:
         try:
             follower.connect(calibrate=False)
         except (ConnectionError, OSError) as e:
-            print(f"ERROR: could not open {cfg.arm.port}: {e}", file=sys.stderr)
+            print(f"ERROR: could not open {cfg.connection.port}: {e}", file=sys.stderr)
             return 1
         # Align the motors' onboard frame with the on-file calibration (writes motors, not JSON).
         follower.bus.write_calibration(follower.calibration)
@@ -96,13 +99,13 @@ def main() -> int:
 
         print(f"Centering all joints (Goal_Velocity={vel}) ...")
         follower.send_action({f"{j}.pos": 0.0 for j in ARM_JOINTS})
-        time.sleep(_SETTLE_S)
+        time.sleep(settle_s)
 
         for joint in joints:
             print(f"\nSweeping {joint} (margin +/-{margin:.0f}):")
-            _move(follower, joint, +margin)
-            _move(follower, joint, -margin)
-            _move(follower, joint, 0.0)
+            _move(follower, joint, +margin, load_stall=load_stall, settle_s=settle_s)
+            _move(follower, joint, -margin, load_stall=load_stall, settle_s=settle_s)
+            _move(follower, joint, 0.0, load_stall=load_stall, settle_s=settle_s)
         print("\nSweep complete.")
     except KeyboardInterrupt:
         print("\n^C -- stopping")
@@ -110,7 +113,7 @@ def main() -> int:
         # Never auto-home on exit. confirm_and_release offers 'h' (drive home first) or
         # Enter (release in place), then always releases torque.
         if follower.is_connected:
-            confirm_and_release(follower, torque_on, home, vel)
+            confirm_and_release(follower, torque_on, home, vel, tuning=cfg.tuning)
             follower.disconnect()
             print("Bus closed.")
     return 0

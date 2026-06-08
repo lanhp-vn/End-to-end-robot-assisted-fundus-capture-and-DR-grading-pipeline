@@ -1,8 +1,8 @@
 """Drive the SO-ARM101 to a named pose (degrees) and hold it under torque until Enter.
 
-Poses come from data/arm_config.yaml ``poses`` (home -- the folded storage pose -- plus any
-poses saved via jog.py). Targets are in DEGREES relative to each joint's calibrated mid.
-An out-of-range value is warned and that joint is skipped.
+Poses come from src/arm101_hand/data/arm_config.yaml ``poses`` (home -- the folded storage
+pose -- plus any poses saved via jog.py). Targets are in DEGREES relative to each joint's
+calibrated mid. An out-of-range value is warned and that joint is skipped.
 
 After connect() the script pushes the on-file calibration to the motors so degree targets
 physically match the recorded range (writes the MOTORS, never the JSON -- IL-5).
@@ -34,10 +34,8 @@ from _common import (
     load_home_degrees,
 )
 
-from arm101_hand.config import load_arm_poses
+from arm101_hand.config import load_arm_config
 from arm101_hand.robots.calibration_summary import ARM_JOINTS, clamp_degrees, load_arm_calibration
-
-_SETTLE_S = 2.0
 
 
 def _resolve_pose_name(argv: list[str], available: list[str]) -> str:
@@ -57,7 +55,7 @@ def _resolve_pose_name(argv: list[str], available: list[str]) -> str:
 
 
 def main() -> int:
-    poses = load_arm_poses(ARM_CONFIG_PATH).poses
+    poses = load_arm_config(ARM_CONFIG_PATH).poses
     if not poses:
         print(f"no poses defined in {ARM_CONFIG_PATH} (poses)", file=sys.stderr)
         return 1
@@ -85,13 +83,15 @@ def main() -> int:
     vel = gentle_velocity(cfg)
     home = load_home_degrees()
 
+    settle_s: float = cfg.tuning.settle_set_pose_s
+
     torque_on = False
-    print(f"Connecting on {cfg.arm.port}; driving to '{name}' ...")
+    print(f"Connecting on {cfg.connection.port}; driving to '{name}' ...")
     try:
         try:
             follower.connect(calibrate=False)
         except (ConnectionError, OSError) as e:
-            print(f"ERROR: could not open {cfg.arm.port}: {e}", file=sys.stderr)
+            print(f"ERROR: could not open {cfg.connection.port}: {e}", file=sys.stderr)
             return 1
         follower.bus.write_calibration(follower.calibration)
         # STS3215 movement-speed register is "Goal_Velocity" (reg 46), not "Profile_Velocity".
@@ -99,7 +99,7 @@ def main() -> int:
         follower.bus.enable_torque()
         torque_on = True
         follower.send_action({f"{j}.pos": v for j, v in targets.items()})
-        time.sleep(_SETTLE_S)
+        time.sleep(settle_s)
         print(f"Holding '{name}' under torque: {targets}")
     except (EOFError, KeyboardInterrupt):
         print("\n^C/EOF -- exiting")
@@ -108,7 +108,9 @@ def main() -> int:
         # offers 'h' (drive home first) or Enter (release in place). When driving to 'home',
         # there is nothing to return to -- it settles at home and releases without prompting.
         if follower.is_connected:
-            confirm_and_release(follower, torque_on, home, vel, offer_home=(name != "home"))
+            confirm_and_release(
+                follower, torque_on, home, vel, offer_home=(name != "home"), tuning=cfg.tuning
+            )
             follower.disconnect()
             print("Bus closed.")
     return 0
