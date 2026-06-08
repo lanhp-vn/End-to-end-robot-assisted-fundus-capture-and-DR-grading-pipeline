@@ -102,3 +102,76 @@ def test_drive_arm_joints_times_out_without_convergence(capsys):
     )
     err = capsys.readouterr().err
     assert "not fully reached within timeout" in err, "timeout path prints the note to stderr"
+
+
+def test_confirm_and_release_runs_home_routine_on_h(monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "h")
+    bus = _FakeBus(dict.fromkeys(device_setup.ARM_JOINTS, 0))
+    follower = _FakeFollower(_full_calib(), bus)
+    home = dict.fromkeys(device_setup.ARM_JOINTS, 0.0)
+    called = []
+    device_setup.confirm_and_release(
+        follower, True, home, 600, offer_home=True, home_routine=lambda: called.append(True)
+    )
+    assert called == [True], "home_routine ran on 'h'"
+    assert not any(w[0] == "Goal_Position" for w in bus.writes), "staged routine replaces default homing"
+    assert any(w[0] == "disable_torque" for w in bus.writes), "arm torque always released (IL-4)"
+
+
+def test_confirm_and_release_default_homes_on_h_without_routine(monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "h")
+    bus = _FakeBus(dict.fromkeys(device_setup.ARM_JOINTS, 0))
+    follower = _FakeFollower(_full_calib(), bus)
+    home = dict.fromkeys(device_setup.ARM_JOINTS, 0.0)
+    device_setup.confirm_and_release(follower, True, home, 600, offer_home=True)
+    assert any(w[0] == "Goal_Position" for w in bus.writes), "default 'h' path drives home"
+    assert any(w[0] == "disable_torque" for w in bus.writes)
+
+
+def test_confirm_and_release_release_in_place_on_enter(monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "")
+    bus = _FakeBus(dict.fromkeys(device_setup.ARM_JOINTS, 0))
+    follower = _FakeFollower(_full_calib(), bus)
+    home = dict.fromkeys(device_setup.ARM_JOINTS, 0.0)
+    called = []
+    device_setup.confirm_and_release(
+        follower, True, home, 600, offer_home=True, home_routine=lambda: called.append(True)
+    )
+    assert called == [], "plain Enter does not run the staged reverse"
+    assert not any(w[0] == "Goal_Position" for w in bus.writes), "no movement on release-in-place"
+    assert any(w[0] == "disable_torque" for w in bus.writes)
+
+
+def test_confirm_and_release_home_routine_raises_torque_still_off(monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "h")
+    bus = _FakeBus(dict.fromkeys(device_setup.ARM_JOINTS, 0))
+    follower = _FakeFollower(_full_calib(), bus)
+    home = dict.fromkeys(device_setup.ARM_JOINTS, 0.0)
+
+    def _crashing_routine():
+        raise RuntimeError("boom")
+
+    device_setup.confirm_and_release(
+        follower, True, home, 600, offer_home=True, home_routine=_crashing_routine
+    )
+    assert any(w[0] == "disable_torque" for w in bus.writes), "torque always off (IL-4) even when home_routine raises"
+
+
+def test_confirm_and_release_home_routine_skips_on_home(monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "h")
+    bus = _FakeBus(dict.fromkeys(device_setup.ARM_JOINTS, 0))
+    follower = _FakeFollower(_full_calib(), bus)
+    home = dict.fromkeys(device_setup.ARM_JOINTS, 0.0)
+    routine_called = []
+    on_home_called = []
+    device_setup.confirm_and_release(
+        follower,
+        True,
+        home,
+        600,
+        offer_home=True,
+        on_home=lambda: on_home_called.append(True),
+        home_routine=lambda: routine_called.append(True),
+    )
+    assert routine_called == [True], "home_routine ran"
+    assert on_home_called == [], "on_home is ignored when home_routine is set"

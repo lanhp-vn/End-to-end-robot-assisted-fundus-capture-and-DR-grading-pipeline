@@ -140,6 +140,7 @@ def confirm_and_release(
     *,
     offer_home: bool = True,
     on_home: Callable[[], None] | None = None,
+    home_routine: Callable[[], None] | None = None,
     tuning: ArmTuning | None = None,
 ) -> None:
     """On exit, release torque after handling the home pose (never auto-homes a held pose).
@@ -155,6 +156,12 @@ def confirm_and_release(
     branch), after the arm reaches home and before its torque is cut. A coordinated caller
     (e.g. the grab demo) uses it to bring a second device home too. Its failure is reported
     but never blocks the arm torque-off.
+
+    ``home_routine`` (optional): when supplied, the ``h`` branch calls it INSTEAD of the built-in
+    "drive all joints home, then run on_home" -- a coordinated caller (e.g. the grab demo) uses it
+    to run a fully custom, staged return (e.g. open the hand, then reverse the arm stage by stage).
+    Its failure is reported but never blocks the arm torque-off. ``on_home`` is ignored when
+    ``home_routine`` is set.
 
     ``tuning`` (optional ``ArmTuning``): when supplied, overrides ``_drive_home``'s
     tolerance/timeout/poll defaults with values from ``arm_config.yaml``. If ``None``,
@@ -190,15 +197,25 @@ def confirm_and_release(
         except (EOFError, KeyboardInterrupt):
             choice = ""
         if choice == "h":
-            print("Returning to home ...")
-            try:
-                _drive_home(follower, home, vel, **drive_kw)  # type: ignore[arg-type]
-                print("Home reached.")
-            except BaseException as e:
-                print(f"  (homing interrupted: {e!r}) -- releasing torque anyway", file=sys.stderr)
-            if on_home is not None:
+            if home_routine is not None:
+                print("Returning home (staged reverse) ...")
                 try:
-                    on_home()
+                    home_routine()
                 except BaseException as e:
-                    print(f"  (on_home hook failed: {e!r})", file=sys.stderr)
+                    print(
+                        f"  (staged reverse interrupted: {e!r}) -- releasing torque anyway",
+                        file=sys.stderr,
+                    )
+            else:
+                print("Returning to home ...")
+                try:
+                    _drive_home(follower, home, vel, **drive_kw)  # type: ignore[arg-type]
+                    print("Home reached.")
+                except BaseException as e:
+                    print(f"  (homing interrupted: {e!r}) -- releasing torque anyway", file=sys.stderr)
+                if on_home is not None:
+                    try:
+                        on_home()
+                    except BaseException as e:
+                        print(f"  (on_home hook failed: {e!r})", file=sys.stderr)
     follower.bus.disable_torque()
