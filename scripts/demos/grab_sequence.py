@@ -1,28 +1,29 @@
 """Grab demo: stage the SO-ARM101 into its ``grab`` pose, close the AmazingHand,
 hold both under torque, and reverse the whole thing on exit.
 
-Forward sequence (each stage finishes -- position-confirmed for the arm -- before
-the next begins):
+Forward sequence (each stage position-confirmed -- arm AND hand -- before the next):
   1. shoulder_pan -> base_max (its calibrated upper bound)
-  2. shoulder_lift + elbow_flex + wrist_flex + wrist_roll -> grab (simultaneous)
+  2. shoulder_lift + elbow_flex + wrist_flex + wrist_roll -> grab, AND hand -> pre_grab
+     (commanded together, then both polled to completion)
   3. shoulder_pan -> grab
-  4. hand fingers -> grab
+  4. hand fingers -> grab (closes onto the object; stalls -> times out -> continues)
 
-The two devices live on separate buses (arm = 12 V STS3215, hand = 5 V SCS0009)
-on different COM ports, so both are held open at once -- no shared rail (IL-1) and
-one owner per bus (IL-4).
+The two devices live on separate buses (arm = 12 V STS3215, hand = 5 V SCS0009) on
+different COM ports, so both are held open at once -- no shared rail (IL-1) and one
+owner per bus (IL-4).
 
 On exit:
   * plain Enter / Ctrl+C / EOF -> release BOTH in place (no movement); the arm will
     sag from a raised pose -- you are warned at the prompt.
-  * 'h' -> run the sequence in REVERSE (4 -> 1): open the hand, then shoulder_pan ->
-    base_max, then the four posture joints -> home, then shoulder_pan -> home. The
-    arm waits for each stage to finish before the next. Torque on BOTH buses is always
+  * 'h' -> run the sequence in REVERSE: hand -> pre_grab, then shoulder_pan -> base_max,
+    then the four posture joints -> home, then shoulder_pan -> home, then (arm now at
+    home) hand -> open. Each move is position-confirmed. Torque on BOTH buses is always
     cut at the end, even if a leg fails partway through.
 
 Poses come from version-controlled config (IL-5; never written here):
   * arm  -> src/arm101_hand/data/arm_config.yaml ``poses['grab']`` / ``poses['home']``
-  * hand -> src/arm101_hand/data/hand_config.yaml ``poses['grab']`` (``open`` is built-in)
+  * hand -> src/arm101_hand/data/hand_config.yaml ``poses['grab']`` / ``poses['pre_grab']``
+            (``open`` is built-in / limits-derived)
 
 Usage:
   uv run python scripts/demos/grab_sequence.py
@@ -31,15 +32,19 @@ Usage:
 from __future__ import annotations
 
 import contextlib
+import math
 import sys
-import time
 from pathlib import Path
 
 from rustypot import Scs0009PyController
 
 from arm101_hand.config import load_arm_config, load_hand_calibration, load_hand_config
-from arm101_hand.hand import resolve_hand_pose_targets
-from arm101_hand.hand.protocol import SERVO_SYNC_S
+from arm101_hand.hand import (
+    drive_hand_servos,
+    resolve_hand_pose_targets,
+    wait_hand_reached,
+    write_hand_servos,
+)
 from arm101_hand.robots.calibration_summary import (
     ARM_JOINTS,
     clamp_degrees,
@@ -64,11 +69,11 @@ HAND_CONFIG_PATH = _REPO_ROOT / "src" / "arm101_hand" / "data" / "hand_config.ya
 
 ARM_POSE = "grab"
 HAND_POSE = "grab"
+HAND_PRE_GRAB_POSE = "pre_grab"
 HAND_OPEN_POSE = "open"
 PAN_JOINT = "shoulder_pan"
 # Everything except the base pan -- moved together in forward step 2 / reverse step R2.
 POSTURE_JOINTS = ("shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")
-_HAND_SETTLE_S = 1.0
 
 
 def _build_arm_plan() -> tuple[dict[str, float], float]:
@@ -97,18 +102,6 @@ def _build_arm_plan() -> tuple[dict[str, float], float]:
     return targets, base_max_deg
 
 
-def _drive_hand(c: Scs0009PyController, targets: dict[int, float], speed: int) -> None:
-    """Enable torque and command every servo to its wire-radians target at ``speed``."""
-    for sid in targets:
-        c.write_torque_enable(sid, 1)
-    for sid in sorted(targets):
-        c.write_goal_speed(sid, speed)
-        time.sleep(SERVO_SYNC_S)
-    for sid in sorted(targets):
-        c.write_goal_position(sid, targets[sid])
-        time.sleep(SERVO_SYNC_S)
-
-
 def main() -> int:
     # Resolve everything before touching hardware -- fail fast, leave no bus open.
     arm_targets, base_max_deg = _build_arm_plan()
@@ -117,8 +110,11 @@ def main() -> int:
     hand_cfg = load_hand_config(HAND_CONFIG_PATH) if HAND_CONFIG_PATH.is_file() else None
     if hand_cfg is None or HAND_POSE not in hand_cfg.poses:
         raise SystemExit(f"hand pose {HAND_POSE!r} not in {HAND_CONFIG_PATH} (poses)")
+    if HAND_PRE_GRAB_POSE not in hand_cfg.poses:
+        raise SystemExit(f"hand pose {HAND_PRE_GRAB_POSE!r} not in {HAND_CONFIG_PATH} (poses)")
     hand_targets = resolve_hand_pose_targets(hand_calib, hand_cfg, HAND_POSE)
-    # Open targets are built-in (limits-derived); used only on the 'h' (reverse) exit.
+    hand_pre_grab_targets = resolve_hand_pose_targets(hand_calib, hand_cfg, HAND_PRE_GRAB_POSE)
+    # Open targets are built-in (limits-derived); used as the final reverse step.
     hand_open_targets = resolve_hand_pose_targets(hand_calib, hand_cfg, HAND_OPEN_POSE)
 
     cfg = load_arm_app_config()
@@ -133,8 +129,20 @@ def main() -> int:
         "timeout_s": arm_tuning.home_timeout_s,
         "poll_s": arm_tuning.home_poll_s,
     }
+    # Hand position-poll params. tolerance reuses pose_margin_deg (no separate poll-tolerance knob
+    # yet -- the same pragmatic reuse the arm makes with home_* above); timeout/poll from config.
+    hand_wait_kw = {
+        "tolerance_rad": math.radians(hand_cfg.tuning.pose_margin_deg),
+        "timeout_s": hand_cfg.tuning.pose_timeout_s,
+        "poll_s": hand_cfg.tuning.pose_poll_s,
+    }
+    # Forward pre_grab (step 2) uses the general jog speed; the grab CLOSE (step 4) uses the
+    # dedicated flexion speed; opening moves (reverse pre_grab + open) use the extension speed.
+    hand_speed = hand_cfg.tuning.speed
+    hand_close_speed = hand_cfg.tuning.speeds.close
+    hand_open_speed = hand_cfg.tuning.speeds.open
 
-    # Per-stage joint subsets (degrees). Built from arm_targets so a skipped joint drops out.
+    # Per-stage arm joint subsets (degrees). Built from arm_targets so a skipped joint drops out.
     posture_grab = {j: arm_targets[j] for j in POSTURE_JOINTS if j in arm_targets}
     posture_home = {j: home[j] for j in POSTURE_JOINTS}
     pan_grab = {PAN_JOINT: arm_targets[PAN_JOINT]} if PAN_JOINT in arm_targets else {}
@@ -148,21 +156,22 @@ def main() -> int:
     )
 
     def _staged_reverse() -> None:
-        """Mirror of the forward grab (steps 4 -> 1), run when the user types 'h' on exit.
+        """Reverse of the forward grab, run when the user types 'h' on exit.
 
-        The hand opens first and then holds 'open' under torque while the arm reverses; both
-        torques are cut by the caller (confirm_and_release for the arm, the outer finally for
-        the hand) after this returns.
+        hand -> pre_grab, then arm pan->base_max / posture->home / pan->home, then (arm at
+        home) hand -> open. The hand holds each pose under torque between stages; both torques
+        are cut by the caller (confirm_and_release for the arm, the outer finally for the hand).
         """
-        print(f"  [R4] opening hand on {hand_cfg.connection.port} ...")
-        _drive_hand(hand, hand_open_targets, hand_cfg.tuning.speeds.open)
-        time.sleep(_HAND_SETTLE_S)
+        print(f"  [Rh] hand -> '{HAND_PRE_GRAB_POSE}' on {hand_cfg.connection.port} ...")
+        drive_hand_servos(hand, hand_pre_grab_targets, hand_open_speed, **hand_wait_kw)
         print(f"  [R3] shoulder_pan -> base_max ({base_max_deg:.1f} deg) ...")
         drive_arm_joints(follower, pan_base_max, vel, **wait_kw)
         print("  [R2] shoulder_lift/elbow_flex/wrist_flex/wrist_roll -> home ...")
         drive_arm_joints(follower, posture_home, vel, **wait_kw)
         print("  [R1] shoulder_pan -> home ...")
         drive_arm_joints(follower, pan_home, vel, **wait_kw)
+        print(f"  [Ro] arm home -- hand -> '{HAND_OPEN_POSE}' ...")
+        drive_hand_servos(hand, hand_open_targets, hand_open_speed, **hand_wait_kw)
 
     arm_torque_on = False
     try:
@@ -177,29 +186,32 @@ def main() -> int:
         follower.bus.enable_torque()
         arm_torque_on = True
 
-        # ---- Forward grab, staged (each stage position-confirmed before the next) ----
+        # ---- Forward grab, staged ----
         print(f"  [1] shoulder_pan -> base_max ({base_max_deg:.1f} deg) ...")
         drive_arm_joints(follower, pan_base_max, vel, **wait_kw)
-        print("  [2] shoulder_lift/elbow_flex/wrist_flex/wrist_roll -> grab ...")
+
+        # Step 2: command the hand (pre_grab) and the arm posture together, then confirm BOTH.
+        print(f"  [2] posture -> grab + hand -> '{HAND_PRE_GRAB_POSE}' (together) ...")
+        write_hand_servos(hand, hand_pre_grab_targets, hand_speed)
         drive_arm_joints(follower, posture_grab, vel, **wait_kw)
+        wait_hand_reached(hand, hand_pre_grab_targets, **hand_wait_kw)
+
         if not pan_grab:
             print("  WARNING: shoulder_pan out of range -- [3] is a no-op; pan stays at base_max")
         print("  [3] shoulder_pan -> grab ...")
         drive_arm_joints(follower, pan_grab, vel, **wait_kw)
         print(f"Arm holding '{ARM_POSE}': {arm_targets}")
 
-        # ---- Hand leg: close into grab ----
-        print(f"  [4] driving hand on {hand_cfg.connection.port} to '{HAND_POSE}' ...")
-        _drive_hand(hand, hand_targets, hand_cfg.tuning.speed)
-        time.sleep(_HAND_SETTLE_S)
+        # ---- Hand leg: close into grab (stalls on the object -> timeout -> continue) ----
+        print(f"  [4] hand -> '{HAND_POSE}' on {hand_cfg.connection.port} ...")
+        drive_hand_servos(hand, hand_targets, hand_close_speed, **hand_wait_kw)
         print(f"Arm + hand holding '{ARM_POSE}'/'{HAND_POSE}' under torque.")
     except (EOFError, KeyboardInterrupt):
         print("\n^C/EOF -- exiting")
     finally:
         # Release the arm first: confirm_and_release prompts 'h'/Enter (both stay gripped
-        # during the prompt). 'h' runs _staged_reverse (hand opens first, then the arm
-        # reverses stage by stage); plain Enter releases in place. The hand release lives
-        # in an inner finally so it ALWAYS runs -- neither bus may be left torqued (IL-4).
+        # during the prompt). 'h' runs _staged_reverse; plain Enter releases in place. The hand
+        # release lives in an inner finally so it ALWAYS runs -- neither bus may be left torqued (IL-4).
         try:
             if follower.is_connected:
                 confirm_and_release(
