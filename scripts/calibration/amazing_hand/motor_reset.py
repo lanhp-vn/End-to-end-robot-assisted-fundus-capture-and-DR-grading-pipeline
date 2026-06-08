@@ -17,7 +17,6 @@ from rustypot import Scs0009PyController
 
 from arm101_hand.config import load_hand_calibration, load_hand_config, save_hand_calibration
 from arm101_hand.config.motor_ids import FINGER_SERVO_IDS
-from arm101_hand.hand.protocol import SERVO_SYNC_S
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 YAML_PATH = SCRIPT_DIR / "hand_calib_values.yaml"
@@ -93,7 +92,6 @@ def main():
             id1, id2 = FINGER_SERVO_IDS[finger]
             print(f"\n--- {finger} finger: servo_1={id1}, servo_2={id2} ---")
             reset_motor(c, id1, speed)
-            time.sleep(SERVO_SYNC_S)
             touched.add(id1)
             reset_motor(c, id2, speed)
             touched.add(id2)
