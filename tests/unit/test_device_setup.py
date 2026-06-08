@@ -66,9 +66,9 @@ def test_drive_arm_joints_writes_only_subset_and_converts_degrees():
     _reg, values, normalize = goal_writes[0]
     assert normalize is False
     assert set(values) == {"shoulder_pan"}, "only the requested joint is commanded"
-    mid = (0 + 4095) / 2
-    expected = int(round(mid + 90.0 * (4096 - 1) / 360))
-    assert values["shoulder_pan"] == expected
+    # 90 deg is a quarter turn. Steps/deg = (4096-1)/360 = 11.375; mid of 0..4095 = 2047.5.
+    # 2047.5 + 90*11.375 = 3071.25 -> rounds to 3071. Derived by hand, NOT from the impl.
+    assert values["shoulder_pan"] == 3071
     vel_writes = [w for w in bus.writes if w[0] == "Goal_Velocity"]
     assert vel_writes and set(vel_writes[0][1]) == {"shoulder_pan"}, "velocity scoped to subset"
 
@@ -87,3 +87,18 @@ def test_drive_home_commands_all_five_joints():
     device_setup._drive_home(follower, home, vel=600, timeout_s=1.0, poll_s=0.0)
     goal = [w for w in bus.writes if w[0] == "Goal_Position"][0]
     assert set(goal[1]) == set(device_setup.ARM_JOINTS), "_drive_home still drives all joints"
+
+
+def test_drive_arm_joints_times_out_without_convergence(capsys):
+    class _StuckBus(_FakeBus):
+        # Never moves present toward goal -> the wait loop must time out, not hang.
+        def sync_write(self, reg, values, normalize=True):
+            self.writes.append((reg, dict(values), normalize))
+
+    bus = _StuckBus(dict.fromkeys(device_setup.ARM_JOINTS, 0))
+    follower = _FakeFollower(_full_calib(), bus)
+    device_setup.drive_arm_joints(
+        follower, {"shoulder_pan": 90.0}, vel=600, tolerance=1, timeout_s=0.05, poll_s=0.0
+    )
+    err = capsys.readouterr().err
+    assert "not fully reached within timeout" in err, "timeout path prints the note to stderr"
