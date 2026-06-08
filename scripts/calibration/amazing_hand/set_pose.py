@@ -26,15 +26,19 @@ Usage:
 """
 
 import contextlib
+import math
 import sys
-import time
 from pathlib import Path
 
 from rustypot import Scs0009PyController
 
 from arm101_hand.config import HandConfig, load_hand_calibration, load_hand_config
-from arm101_hand.hand import BUILTIN_POSES, available_pose_names, resolve_hand_pose_targets
-from arm101_hand.hand.protocol import SERVO_SYNC_S
+from arm101_hand.hand import (
+    BUILTIN_POSES,
+    available_pose_names,
+    drive_hand_servos,
+    resolve_hand_pose_targets,
+)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 YAML_PATH = SCRIPT_DIR / "hand_calib_values.yaml"
@@ -58,16 +62,6 @@ def resolve_pose(argv, valid):
             return arg
         print(f"  '{argv[1]}' is not a valid pose -- pick one of {valid}")
     return prompt_pose(valid)
-
-
-def drive_targets(c, targets, speed):
-    """Command every servo to its wire-radians target at ``speed`` (torque already on)."""
-    for sid in sorted(targets):
-        c.write_goal_speed(sid, speed)
-        time.sleep(SERVO_SYNC_S)
-    for sid in sorted(targets):
-        c.write_goal_position(sid, targets[sid])
-        time.sleep(SERVO_SYNC_S)
 
 
 def main():
@@ -98,7 +92,15 @@ def main():
     detail = " (all fingers, neutral spread)" if builtin else ""
     print(f"Setting hand to '{pose}'{detail}...")
     try:
-        drive_targets(c, targets, speed)
+        drive_hand_servos(
+            c,
+            targets,
+            speed,
+            tolerance_rad=math.radians(hcfg.tuning.pose_margin_deg),
+            timeout_s=hcfg.tuning.pose_timeout_s,
+            poll_s=hcfg.tuning.pose_poll_s,
+            enable_torque=False,  # set_pose already enabled torque above
+        )
         print(f"Hand held at '{pose}' under torque.")
         input("Press Enter to release torque and exit... ")
     except KeyboardInterrupt:

@@ -75,6 +75,44 @@ def load_home_degrees() -> dict[str, float]:
     return dict.fromkeys(ARM_JOINTS, 0.0)
 
 
+def drive_arm_joints(
+    follower,
+    targets_deg: dict[str, float],
+    vel: int,
+    *,
+    tolerance: int = 25,
+    timeout_s: float = 8.0,
+    poll_s: float = 0.05,
+) -> None:
+    """Drive a SUBSET of joints to degree targets, then WAIT until they arrive. No torque change.
+
+    ``targets_deg`` maps joint name -> degrees relative to that joint's calibrated mid; only the
+    joints present are commanded (the rest hold their current torqued position). Degrees are
+    converted to raw encoder steps and written with ``normalize=False`` so it works for ANY
+    follower norm mode (DEGREES or RANGE_M100_100). After commanding, polls ``Present_Position``
+    until every commanded joint is within ``tolerance`` raw steps of its goal -- so a slow, gentle
+    move actually completes before the caller proceeds. Gives up after ``timeout_s`` (prints a
+    note) so it never hangs. An empty ``targets_deg`` is a no-op. The caller owns enable/disable.
+    """
+    if not targets_deg:
+        return
+    goal_raw: dict[str, int] = {}
+    for joint, deg in targets_deg.items():
+        cal = follower.calibration[joint]
+        mid = (cal.range_min + cal.range_max) / 2
+        goal_raw[joint] = int(round(mid + deg * (STS3215_RESOLUTION - 1) / 360))
+    follower.bus.sync_write("Goal_Velocity", dict.fromkeys(goal_raw, vel))
+    follower.bus.sync_write("Goal_Position", goal_raw, normalize=False)
+
+    start = time.monotonic()
+    while time.monotonic() - start < timeout_s:
+        present = follower.bus.sync_read("Present_Position", normalize=False)
+        if all(abs(present[j] - goal_raw[j]) <= tolerance for j in goal_raw):
+            return
+        time.sleep(poll_s)
+    print("  (target not fully reached within timeout -- continuing)", file=sys.stderr)
+
+
 def _drive_home(
     follower,
     home: dict[str, float],
@@ -83,29 +121,15 @@ def _drive_home(
     timeout_s: float = 8.0,
     poll_s: float = 0.05,
 ) -> None:
-    """Drive all joints to the ``home`` pose (degrees) at gentle ``vel``. Does NOT disable torque.
-
-    ``home`` is per-joint degrees relative to each joint's calibrated mid; converted here to raw
-    encoder steps and written with ``normalize=False``, so it works for ANY follower norm mode
-    (DEGREES or RANGE_M100_100). Then WAITS until every joint is within ``tolerance`` raw steps
-    of its target instead of a blind sleep -- so a long, gentle move actually completes before
-    the caller releases torque. Gives up after ``timeout_s`` (prints a note) so it never hangs.
-    """
-    goal_raw: dict[str, int] = {}
-    for j in ARM_JOINTS:
-        cal = follower.calibration[j]
-        mid = (cal.range_min + cal.range_max) / 2
-        goal_raw[j] = int(round(mid + home[j] * (STS3215_RESOLUTION - 1) / 360))
-    follower.bus.sync_write("Goal_Velocity", dict.fromkeys(ARM_JOINTS, vel))
-    follower.bus.sync_write("Goal_Position", goal_raw, normalize=False)
-
-    start = time.monotonic()
-    while time.monotonic() - start < timeout_s:
-        present = follower.bus.sync_read("Present_Position", normalize=False)
-        if all(abs(present[j] - goal_raw[j]) <= tolerance for j in ARM_JOINTS):
-            return
-        time.sleep(poll_s)
-    print("  (home not fully reached within timeout -- releasing anyway)", file=sys.stderr)
+    """Drive ALL joints to the ``home`` pose (degrees) and wait. Thin wrapper over drive_arm_joints."""
+    drive_arm_joints(
+        follower,
+        {j: home[j] for j in ARM_JOINTS},
+        vel,
+        tolerance=tolerance,
+        timeout_s=timeout_s,
+        poll_s=poll_s,
+    )
 
 
 def confirm_and_release(
@@ -116,6 +140,7 @@ def confirm_and_release(
     *,
     offer_home: bool = True,
     on_home: Callable[[], None] | None = None,
+    home_routine: Callable[[], None] | None = None,
     tuning: ArmTuning | None = None,
 ) -> None:
     """On exit, release torque after handling the home pose (never auto-homes a held pose).
@@ -131,6 +156,12 @@ def confirm_and_release(
     branch), after the arm reaches home and before its torque is cut. A coordinated caller
     (e.g. the grab demo) uses it to bring a second device home too. Its failure is reported
     but never blocks the arm torque-off.
+
+    ``home_routine`` (optional): when supplied, the ``h`` branch calls it INSTEAD of the built-in
+    "drive all joints home, then run on_home" -- a coordinated caller (e.g. the grab demo) uses it
+    to run a fully custom, staged return (e.g. open the hand, then reverse the arm stage by stage).
+    Its failure is reported but never blocks the arm torque-off. ``on_home`` is ignored when
+    ``home_routine`` is set.
 
     ``tuning`` (optional ``ArmTuning``): when supplied, overrides ``_drive_home``'s
     tolerance/timeout/poll defaults with values from ``arm_config.yaml``. If ``None``,
@@ -166,15 +197,25 @@ def confirm_and_release(
         except (EOFError, KeyboardInterrupt):
             choice = ""
         if choice == "h":
-            print("Returning to home ...")
-            try:
-                _drive_home(follower, home, vel, **drive_kw)  # type: ignore[arg-type]
-                print("Home reached.")
-            except BaseException as e:
-                print(f"  (homing interrupted: {e!r}) -- releasing torque anyway", file=sys.stderr)
-            if on_home is not None:
+            if home_routine is not None:
+                print("Returning home (staged reverse) ...")
                 try:
-                    on_home()
+                    home_routine()
                 except BaseException as e:
-                    print(f"  (on_home hook failed: {e!r})", file=sys.stderr)
+                    print(
+                        f"  (staged reverse interrupted: {e!r}) -- releasing torque anyway",
+                        file=sys.stderr,
+                    )
+            else:
+                print("Returning to home ...")
+                try:
+                    _drive_home(follower, home, vel, **drive_kw)  # type: ignore[arg-type]
+                    print("Home reached.")
+                except BaseException as e:
+                    print(f"  (homing interrupted: {e!r}) -- releasing torque anyway", file=sys.stderr)
+                if on_home is not None:
+                    try:
+                        on_home()
+                    except BaseException as e:
+                        print(f"  (on_home hook failed: {e!r})", file=sys.stderr)
     follower.bus.disable_torque()
