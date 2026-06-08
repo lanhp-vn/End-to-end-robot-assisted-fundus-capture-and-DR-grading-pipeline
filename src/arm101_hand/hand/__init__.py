@@ -11,6 +11,11 @@ from .kinematics import (
     servo_radians_to_degrees,
     validate_pose_name,
 )
+from .motion import (
+    drive_hand_servos,
+    wait_hand_reached,
+    write_hand_servos,
+)
 from .pose_resolver import (
     BUILTIN_POSES,
     DEFAULT_POSE_MARGIN_DEG,
@@ -35,6 +40,9 @@ __all__ = [
     "finger_positions_to_servo_frame",
     "servo_radians_to_degrees",
     "validate_pose_name",
+    "drive_hand_servos",
+    "wait_hand_reached",
+    "write_hand_servos",
     "BUILTIN_POSES",
     "DEFAULT_POSE_MARGIN_DEG",
     "available_pose_names",
