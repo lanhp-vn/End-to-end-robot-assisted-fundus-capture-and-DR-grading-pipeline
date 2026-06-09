@@ -9,7 +9,7 @@ This script runs a complete sequence of movements for the 4-finger AmazingHand
 4. Isolating and moving the Middle finger
 5. Isolating and moving the Ring finger
 6. Isolating and moving the Thumb
-7. Returning to the neutral (initial) pose
+7. Returning to the open (initial) pose
 
 It reads calibration values from 'hand_calib_values.yaml' and is intended
 to be the final end-to-end sanity check that proves the calibration is correct.
@@ -203,7 +203,7 @@ def main():
 
         _wait(InitialPose())
         time.sleep(1)
-        print("Cycle complete -- holding middle (initial) pose under torque.")
+        print("Cycle complete -- holding open (initial) pose under torque.")
         input("Press Enter to release torque and exit... ")
     except KeyboardInterrupt:
         print("\n^C -- aborting")

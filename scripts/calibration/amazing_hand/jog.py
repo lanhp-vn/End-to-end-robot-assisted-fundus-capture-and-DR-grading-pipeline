@@ -16,7 +16,7 @@ Controls (torque ON the whole time):
   h             home the active finger to (0, 0) neutral
   H             home ALL fingers to (0, 0) neutral
   s             save the current whole-hand pose (prompts for a name)
-  q / Ctrl+C    on quit, prompts: 'h' to home all fingers to neutral first, or Enter to
+  q / Ctrl+C    on quit, prompts: 'h' to home all fingers to open first, or Enter to
                 release torque on all 8 servos and exit
 
 On startup the cursor is initialized from the hand's CURRENT position (no auto-home) and
@@ -25,8 +25,8 @@ cursor is clamped to its calibrated base/side limits, so you can only build pose
 the known-good envelope. Windows-only: uses ``msvcrt`` for raw keys.
 """
 
+import math
 import msvcrt
-import time
 from pathlib import Path
 
 from rustypot import Scs0009PyController
@@ -43,8 +43,10 @@ from arm101_hand.hand import (
     compose_finger,
     decompose_finger,
     degrees_to_servo_radians,
+    drive_hand_servos,
     finger_positions_to_servo_frame,
     load_warning,
+    resolve_hand_pose_targets,
     servo_radians_to_degrees,
     validate_pose_name,
 )
@@ -207,12 +209,12 @@ def main():
     except KeyboardInterrupt:
         print("\n^C -- exiting")
     finally:
-        # Never auto-home on quit. Offer 'h' to home all fingers to neutral first, or Enter
+        # Never auto-home on quit. Offer 'h' to home all fingers to open first, or Enter
         # to release in place (light SCS0009s relax harmlessly either way).
         try:
             choice = (
                 input(
-                    "\nType 'h' + Enter to home all fingers to neutral first, or just Enter to release in place: "
+                    "\nType 'h' + Enter to home all fingers to open first, or just Enter to release in place: "
                 )
                 .strip()
                 .lower()
@@ -220,12 +222,21 @@ def main():
         except (EOFError, KeyboardInterrupt):
             choice = ""
         if choice == "h":
-            # Guarded so a homing failure can't skip the torque-off below (IL-4).
+            # Guarded so a homing failure can't skip the torque-off below (IL-4). Drive to the
+            # built-in 'open' pose (limits-derived) with position-polling -- not a blind settle.
             try:
-                for name in FINGERS:
-                    drive_finger(c, name, cfg.fingers[name], 0, 0, hcfg.tuning.speed)
-                time.sleep(1.0)  # let the fingers reach neutral before torque-off
-                print("Homed all fingers to neutral.")
+                open_targets = resolve_hand_pose_targets(
+                    cfg, hcfg, "open", margin_deg=hcfg.tuning.pose_margin_deg
+                )
+                drive_hand_servos(
+                    c,
+                    open_targets,
+                    hcfg.tuning.speeds.open,
+                    tolerance_rad=math.radians(hcfg.tuning.pose_margin_deg),
+                    timeout_s=hcfg.tuning.pose_timeout_s,
+                    poll_s=hcfg.tuning.pose_poll_s,
+                )
+                print("Homed all fingers to open.")
             except BaseException as e:  # incl. Ctrl+C during the settle -- must still cut torque
                 print(f"  (homing interrupted: {e!r}) -- releasing torque anyway")
         for sid in all_ids:

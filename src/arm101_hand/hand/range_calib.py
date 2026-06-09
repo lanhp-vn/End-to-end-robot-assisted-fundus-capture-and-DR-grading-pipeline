@@ -22,7 +22,7 @@ from dataclasses import dataclass, replace
 # Jog step bounds (degrees). Conservative default; operator widens/narrows live.
 STEP_DEFAULT = 5
 STEP_MIN = 1
-STEP_MAX = 15
+STEP_MAX = 25
 
 # Generous cursor safety envelope (degrees, logical frame). Wider than any real
 # stored limit so the operator can jog *to* the mechanical stop and mark it.

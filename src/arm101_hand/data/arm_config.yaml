@@ -1,8 +1,12 @@
+# arm_config.yaml -- SO-ARM101 operator config (single tuning surface).
+# connection/safety/tuning are hand-editable; 'poses' is written by jog.py /
+# capture_pose.py. Comments are regenerated on save -- see data/README.md for
+# what each tuning knob means. 'home' is the default parking / safe-park pose.
 schema_version: 1
 connection:
   port: COM20
 safety:
-  temp_warn_c: 50
+  temp_warn_c: 50.0
   voltage_warn_pct: 5.0
 tuning:
   park_velocity: 600
@@ -21,10 +25,10 @@ tuning:
   home_poll_s: 0.05
 poses:
   home:
-    shoulder_pan: 80.79120879120879
+    shoulder_pan: 81.49450549450549
     shoulder_lift: -104.52747252747253
-    elbow_flex: 90.76923076923077
-    wrist_flex: -97.31868131868131
+    elbow_flex: 90.94505494505495
+    wrist_flex: -92.3076923076923
     wrist_roll: -0.3076923076923077
   grab:
     shoulder_pan: 84.21978021978022
