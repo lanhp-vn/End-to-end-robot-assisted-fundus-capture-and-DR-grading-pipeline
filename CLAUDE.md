@@ -38,14 +38,14 @@ AmazingHand-ARM101-Follower/
 │   ├── hand/                  # device layer — rustypot kinematics + motion (position-poll) helpers, pose-jog/range-calib state machines, named-pose resolver
 │   ├── config/                # primitive layer — pydantic schemas (arm_config, hand_config, calibration, motor_ids)
 │   ├── data/                  # runtime operator config: arm_config.yaml + hand_config.yaml (+ README)
-│   └── scripts/               # application layer — console-script entries + shared device_setup
+│   └── scripts/               # application layer — console-script entries + shared device_setup/grab_common
 ├── scripts/
 │   ├── calibration/
 │   │   ├── amazing_hand/      # snake_case calibration/test/jog scripts + measurement-only YAML (v3 schema)
 │   │   └── so_arm101/         # follower calibration runner + sweep/set_pose/jog/capture_pose
 │   ├── diagnostics/           # dual-device scan/show_calib (--device arm|hand) + device-agnostic find_port
 │   ├── teleop/                # planned
-│   └── demos/                 # runnable demos — grab_sequence (staged arm+hand grab, reversible exit)
+│   └── demos/                 # runnable demos — grab_sequence (staged grab) + grab_toggle (grab, then index-finger button toggle)
 ├── tests/                     # host unit tests (tests/unit) + hardware-gated (tests/hardware)
 ├── docs/
 │   ├── BOM.md                 # bill of materials + host PC spec
@@ -93,6 +93,7 @@ uv run python scripts/calibration/so_arm101/capture_pose.py               # hand
 
 # Demos (read calibration + config; write neither — IL-5)
 uv run python scripts/demos/grab_sequence.py                              # staged arm+hand grab; 'h' on exit reverses the whole sequence
+uv run python scripts/demos/grab_toggle.py                                # grab, then SPACE toggles the index finger in/out like a button
 
 # Lint / format / type-check / test
 uv run ruff format .
