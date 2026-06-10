@@ -34,3 +34,6 @@
 [submodule "references/Anthropic/claude-code-security-review"]
 	path = references/Anthropic/claude-code-security-review
 	url = https://github.com/anthropics/claude-code-security-review
+[submodule "references/optomed-camera/nous_vclient"]
+	path = references/optomed-camera/nous_vclient
+	url = https://github.com/kim7tin/nous_vclient.git
