@@ -12,7 +12,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.3
 
       # uv sync builds lerobot as an editable path dependency
       # (pyproject: lerobot = { path = "references/lerobot", editable = true }),
@@ -22,7 +22,7 @@ jobs:
         run: git submodule update --init --depth 1 references/lerobot
 
       - name: Install uv (Python 3.12)
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v8.2.0
         with:
           python-version: "3.12"
           enable-cache: true
