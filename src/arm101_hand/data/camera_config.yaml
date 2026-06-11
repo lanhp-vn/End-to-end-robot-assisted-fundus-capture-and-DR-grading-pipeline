@@ -11,7 +11,7 @@ connection:
   io_timeout_s: 8.0
 capture:
   hold_seconds: 3.0
-  new_file_timeout_s: 15.0
+  new_file_timeout_s: 20.0
   poll_s: 0.5
   stable_polls: 2
   dcim_root: "\\DCIM"

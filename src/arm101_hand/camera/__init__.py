@@ -1,6 +1,6 @@
 """Optomed Aurora / Pictor Prestige camera device layer (read-only) + pure protocol."""
 
-from .capture import save_capture, wait_for_new_files
+from .capture import save_capture, snapshot_filenames, wait_for_new_files
 from .client import CameraError, PictorClient, recv_exact
 from .protocol import (
     CameraInfo,
@@ -28,5 +28,6 @@ __all__ = [
     "recv_exact",
     "save_capture",
     "sidecar_dict",
+    "snapshot_filenames",
     "wait_for_new_files",
 ]

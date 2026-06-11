@@ -1,7 +1,10 @@
 import json
 from datetime import UTC, datetime
 
-from arm101_hand.camera.capture import save_capture, wait_for_new_files
+import pytest
+
+from arm101_hand.camera.capture import save_capture, snapshot_filenames, wait_for_new_files
+from arm101_hand.camera.client import CameraError
 from arm101_hand.camera.protocol import FILE, FileInfo
 
 
@@ -51,3 +54,60 @@ def test_save_capture_writes_jpeg_and_sidecar(tmp_path):
     sidecar = path.with_suffix(path.suffix + ".json")
     meta = json.loads(sidecar.read_text())
     assert meta["filesize"] == 4 and meta["trigger_no"] == 1
+
+
+class _ErroringClient:
+    """get_filelist replays ``script`` in order: an Exception item is raised, a list item is
+    returned. Once the script is exhausted, the last returned list is repeated."""
+
+    def __init__(self, script):
+        self._script = list(script)
+        self._last: list = []
+
+    def get_filelist(self, path):
+        if not self._script:
+            return self._last
+        item = self._script.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        self._last = item
+        return item
+
+
+def test_wait_for_new_files_tolerates_transient_filelist_error():
+    before = {"\\DCIM\\P0001\\IM0001EY.JPG"}
+    new = _fi("\\DCIM\\P0001\\IM0002EY.JPG", 500)
+    # poll 1 errors; polls 2 & 3 show the new file at a stable size -> returned despite the error.
+    client = _ErroringClient([CameraError("Unknown type: 0x0"), [new], [new]])
+    out = wait_for_new_files(client, before, dcim_root="\\DCIM", timeout_s=5, poll_s=0.0, stable_polls=2)
+    assert [f.filename for f in out] == ["\\DCIM\\P0001\\IM0002EY.JPG"]
+
+
+def test_wait_for_new_files_reports_progress_and_errors_via_on_poll():
+    calls = []
+    client = _ErroringClient([CameraError("boom"), []])
+    wait_for_new_files(
+        client,
+        set(),
+        dcim_root="\\DCIM",
+        timeout_s=0.05,
+        poll_s=0.0,
+        stable_polls=2,
+        on_poll=lambda elapsed, n_new, note: calls.append(note),
+    )
+    assert calls  # progress callback fired
+    assert any("boom" in note for note in calls)  # transient error surfaced, not raised
+
+
+def test_snapshot_filenames_retries_past_transient_error():
+    new = _fi("\\DCIM\\P0001\\IM0001EY.JPG", 100)
+    client = _ErroringClient([CameraError("x"), [new]])
+    assert snapshot_filenames(client, "\\DCIM", retries=3, retry_wait_s=0.0) == {
+        "\\DCIM\\P0001\\IM0001EY.JPG"
+    }
+
+
+def test_snapshot_filenames_raises_after_exhausting_retries():
+    client = _ErroringClient([CameraError("a"), CameraError("b")])
+    with pytest.raises(CameraError):
+        snapshot_filenames(client, "\\DCIM", retries=2, retry_wait_s=0.0)
