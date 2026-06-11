@@ -19,7 +19,7 @@ Both devices live behind separate USB↔TTL bridges on different COM ports and d
 Full text in `docs/conventions/00-iron-laws.md`. Read that file before editing.
 
 - **IL-1 — Voltage isolation is physical safety.** 5 V hand bus and 12 V arm bus must never share rails. Mixing destroys SCS0009 instantly.
-- **IL-2 — `references/` is read-only.** Five vendored submodules (lerobot, AmazingHand, FeetechServo, rustypot, FTServo_Python). Adapt by transferring into `src/` or `scripts/`.
+- **IL-2 — `references/` is read-only.** Vendored git submodules — core: lerobot, AmazingHand, rustypot, FeetechServo, FTServo_Python; plus camera + computer-vision references. Adapt by transferring into `src/` or `scripts/`.
 - **IL-3 — Motor ID canon.** Hand: IDs 1–8 (odd-right/even-left per finger). Arm: IDs 1–5 shoulder→wrist. **ID 6 is physically absent on the arm.**
 - **IL-4 — COM-port discipline.** Single owner per bus. Close FD.exe / serial monitors / stale Python sessions before opening.
 - **IL-5 — Project state in version control, in-tree only.** Calibration — Hand: `scripts/calibration/amazing_hand/hand_calib_values.yaml`. Arm: `scripts/calibration/so_arm101/<id>.json` — the `SO101FollowerNoGripperConfig` subclass defaults `calibration_dir` to that path so `~/.cache/huggingface/lerobot/...` is never written to. Runtime operator config (connection/safety/tuning/poses) — `src/arm101_hand/data/{arm,hand}_config.yaml`.
@@ -44,14 +44,14 @@ AmazingHand-ARM101-Follower/
 │   ├── calibration/
 │   │   ├── amazing_hand/      # snake_case calibration/test/jog scripts + measurement-only YAML (v3 schema)
 │   │   └── so_arm101/         # follower calibration runner + sweep/set_pose/jog/capture_pose
-│   ├── diagnostics/           # dual-device scan/show_calib (--device arm|hand) + device-agnostic find_port + read-only aurora_probe (camera)
+│   ├── diagnostics/           # dual-device scan/show_calib (--device arm|hand) + device-agnostic find_port + read-only aurora_probe / aurora_wiredump (camera)
 │   ├── teleop/                # planned
 │   └── demos/                 # runnable demos — grab_sequence (staged grab) + grab_toggle (index-finger button) + grab_trigger_capture (index presses Aurora shutter, auto-pulls the fundus image)
 ├── tests/                     # host unit tests (tests/unit) + hardware-gated (tests/hardware)
 ├── docs/
 │   ├── BOM.md                 # bill of materials + host PC spec
 │   └── conventions/           # 00–07 normative rules
-├── references/                # 5 git submodules — never modify (IL-2)
+├── references/                # vendored git submodules — never modify (IL-2)
 └── .claude/                   # local Claude Code config
 ```
 
@@ -85,6 +85,7 @@ uv run python scripts/diagnostics/find_port.py                            # devi
 uv run python scripts/diagnostics/scan.py --device arm                    # bus health check (--device arm|hand, torque off)
 uv run python scripts/diagnostics/show_calib.py --device arm [--live]     # dump calibration; --live compares present pos
 uv run python scripts/diagnostics/aurora_probe.py                         # read-only Aurora reachability + status + filelist (Optomed Client must be closed)
+uv run python scripts/diagnostics/aurora_wiredump.py                      # read-only hex dump of one GET_FILELIST/GET_FILE exchange (Pictor framing debug)
 
 # SO-ARM101 motion helpers (read clamp range from so101_follower.json; never write it — IL-5)
 # Per-script detail in scripts/calibration/so_arm101/README.md §6.
@@ -132,5 +133,6 @@ uv run pytest -m 'not hardware'           # host unit tests (no bus)
 ## 7. Tech-debt & known limitations
 
 - **No teleop, no policy, no dataset code.** The jog / calibration / diagnostic scripts drive poses; no teleoperation or learned-policy path yet.
+- **No computer-vision code yet.** `references/computer-vision/` (OpenCV, MediaPipe, GazeTracking) is vendored for planned fundus-image / gaze work; nothing under `src/` imports it.
 - **No CI.** `ruff` / `pytest` are local-only for now.
 - **No discrete GPU.** Local ML training is CPU-bound; large-policy work needs cloud.

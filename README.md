@@ -117,7 +117,7 @@ scripts/diagnostics/    # dual-device scan / show_calib / find_port + read-only 
 scripts/demos/          # runnable demos (grab_sequence: staged grab; grab_toggle: + index-finger toggle; grab_trigger_capture: index presses the Aurora shutter + auto-pulls the fundus image)
 docs/BOM.md             # bill of materials, host PC spec
 docs/conventions/       # 00 Iron Laws → 07 KISS
-references/             # 5 git submodules — read-only (IL-2)
+references/             # vendored git submodules — read-only (IL-2)
 ```
 
 Layering rationale: [`docs/conventions/01-module-layering.md`](docs/conventions/01-module-layering.md).
@@ -128,4 +128,4 @@ Project-wide rules are in [`docs/conventions/`](docs/conventions/README.md). Rea
 
 ## License
 
-This repository's own code is unlicensed (default copyright). The five submodules under `references/` carry their own licenses (Apache-2.0, MIT, BSD variants — see each submodule's `LICENSE`).
+This repository's own code is unlicensed (default copyright). The submodules under `references/` carry their own licenses (Apache-2.0, MIT, BSD variants — see each submodule's `LICENSE`).
