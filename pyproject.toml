@@ -10,14 +10,16 @@ dependencies = [
     "pyyaml>=6.0",
     "pydantic>=2.0",
     "opencv-python>=4.9",  # full build (HighGUI) for the live USB-camera preview; see [tool.uv] below
+    "timm>=1.0,<1.1",  # ViT-L/16 builder for RETFound DR-grading inference (exact 296-key match verified)
 ]
 
 [project.optional-dependencies]
-dev = ["ruff>=0.8", "mypy>=1.10", "pytest>=8.0", "types-PyYAML>=6.0"]
+dev = ["ruff>=0.8", "mypy>=1.10", "pytest>=8.0", "types-PyYAML>=6.0", "scikit-learn>=1.4"]
 
 [project.scripts]
 arm101-calibrate-follower = "arm101_hand.scripts.calibrate_follower:main"
 arm101-arm-torque = "arm101_hand.scripts.arm_torque:main"
+arm101-dr-grade = "arm101_hand.scripts.dr_grade:main"
 
 [tool.uv]
 # lerobot depends on `opencv-python-headless`, which has NO HighGUI (cv2.imshow raises
