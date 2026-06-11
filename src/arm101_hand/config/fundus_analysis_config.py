@@ -54,6 +54,8 @@ class FundusAnalysisConfig(BaseModel):
     images_dir: str = "media_outputs/fundus_images"
     output_dir: str = "media_outputs/fundus_analysis"
     preprocess_version: str = "1"
+    inline_grading: bool = True
+    captures_per_patient: int = Field(1, ge=1)
     confidence: ConfidenceBands = ConfidenceBands()
     crop: CircleCropParams = CircleCropParams()
 

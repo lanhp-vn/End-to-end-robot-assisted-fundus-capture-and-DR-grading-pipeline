@@ -7,6 +7,8 @@ models_dir: models
 images_dir: media_outputs/fundus_images
 output_dir: media_outputs/fundus_analysis
 preprocess_version: "1"
+inline_grading: true
+captures_per_patient: 1
 confidence:
   high: 0.80
   medium: 0.65
