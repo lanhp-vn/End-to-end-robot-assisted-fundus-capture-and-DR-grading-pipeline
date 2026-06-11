@@ -148,6 +148,19 @@ references/             # vendored git submodules — read-only (IL-2)
 
 Layering rationale: [`docs/conventions/01-module-layering.md`](docs/conventions/01-module-layering.md).
 
+## Development checks
+
+Before pushing, run the same gate CI enforces on every push and pull request:
+
+```powershell
+uv run ruff format .        # CI runs `ruff format --check .`
+uv run ruff check .
+uv run mypy src
+uv run pytest -m 'not hardware'
+```
+
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on Ubuntu + Python 3.12 and initializes only the `lerobot` submodule. Hardware-gated tests (`-m hardware`) never run in CI — they need the physical buses.
+
 ## Conventions
 
 Project-wide rules are in [`docs/conventions/`](docs/conventions/README.md). Read `00-iron-laws.md` first — everything else is an application of those.

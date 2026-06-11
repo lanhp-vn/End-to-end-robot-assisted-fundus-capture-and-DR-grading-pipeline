@@ -56,6 +56,7 @@ AmazingHand-ARM101-Follower/
 │   ├── BOM.md                 # bill of materials + host PC spec
 │   └── conventions/           # 00–07 normative rules
 ├── references/                # vendored git submodules — never modify (IL-2)
+├── .github/                   # CI — ci.yml (ruff + mypy + pytest on push/PR), update-submodules.yml (weekly bump), CODEOWNERS
 └── .claude/                   # local Claude Code config
 ```
 
@@ -114,7 +115,7 @@ uv run python scripts/fundus_analysis/export_weights.py                   # one-
 uv run python scripts/fundus_analysis/aptos_eval.py [--limit-per-class N] # validate model+transform on the APTOS test split (accuracy / per-class F1 / quadratic-weighted kappa)
 uv run arm101-dr-grade [--input PATH] [--force] [--limit N]               # grade media_outputs/fundus_images/*.JPG -> <stem>.dr.json sidecars in media_outputs/fundus_analysis/ + console table
 
-# Lint / format / type-check / test
+# Lint / format / type-check / test (CI enforces all four on push/PR — .github/workflows/ci.yml; format runs as --check there)
 uv run ruff format .
 uv run ruff check .
 uv run mypy src
@@ -150,5 +151,5 @@ uv run pytest -m 'not hardware'           # host unit tests (no bus)
 - **No teleop, no policy, no dataset code.** The jog / calibration / diagnostic scripts drive poses; no teleoperation or learned-policy path yet.
 - **System-camera preview + DR-grading inference are the computer-vision code so far.** `src/arm101_hand/system_camera/` (cv2 HighGUI window + recording, plus a "last capture" still popup the same thread hosts via `WebcamPreview.show_still`) films the Aurora screen; used by `grab_trigger_capture` + `usb_camera_probe`. A fixed ROI (`roi.py` / `AURORA_SCREEN_ROI`) zooms the preview + recording onto the screen, and `imshow_fit` letterboxes to preserve aspect ratio because `cv2.WINDOW_KEEPRATIO` is a silent no-op on this wheel's Win32 highgui backend. It needs the full `opencv-python` wheel, so `pyproject.toml` drops lerobot's `opencv-python-headless` pin via `[tool.uv] override-dependencies` — keep that override (a headless-pinning dep re-clobbers `cv2`). The vendored `references/computer-vision/` (OpenCV, MediaPipe, GazeTracking) is still untouched, for planned gaze work.
 - **DR grading is inference-only.** `src/arm101_hand/fundus_analysis/` grades Aurora captures with a RETFound ViT-L/16 (timm) fine-tuned on APTOS2019 via two entry points: the batch CLI `arm101-dr-grade` (Phase 1) and inline grading in the `grab_trigger_capture_analysis` demo (Phase 2 — grades each patient turn on 'g', shows a combined results panel beside the image, writes identical `.dr.json` sidecars); `grab_trigger_capture` stays capture-only. Design/plan in `docs/superpowers/{specs,plans}/2026-06-11-dr-grading-*`. Pipeline validated on the APTOS test split (quadratic-weighted kappa 0.91 — see `scripts/fundus_analysis/README.md` for the full metrics). No fine-tuning path. Domain shift (APTOS/EyePACS training vs Optomed Aurora handheld) means real-capture accuracy can drop below test-split numbers — research/educational, not diagnostic.
-- **No CI.** `ruff` / `pytest` are local-only for now.
+- **CI runs lint + tests only — never hardware.** `.github/workflows/ci.yml` runs ruff format-check + ruff lint + mypy(src) + pytest (`not hardware`) on every push/PR (Ubuntu, Python 3.12; only the `lerobot` submodule is initialized). `update-submodules.yml` bumps the public reference submodules weekly (excludes `lerobot` and the private `nous_vclient`, which the runner token cannot reach). Bus-required tests stay bench-only.
 - **No discrete GPU.** Local ML training is CPU-bound; ViT-L inference runs on CPU (~2-5 s/image); large-policy work needs cloud.
