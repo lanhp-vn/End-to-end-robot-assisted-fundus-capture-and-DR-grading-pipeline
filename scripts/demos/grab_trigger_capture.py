@@ -1,4 +1,3 @@
-# scripts/demos/grab_trigger_capture.py
 """Grab the camera, then click the index finger to trigger a fundus capture and pull it.
 
 Runs the staged arm+hand grab (see ``arm101_hand.scripts.grab_common``); once both

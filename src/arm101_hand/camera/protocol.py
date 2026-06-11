@@ -1,4 +1,3 @@
-# src/arm101_hand/camera/protocol.py
 """Pure framing/parsing for the Volk Pictor Prestige Camera-Client API (no sockets).
 
 Testable core of the camera device layer (analogous to ``hand/kinematics.py``).

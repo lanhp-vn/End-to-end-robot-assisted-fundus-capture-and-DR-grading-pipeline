@@ -1,4 +1,3 @@
-# tests/unit/test_camera_protocol.py
 import struct
 from datetime import UTC, datetime
 

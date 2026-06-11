@@ -1,4 +1,3 @@
-# src/arm101_hand/hand/finger_io.py
 """Read/drive one AmazingHand finger in the logical (base, side) frame (device layer).
 
 Factored out of ``scripts/demos/grab_toggle.py`` so the trigger demo shares the exact

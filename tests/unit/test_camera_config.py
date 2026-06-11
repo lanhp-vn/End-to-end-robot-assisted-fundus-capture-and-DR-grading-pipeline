@@ -1,4 +1,3 @@
-# tests/unit/test_camera_config.py
 from pathlib import Path
 
 import pytest

@@ -1,4 +1,3 @@
-# src/arm101_hand/config/camera_config.py
 """Pydantic schema for ``src/arm101_hand/data/camera_config.yaml`` (primitive layer).
 
 Operator config for the Optomed Aurora over the Pictor Wi-Fi API: connection ports +

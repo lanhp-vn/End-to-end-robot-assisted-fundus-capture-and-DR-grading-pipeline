@@ -1,4 +1,3 @@
-# src/arm101_hand/hand/index_trigger.py
 """Pure one-shot trigger-cycle state for ``scripts/demos/grab_trigger_capture.py``.
 
 Like ``index_toggle`` (the button click), but a single SPACE 'fires' a full

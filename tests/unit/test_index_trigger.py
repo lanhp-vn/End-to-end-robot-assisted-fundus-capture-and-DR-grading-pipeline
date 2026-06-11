@@ -1,4 +1,3 @@
-# tests/unit/test_index_trigger.py
 from arm101_hand.hand.index_toggle import TOGGLE_DELTA_DEFAULT, TOGGLE_DELTA_MAX, TOGGLE_DELTA_MIN
 from arm101_hand.hand.index_trigger import TriggerState, apply_action, key_to_action, press_base
 

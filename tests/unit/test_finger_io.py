@@ -1,4 +1,3 @@
-# tests/unit/test_finger_io.py
 from types import SimpleNamespace
 
 from arm101_hand.config.motor_ids import FINGER_SERVO_IDS

@@ -1,4 +1,3 @@
-# src/arm101_hand/camera/capture.py
 """Capture-pipeline I/O: wait for the new file to land, then save it + a sidecar.
 
 The new-file wait guards the write race (a file can appear in the filelist before its

@@ -1,4 +1,3 @@
-# tests/unit/test_camera_capture.py
 import json
 from datetime import UTC, datetime
 

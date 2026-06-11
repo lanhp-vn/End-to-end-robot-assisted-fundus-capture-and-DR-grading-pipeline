@@ -1,4 +1,3 @@
-# scripts/diagnostics/aurora_probe.py
 """Read-only Aurora reachability + read-path probe (built on PictorClient).
 
 Discovers the camera, prints status + a short filelist, and (with --get-file) pulls one

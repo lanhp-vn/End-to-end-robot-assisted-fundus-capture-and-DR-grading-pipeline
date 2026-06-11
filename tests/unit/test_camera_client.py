@@ -1,4 +1,3 @@
-# tests/unit/test_camera_client.py
 import struct
 
 import pytest

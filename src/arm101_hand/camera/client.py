@@ -1,4 +1,3 @@
-# src/arm101_hand/camera/client.py
 """Read-only TCP/UDP client for the Pictor Prestige Camera API (device layer).
 
 Discovery (UDP) then a held TCP message socket on :8000. Only read commands are
