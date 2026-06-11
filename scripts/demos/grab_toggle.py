@@ -33,12 +33,9 @@ import sys
 
 from arm101_hand.config.motor_ids import FINGER_SERVO_IDS
 from arm101_hand.hand import (
-    compose_finger,
-    decompose_finger,
-    degrees_to_servo_radians,
-    drive_hand_servos,
+    drive_finger,
     load_warning,
-    servo_radians_to_degrees,
+    read_finger,
 )
 from arm101_hand.hand.index_toggle import (
     ToggleState,
@@ -71,44 +68,6 @@ def _scalar(v: object) -> float:
     return float(v)  # type: ignore[arg-type]
 
 
-def _read_finger(c, name, block) -> tuple[int, int]:
-    """Read one finger's present ``(base, side)`` (logical frame), clamped to its limits."""
-    lim = block.limits
-    id1, id2 = FINGER_SERVO_IDS[name]
-    rad1 = float(_scalar(c.read_present_position(id1)))
-    rad2 = float(_scalar(c.read_present_position(id2)))
-    pos1 = servo_radians_to_degrees(id1, rad1, block.servo_1.middle_pos)
-    pos2 = servo_radians_to_degrees(id2, rad2, block.servo_2.middle_pos)
-    base, side = decompose_finger(
-        round(pos1),
-        round(pos2),
-        side_min=lim.side_min,
-        side_max=lim.side_max,
-        base_min=lim.base_min,
-        base_max=lim.base_max,
-    )
-    return int(base), int(side)
-
-
-def _drive_index(c, block, base, side, speed, wait_kw) -> None:
-    """Command the index's two servos to logical ``(base, side)`` and position-poll."""
-    lim = block.limits
-    id1, id2 = FINGER_SERVO_IDS["index"]
-    pos1, pos2 = compose_finger(
-        base,
-        side,
-        base_min=lim.base_min,
-        base_max=lim.base_max,
-        side_min=lim.side_min,
-        side_max=lim.side_max,
-    )
-    targets = {
-        id1: degrees_to_servo_radians(id1, pos1, block.servo_1.middle_pos),
-        id2: degrees_to_servo_radians(id2, pos2, block.servo_2.middle_pos),
-    }
-    drive_hand_servos(c, targets, speed, **wait_kw)
-
-
 def _status_line(state: ToggleState, index_base: int, index_side: int, others: dict) -> str:
     """Render the jog-style status line; ``step=`` shows the live toggle delta."""
     fingers = {"index": (int(index_base), int(index_side)), **others}
@@ -130,8 +89,8 @@ def _toggle_loop(ctx: GrabHoldContext) -> None:
     }
 
     # Seed OUT base + held side + the static fingers from the PRESENT (settled) grab pose.
-    out_base, side = _read_finger(c, "index", index_block)
-    others = {name: _read_finger(c, name, calib.fingers[name]) for name in _STATIC_FINGERS}
+    out_base, side = read_finger(c, "index", index_block)
+    others = {name: read_finger(c, name, calib.fingers[name]) for name in _STATIC_FINGERS}
     state = ToggleState(out_base=out_base, side=side)
 
     print("Index toggle: SPACE = click in/out, [ / ] = delta, q = exit")
@@ -148,8 +107,8 @@ def _toggle_loop(ctx: GrabHoldContext) -> None:
             if action == "toggle":
                 tgt = target_base(state, lim.base_min, lim.base_max)
                 speed = tuning.speeds.close if state.pressed else tuning.speeds.open
-                _drive_index(c, index_block, tgt, side, speed, wait_kw)
-                base_now, side_now = _read_finger(c, "index", index_block)
+                drive_finger(c, "index", index_block, tgt, side, speed, **wait_kw)
+                base_now, side_now = read_finger(c, "index", index_block)
                 print("  " + _status_line(state, base_now, side_now, others))
                 load1 = int(_scalar(c.read_present_load(id1)))
                 load2 = int(_scalar(c.read_present_load(id2)))
@@ -157,7 +116,7 @@ def _toggle_loop(ctx: GrabHoldContext) -> None:
                 if warn:
                     print("  " + warn)
             else:  # delta changed -- reprint (no movement)
-                base_now, side_now = _read_finger(c, "index", index_block)
+                base_now, side_now = read_finger(c, "index", index_block)
                 print("  " + _status_line(state, base_now, side_now, others))
     except KeyboardInterrupt:
         print("\n^C -- leaving toggle mode")

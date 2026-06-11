@@ -22,6 +22,7 @@ from .pose_resolver import (
     available_pose_names,
     resolve_hand_pose_targets,
 )
+from .finger_io import drive_finger, read_finger
 from .range_calib import (
     JogState,
     apply_action,
@@ -52,4 +53,6 @@ __all__ = [
     "format_status",
     "key_to_action",
     "load_warning",
+    "drive_finger",
+    "read_finger",
 ]
