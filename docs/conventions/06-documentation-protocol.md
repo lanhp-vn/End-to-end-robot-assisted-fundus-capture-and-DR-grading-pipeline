@@ -168,6 +168,7 @@ Every normative fact, procedure, spec, or reusable table lives in **one** Markdo
 | Topic | Canonical |
 |---|---|
 | DR-grading architecture + design rationale | `docs/superpowers/specs/2026-06-11-dr-grading-design.md` |
+| DR-grading inline-capture (Phase 2) design | `docs/superpowers/specs/2026-06-11-dr-grading-phase2-inline-design.md` |
 | DR-grading run order + recorded APTOS validation metrics + checkpoint provenance | `scripts/fundus_analysis/README.md` |
 | PyTorch checkpoint load pattern (weights_only, safetensors export, timm ViT recipe) | `.claude/skills/ml-inference/SKILL.md` |
 

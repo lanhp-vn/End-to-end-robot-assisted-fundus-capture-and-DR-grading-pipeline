@@ -124,13 +124,21 @@ uv run arm101-dr-grade                                       # grade media_outpu
 
 `arm101-dr-grade` writes a `<image>.dr.json` sidecar (predicted grade, per-class probabilities, confidence band, crop region, model hash) to `media_outputs/fundus_analysis/` and prints a summary table. Re-runs skip already-graded images unless you pass `--force`. The slim weights come from the read-only checkpoint under `references/AIML-models/APTOS2019/` (IL-2); the export never modifies it.
 
+You can also grade **inline during capture** instead of running the batch CLI afterward:
+
+```powershell
+uv run python scripts/demos/grab_trigger_capture_analysis.py
+```
+
+This runs the same robot-triggered capture as `grab_trigger_capture` but, per patient turn, grades every captured shot when you press `g` and shows a combined results panel (grade, label, confidence, per-class probabilities, disclaimer) beside the most-severe image in the popup — writing the same `<image>.dr.json` sidecars as `arm101-dr-grade`. If the slim weights are missing it still captures and pops up images, with the panel noting grading is unavailable. Pass `--no-grade` to run capture-only; `inline_grading` and `captures_per_patient` in `src/arm101_hand/data/fundus_analysis_config.yaml` set the defaults.
+
 ## Repo layout
 
 ```
 src/arm101_hand/        # device + application layer (subclass + console scripts + fundus_analysis DR grader)
 scripts/calibration/    # AmazingHand + SO-ARM101 calibration runners
 scripts/diagnostics/    # motors/ (scan / show_calib / find_port) + fundus_camera/ (aurora_probe / aurora_wiredump) + system_camera/ (usb_camera_probe / usb_camera_capture / usb_camera_roi_preview)
-scripts/demos/          # runnable demos (grab_sequence: staged grab; grab_toggle: + index-finger toggle; grab_trigger_capture: live system-cam window + Aurora shutter press + auto-pull)
+scripts/demos/          # runnable demos (grab_sequence: staged grab; grab_toggle: + index-finger toggle; grab_trigger_capture: live system-cam window + Aurora shutter press + auto-pull; grab_trigger_capture_analysis: + inline DR grading + results panel)
 scripts/fundus_analysis/ # DR-grading ops: export_weights (slim weight export) + aptos_eval (validation)
 models/                 # git-ignored slim model weights exported from references/ checkpoints
 docs/BOM.md             # bill of materials, host PC spec
