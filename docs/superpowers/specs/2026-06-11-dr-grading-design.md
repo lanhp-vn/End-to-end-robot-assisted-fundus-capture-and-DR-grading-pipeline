@@ -205,25 +205,20 @@ local resource not present in CI").
 
 ## 7. Implementation risks
 
-### 7a. `fc_norm` vs `norm` state-dict key match (PRIMARY RISK)
+### 7a. `fc_norm` vs `norm` state-dict key match (RESOLVED — was primary risk)
 
 RETFound's `global_pool=True` ViT (`models_vit.py:14-23`) **deletes `self.norm`
 and adds `self.fc_norm`**. The checkpoint confirms this: `fc_norm.*` present,
 `norm.*` absent.
 
-**Plan:** build timm `vit_large_patch16_224` with `global_pool='avg'` (recent
-timm uses `fc_norm` + `norm = Identity` in that mode → no parameterized `norm`
-keys) and attempt `load_state_dict(strict=True)` as a built-in correctness gate.
-
-**Fallback (decided in advance):** if timm's key set does not match exactly, the
-implementation vendors RETFound's `RETFound_mae` subclass (`models_vit.py:11-51`,
-~40 lines, depends only on timm's base `VisionTransformer`) into `model.py`. This
-is guaranteed to match because it is the exact training-time class. The choice is
-driven by the TDD weight-loading test, not guessed. Either way the public
-`build_model()` API is unchanged.
-
-This is why "Approach A (timm.create_model)" was chosen with eyes open: it is the
-least code *if* keys match, and the test tells us immediately if they don't.
+**Empirically resolved (timm 1.0.27):** `timm.create_model("vit_large_patch16_224",
+num_classes=5, global_pool='avg')` produces an **exact match** to the checkpoint —
+296/296 keys, 0 missing, 0 unexpected, 0 shape mismatches. So
+`load_state_dict(strict=True)` succeeds and doubles as a built-in correctness gate.
+(`global_pool='token'` does NOT match — it keeps `norm.*` and drops `fc_norm.*`;
+`'avg'` is required.) The vendored-`RETFound_mae` fallback is therefore **not
+needed**. `timm` is pinned `>=1.0,<1.1`; the weight-loading TDD test (strict=True)
+will catch any future timm key drift.
 
 ### 7b. Domain shift (ACCURACY CAVEAT)
 
