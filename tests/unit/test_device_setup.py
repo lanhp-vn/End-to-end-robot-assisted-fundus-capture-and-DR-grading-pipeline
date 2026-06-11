@@ -154,7 +154,9 @@ def test_confirm_and_release_home_routine_raises_torque_still_off(monkeypatch):
     device_setup.confirm_and_release(
         follower, True, home, 600, offer_home=True, home_routine=_crashing_routine
     )
-    assert any(w[0] == "disable_torque" for w in bus.writes), "torque always off (IL-4) even when home_routine raises"
+    assert any(w[0] == "disable_torque" for w in bus.writes), (
+        "torque always off (IL-4) even when home_routine raises"
+    )
 
 
 def test_confirm_and_release_home_routine_skips_on_home(monkeypatch):
