@@ -91,9 +91,7 @@ def build_eval_transform(input_size: int = 224) -> transforms.Compose:
     )
 
 
-def confidence_band(
-    top_prob: float, *, high: float, medium: float
-) -> Literal["HIGH", "MEDIUM", "LOW"]:
+def confidence_band(top_prob: float, *, high: float, medium: float) -> Literal["HIGH", "MEDIUM", "LOW"]:
     """Map the top softmax probability to a confidence label."""
     if top_prob >= high:
         return "HIGH"

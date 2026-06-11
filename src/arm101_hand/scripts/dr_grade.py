@@ -34,9 +34,7 @@ def main() -> None:
     parser.add_argument(
         "--input", type=Path, default=None, help="Image file or dir (default: config images_dir)."
     )
-    parser.add_argument(
-        "--force", action="store_true", help="Re-grade images that already have a sidecar."
-    )
+    parser.add_argument("--force", action="store_true", help="Re-grade images that already have a sidecar.")
     parser.add_argument("--limit", type=int, default=None, help="Grade only the first N images.")
     args = parser.parse_args()
 

@@ -6,7 +6,7 @@ Local/offline only — no network calls anywhere in this module.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import cv2
@@ -88,9 +88,7 @@ class DRGrader:
             confidence=confidence_band(
                 top_prob, high=self._cfg.confidence.high, medium=self._cfg.confidence.medium
             ),
-            probabilities={
-                DR_LABELS[i]: round(float(probs[i].item()), 6) for i in range(len(DR_LABELS))
-            },
+            probabilities={DR_LABELS[i]: round(float(probs[i].item()), 6) for i in range(len(DR_LABELS))},
             crop=self._crop_to_dict(info),
             model={
                 "checkpoint": self._cfg.weights_filename,
@@ -98,7 +96,7 @@ class DRGrader:
                 "arch": self._cfg.model_arch,
             },
             preprocess_version=self._cfg.preprocess_version,
-            graded_at_utc=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            graded_at_utc=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
 
     def grade_path(self, image_path: Path) -> GradeResult:
