@@ -7,7 +7,7 @@ delivers at crop time -- so the same constant maps to the same physical region r
 negotiated capture resolution, and can never silently crop the wrong area if the camera opens
 larger than expected.
 
-Pure geometry + numpy slicing; no cv2. Shared by ``scripts/diagnostics/usb_camera_roi_preview.py``
+Pure geometry + numpy slicing; no cv2. Shared by ``scripts/diagnostics/system_camera/usb_camera_roi_preview.py``
 (validation) and ``WebcamPreview`` (when an ROI is configured), so the crop math lives in one place.
 """
 
@@ -52,7 +52,7 @@ class Roi:
 
 # Canonical ROI for the arm-mounted USB observation camera: a 4:3 crop (uniform zoom, no
 # distortion) of the Optomed Aurora's screen, measured against a 640x480 frame -- option 1 / 2.29x,
-# validated live with scripts/diagnostics/usb_camera_roi_preview.py. The arm + hand + camera
+# validated live with scripts/diagnostics/system_camera/usb_camera_roi_preview.py. The arm + hand + camera
 # geometry is fixed, so the screen always lands here. SINGLE SOURCE OF TRUTH: grab_trigger_capture.py
 # imports this for its preview + recording; usb_camera_roi_preview.py defaults its editable _ROI to
 # it. Re-tune by validating a new value in the diagnostic, then editing it HERE.

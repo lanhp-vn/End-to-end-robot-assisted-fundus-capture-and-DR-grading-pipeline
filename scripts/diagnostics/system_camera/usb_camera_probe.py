@@ -14,7 +14,7 @@ PASS BAR (judge on all three, not just "a window appeared"):
   3. teardown is clean on BOTH 'q' AND Ctrl+C.
 
 Usage:
-  uv run python scripts/diagnostics/usb_camera_probe.py [--camera N] [--backend auto|dshow]
+  uv run python scripts/diagnostics/system_camera/usb_camera_probe.py [--camera N] [--backend auto|dshow]
                                                         [--record-dir DIR] [--fps F]
 
 Keys (focus the TERMINAL, not the window):
@@ -29,7 +29,7 @@ import msvcrt
 import sys
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
 from arm101_hand.system_camera import WebcamPreview  # noqa: E402

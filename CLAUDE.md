@@ -45,7 +45,7 @@ AmazingHand-ARM101-Follower/
 │   ├── calibration/
 │   │   ├── amazing_hand/      # snake_case calibration/test/jog scripts + measurement-only YAML (v3 schema)
 │   │   └── so_arm101/         # follower calibration runner + sweep/set_pose/jog/capture_pose
-│   ├── diagnostics/           # dual-device scan/show_calib (--device arm|hand) + device-agnostic find_port + read-only aurora_probe / aurora_wiredump (fundus cam) + system-cam tools: usb_camera_probe (smoke test) / usb_camera_capture (still) / usb_camera_roi_preview (ROI check)
+│   ├── diagnostics/           # grouped by device: motors/ (dual-device scan/show_calib --device arm|hand + device-agnostic find_port) + fundus_camera/ (read-only aurora_probe / aurora_wiredump) + system_camera/ (usb_camera_probe smoke test / usb_camera_capture still / usb_camera_roi_preview ROI check)
 │   ├── teleop/                # planned
 │   └── demos/                 # runnable demos — grab_sequence (staged grab) + grab_toggle (index-finger button) + grab_trigger_capture (live system-cam window + 'r' record; index presses Aurora shutter, auto-pulls the fundus image)
 ├── tests/                     # host unit tests (tests/unit) + hardware-gated (tests/hardware)
@@ -82,14 +82,15 @@ uv run arm101-calibrate-follower `
     --robot.id=so101_follower
 
 # Dual-device diagnostics (read-only re: calibration; never write so101_follower.json — IL-5)
-uv run python scripts/diagnostics/find_port.py                            # device-agnostic; lists all COM ports
-uv run python scripts/diagnostics/scan.py --device arm                    # bus health check (--device arm|hand, torque off)
-uv run python scripts/diagnostics/show_calib.py --device arm [--live]     # dump calibration; --live compares present pos
-uv run python scripts/diagnostics/aurora_probe.py                         # read-only Aurora reachability + status + filelist (Optomed Client must be closed)
-uv run python scripts/diagnostics/aurora_wiredump.py                      # read-only hex dump of one GET_FILELIST/GET_FILE exchange (Pictor framing debug)
-uv run python scripts/diagnostics/usb_camera_probe.py [--camera N]        # system-cam smoke test: live cv2 window + 'r' record (no motors/Aurora)
-uv run python scripts/diagnostics/usb_camera_capture.py [--camera N]      # system-cam still: live window, SPACE saves a frame to media_outputs/camera_captures/
-uv run python scripts/diagnostics/usb_camera_roi_preview.py [--camera N]  # preview the fixed ROI zoom (4:3 crop of the Aurora screen) before the demo uses it
+# Grouped into motors/ (bus health + calib + port), fundus_camera/ (Aurora), system_camera/ (USB cam).
+uv run python scripts/diagnostics/motors/find_port.py                             # device-agnostic; lists all COM ports
+uv run python scripts/diagnostics/motors/scan.py --device arm                     # bus health check (--device arm|hand, torque off)
+uv run python scripts/diagnostics/motors/show_calib.py --device arm [--live]      # dump calibration; --live compares present pos
+uv run python scripts/diagnostics/fundus_camera/aurora_probe.py                   # read-only Aurora reachability + status + filelist (Optomed Client must be closed)
+uv run python scripts/diagnostics/fundus_camera/aurora_wiredump.py                # read-only hex dump of one GET_FILELIST/GET_FILE exchange (Pictor framing debug)
+uv run python scripts/diagnostics/system_camera/usb_camera_probe.py [--camera N]  # system-cam smoke test: live cv2 window + 'r' record (no motors/Aurora)
+uv run python scripts/diagnostics/system_camera/usb_camera_capture.py [--camera N]    # system-cam still: live window, SPACE saves a frame to media_outputs/camera_captures/
+uv run python scripts/diagnostics/system_camera/usb_camera_roi_preview.py [--camera N]  # preview the fixed ROI zoom (4:3 crop of the Aurora screen) before the demo uses it
 
 # SO-ARM101 motion helpers (read clamp range from so101_follower.json; never write it — IL-5)
 # Per-script detail in scripts/calibration/so_arm101/README.md §6.

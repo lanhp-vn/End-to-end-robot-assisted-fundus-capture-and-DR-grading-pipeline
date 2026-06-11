@@ -2,7 +2,7 @@
 
 On startup a live preview window opens for the arm-mounted USB camera (it points at the
 Aurora's screen). The feed is cropped to a fixed ROI that zooms onto just the Aurora's screen
-(``AURORA_SCREEN_ROI``; validated with ``scripts/diagnostics/usb_camera_roi_preview.py``) -- press 'r'
+(``AURORA_SCREEN_ROI``; validated with ``scripts/diagnostics/system_camera/usb_camera_roi_preview.py``) -- press 'r'
 anytime to start/stop recording that zoomed feed to a clip. The preview is best-effort: if the
 camera will not open, the demo continues without it.
 

@@ -1,7 +1,7 @@
 """Live USB observation-camera preview window + record toggle (device layer).
 
 The arm-mounted host webcam that films the Optomed Aurora's screen. Used by
-``scripts/demos/grab_trigger_capture.py`` and the ``scripts/diagnostics/usb_camera_probe.py``
+``scripts/demos/grab_trigger_capture.py`` and the ``scripts/diagnostics/system_camera/usb_camera_probe.py``
 smoke test. NOT the Aurora fundus camera (that is ``arm101_hand.fundus_camera``).
 
 Needs the full ``opencv-python`` wheel for HighGUI (``cv2.imshow``); the project drops
@@ -50,7 +50,7 @@ def open_capture(index: int, backend: Backend = "auto") -> cv2.VideoCapture:
     ``"dshow"`` (CAP_DSHOW) opens fast when it works but fails on some cameras ("can't be used
     to capture by index"); on failure it falls back to the platform default (MSMF on Windows).
     ``"auto"`` uses that platform default directly. Shared by :class:`WebcamPreview` and
-    ``scripts/diagnostics/usb_camera_capture.py`` so the dshow-quirk handling lives in one place.
+    ``scripts/diagnostics/system_camera/usb_camera_capture.py`` so the dshow-quirk handling lives in one place.
     """
     if backend == "dshow":
         cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
@@ -241,7 +241,7 @@ class WebcamPreview:
                 if self._roi is not None:
                     # Crop to the fixed ROI, then upscale back to the ROI's reference size so the
                     # preview window + recording show the same 4:3 zoomed feed validated with
-                    # scripts/diagnostics/usb_camera_roi_preview.py. Done before everything below,
+                    # scripts/diagnostics/system_camera/usb_camera_roi_preview.py. Done before everything below,
                     # so writer sizing, the clean write, the REC overlay, and imshow all inherit it.
                     frame = cv2.resize(
                         self._roi.crop(frame),

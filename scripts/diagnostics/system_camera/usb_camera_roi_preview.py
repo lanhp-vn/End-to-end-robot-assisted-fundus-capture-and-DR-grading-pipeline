@@ -23,7 +23,7 @@ The full ``opencv-python`` wheel is required for the windows (lerobot's ``opencv
 has no HighGUI); ``pyproject.toml`` drops the headless pin so the full build is the sole ``cv2``.
 
 Usage:
-  uv run python scripts/diagnostics/usb_camera_roi_preview.py [--camera N] [--backend auto|dshow]
+  uv run python scripts/diagnostics/system_camera/usb_camera_roi_preview.py [--camera N] [--backend auto|dshow]
 
 Keys (focus the TERMINAL, not the windows):
   q/ESC   quit (Ctrl+C also works)
@@ -39,7 +39,7 @@ from pathlib import Path
 
 import cv2
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
 from arm101_hand.system_camera import AURORA_SCREEN_ROI, imshow_fit, open_capture  # noqa: E402

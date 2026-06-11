@@ -5,8 +5,8 @@ reads the AmazingHand calib YAML (per-finger servo middle_pos + DOF limits).
 ``--live`` additionally opens the selected bus read-only (torque stays off).
 
 Usage:
-  uv run python scripts/diagnostics/show_calib.py --device arm [--live]
-  uv run python scripts/diagnostics/show_calib.py --device hand [--live]
+  uv run python scripts/diagnostics/motors/show_calib.py --device arm [--live]
+  uv run python scripts/diagnostics/motors/show_calib.py --device hand [--live]
 
 IL-5: never writes any calibration file.
 """

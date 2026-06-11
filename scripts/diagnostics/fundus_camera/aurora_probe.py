@@ -5,7 +5,7 @@ file to the OS temp dir. Never writes to the camera. Mirrors the other diagnosti
 (scan.py / find_port.py): a quick health check, safe to run anytime Optomed Client is closed.
 
 Usage:
-  uv run python scripts/diagnostics/aurora_probe.py [--host IP] [--get-file PATH]
+  uv run python scripts/diagnostics/fundus_camera/aurora_probe.py [--host IP] [--get-file PATH]
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
 from arm101_hand.config import load_fundus_config  # noqa: E402

@@ -5,8 +5,8 @@ position, load, voltage, and temperature. Torque stays OFF the entire time.
 Exit code is non-zero if any expected motor did not respond.
 
 Usage:
-  uv run python scripts/diagnostics/scan.py --device arm
-  uv run python scripts/diagnostics/scan.py --device hand
+  uv run python scripts/diagnostics/motors/scan.py --device arm
+  uv run python scripts/diagnostics/motors/scan.py --device hand
 
 IL-1: 12 V arm rail / 5 V hand rail (separate nominal voltages below).
 IL-3: arm motors 1-5 (no gripper ID 6); hand servos 1-8.

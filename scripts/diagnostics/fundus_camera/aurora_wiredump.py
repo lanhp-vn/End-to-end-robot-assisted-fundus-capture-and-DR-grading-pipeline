@@ -16,7 +16,7 @@ after each response. That single capture discriminates the three open hypotheses
 Never writes to the camera (read commands only). Run with Optomed Client CLOSED.
 
 Usage:
-  uv run python scripts/diagnostics/aurora_wiredump.py [--host IP] [--file CAMERA_PATH] [--root \\DCIM]
+  uv run python scripts/diagnostics/fundus_camera/aurora_wiredump.py [--host IP] [--file CAMERA_PATH] [--root \\DCIM]
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ import socket
 import sys
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
 from arm101_hand.config import load_fundus_config  # noqa: E402

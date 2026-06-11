@@ -58,7 +58,7 @@ Note the COM number for each USB↔TTL bridge. On the dev host the AmazingHand b
 Alternatively, lerobot's interactive port helper (device-agnostic — lists all ports):
 
 ```powershell
-uv run python scripts/diagnostics/find_port.py
+uv run python scripts/diagnostics/motors/find_port.py
 ```
 
 ### 2. AmazingHand finger calibration
@@ -89,11 +89,11 @@ Replace `COM<X>` with the COM number from step 1. The output JSON goes to `scrip
 
 > **Important.** Use `arm101-calibrate-follower` (defined in `pyproject.toml`), not `lerobot-calibrate`. The upstream entry point doesn't know our `so101_follower_no_gripper` subclass exists.
 
-Once calibrated, two kinds of read-only / motion helpers are available. Dual-device diagnostics live under `scripts/diagnostics/`: `scan.py --device arm|hand` (pre-flight bus health check) and `show_calib.py --device arm|hand [--live]` (dump the calibration, `--live` compares present positions). Arm-specific motion helpers stay alongside the runner under `scripts/calibration/so_arm101/`: `sweep.py` (range-verify sweep to the calibrated endpoints), `set_pose.py` (drive to a named pose and hold), `jog.py` (keyboard-jog each joint in degrees within its calibrated range, saving named poses to `src/arm101_hand/data/arm_config.yaml`), and `capture_pose.py` (hand-pose the arm, capture present degrees, save). None of these write `so101_follower.json` — `arm101-calibrate-follower` stays the only thing that does (IL-5). Per-script detail, including the full key controls for `jog.py`, is in [`scripts/calibration/so_arm101/README.md`](scripts/calibration/so_arm101/README.md) §6.
+Once calibrated, two kinds of read-only / motion helpers are available. Dual-device diagnostics live under `scripts/diagnostics/motors/`: `scan.py --device arm|hand` (pre-flight bus health check) and `show_calib.py --device arm|hand [--live]` (dump the calibration, `--live` compares present positions). Arm-specific motion helpers stay alongside the runner under `scripts/calibration/so_arm101/`: `sweep.py` (range-verify sweep to the calibrated endpoints), `set_pose.py` (drive to a named pose and hold), `jog.py` (keyboard-jog each joint in degrees within its calibrated range, saving named poses to `src/arm101_hand/data/arm_config.yaml`), and `capture_pose.py` (hand-pose the arm, capture present degrees, save). None of these write `so101_follower.json` — `arm101-calibrate-follower` stays the only thing that does (IL-5). Per-script detail, including the full key controls for `jog.py`, is in [`scripts/calibration/so_arm101/README.md`](scripts/calibration/so_arm101/README.md) §6.
 
 ```powershell
-uv run python scripts/diagnostics/scan.py --device arm
-uv run python scripts/diagnostics/show_calib.py --device arm
+uv run python scripts/diagnostics/motors/scan.py --device arm
+uv run python scripts/diagnostics/motors/show_calib.py --device arm
 uv run python scripts/calibration/so_arm101/jog.py
 ```
 
@@ -102,10 +102,10 @@ uv run python scripts/calibration/so_arm101/jog.py
 Two cameras are involved: the **Optomed Aurora** *fundus* camera (captures patient retinal images, over Wi-Fi/Pictor) and an arm-mounted USB *system* camera that films the Aurora's screen. With the Aurora on the same Wi-Fi, the hand presses its dual-action shutter and the workspace auto-pulls the freshly-captured image over the Pictor protocol; the demo also opens a live window for the system camera, zoomed to a fixed region of interest on the Aurora's screen (press `r` to record that zoomed feed). After each successful pull the captured image pops up in its own window and stays until the next shutter press.
 
 ```powershell
-uv run python scripts/diagnostics/aurora_probe.py            # read-only Aurora reachability + status + filelist
-uv run python scripts/diagnostics/usb_camera_probe.py        # system-cam smoke test: live window + 'r' record (no motors/Aurora)
-uv run python scripts/diagnostics/usb_camera_roi_preview.py  # preview the fixed ROI zoom of the Aurora screen (no motors/Aurora)
-uv run python scripts/demos/grab_trigger_capture.py          # live ROI-zoomed system-cam window; SPACE presses the shutter, image lands in media_outputs/fundus_images/ and pops up until the next capture
+uv run python scripts/diagnostics/fundus_camera/aurora_probe.py        # read-only Aurora reachability + status + filelist
+uv run python scripts/diagnostics/system_camera/usb_camera_probe.py    # system-cam smoke test: live window + 'r' record (no motors/Aurora)
+uv run python scripts/diagnostics/system_camera/usb_camera_roi_preview.py  # preview the fixed ROI zoom of the Aurora screen (no motors/Aurora)
+uv run python scripts/demos/grab_trigger_capture.py                    # live ROI-zoomed system-cam window; SPACE presses the shutter, image lands in media_outputs/fundus_images/ and pops up until the next capture
 ```
 
 Camera prerequisites (the API cannot set these — do it on the device): **Still imaging** mode, **Quick imaging ON**, and **Optomed Client closed** (the Pictor API allows a single client connection — `aurora_probe` counts too, so if you just ran it, give the camera a few seconds to free the slot before launching the demo). The system-cam preview uses the full `opencv-python` wheel. Pulled fundus images + their JSON sidecars and any system-cam recordings save under `media_outputs/` (git-ignored — never commit medical images).
@@ -115,7 +115,7 @@ Camera prerequisites (the API cannot set these — do it on the device): **Still
 ```
 src/arm101_hand/        # device + application layer (subclass + console scripts)
 scripts/calibration/    # AmazingHand + SO-ARM101 calibration runners
-scripts/diagnostics/    # dual-device scan / show_calib / find_port + read-only aurora_probe + usb_camera_probe / usb_camera_capture / usb_camera_roi_preview (cameras)
+scripts/diagnostics/    # motors/ (scan / show_calib / find_port) + fundus_camera/ (aurora_probe / aurora_wiredump) + system_camera/ (usb_camera_probe / usb_camera_capture / usb_camera_roi_preview)
 scripts/demos/          # runnable demos (grab_sequence: staged grab; grab_toggle: + index-finger toggle; grab_trigger_capture: live system-cam window + Aurora shutter press + auto-pull)
 docs/BOM.md             # bill of materials, host PC spec
 docs/conventions/       # 00 Iron Laws → 07 KISS
