@@ -1,8 +1,10 @@
 """Grab the camera, stream the arm-mounted USB cam, and click the index finger to capture.
 
 On startup a live preview window opens for the arm-mounted USB camera (it points at the
-Aurora's screen) -- press 'r' anytime to start/stop recording that feed to a clip. The
-preview is best-effort: if the camera will not open, the demo continues without it.
+Aurora's screen). The feed is cropped to a fixed ROI that zooms onto just the Aurora's screen
+(``_PREVIEW_ROI``; validated with ``scripts/diagnostics/usb_camera_roi_preview.py``) -- press 'r'
+anytime to start/stop recording that zoomed feed to a clip. The preview is best-effort: if the
+camera will not open, the demo continues without it.
 
 Runs the staged arm+hand grab (see ``arm101_hand.scripts.grab_common``); once both
 devices hold ``grab`` under torque, each SPACE runs ONE capture cycle:
@@ -57,13 +59,19 @@ from arm101_hand.hand import drive_finger, load_warning, read_finger
 from arm101_hand.hand.index_trigger import TriggerState, apply_action, key_to_action, press_base
 from arm101_hand.hand.pose_jog import HandJogState, format_hand_status
 from arm101_hand.scripts.grab_common import GrabHoldContext, run_grab_demo
-from arm101_hand.system_camera import WebcamPreview
+from arm101_hand.system_camera import Roi, WebcamPreview
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DATA_DIR = _REPO_ROOT / "src" / "arm101_hand" / "data"
 _FUNDUS_CONFIG_PATH = _DATA_DIR / "fundus_config.yaml"
 _SYSTEM_CAMERA_CONFIG_PATH = _DATA_DIR / "system_camera_config.yaml"
 _STATIC_FINGERS = ("middle", "ring", "thumb")
+
+# Fixed ROI for the USB preview + recording: a 4:3 crop (uniform zoom, no distortion) of the
+# Optomed Aurora's screen, measured against a 640x480 frame -- option 1 / 2.29x, validated live
+# with scripts/diagnostics/usb_camera_roi_preview.py. The arm + hand + camera geometry is fixed,
+# so the screen always lands here; ``Roi`` rescales it if the camera delivers another resolution.
+_PREVIEW_ROI = Roi(x=130, y=6, w=280, h=210, ref_w=640, ref_h=480)
 
 
 def _read_key() -> str:
@@ -110,6 +118,7 @@ def _start_preview(scfg: SystemCameraConfig) -> WebcamPreview | None:
         record_dir=_REPO_ROOT / scfg.record_dir,
         fps=scfg.fps,
         backend=scfg.backend,
+        roi=_PREVIEW_ROI,
     )
     if not preview.start():
         print(
@@ -120,7 +129,8 @@ def _start_preview(scfg: SystemCameraConfig) -> WebcamPreview | None:
         return None
     print(
         f"USB preview: camera {scfg.camera_index} {preview.width}x{preview.height}"
-        f"@{preview.src_fps:.0f}fps -- 'r' starts/stops recording."
+        f"@{preview.src_fps:.0f}fps, cropped to a {_PREVIEW_ROI.w}x{_PREVIEW_ROI.h} ROI "
+        "(zoom of the Aurora screen) -- 'r' starts/stops recording."
     )
     return preview
 

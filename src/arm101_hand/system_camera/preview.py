@@ -38,6 +38,8 @@ from typing import Literal
 import cv2
 import numpy as np
 
+from .roi import Roi
+
 _FPS_FALLBACK = 20.0
 Backend = Literal["auto", "dshow"]
 
@@ -60,7 +62,13 @@ def open_capture(index: int, backend: Backend = "auto") -> cv2.VideoCapture:
 
 
 class WebcamPreview:
-    """Live USB-camera preview in a cv2 window on a daemon thread, with a record toggle."""
+    """Live USB-camera preview in a cv2 window on a daemon thread, with a record toggle.
+
+    An optional fixed ``roi`` crops every frame to a region and upscales it back to the ROI's
+    reference size, so the preview window *and* the recording show the same 4:3 zoomed feed --
+    used to frame just the Optomed Aurora's screen. ``None`` (default) previews the full frame,
+    so callers that want the whole scene (e.g. ``usb_camera_probe.py``) are unaffected.
+    """
 
     def __init__(
         self,
@@ -69,12 +77,14 @@ class WebcamPreview:
         record_dir: Path,
         fps: float | None = None,
         backend: Backend = "auto",
+        roi: Roi | None = None,
     ) -> None:
         self._index = index
         self._title = window_title
         self._record_dir = record_dir
         self._fps_override = fps
         self._backend: Backend = backend
+        self._roi = roi
 
         self._stop = threading.Event()
         self._record = threading.Event()
@@ -186,6 +196,17 @@ class WebcamPreview:
                 if not ok or frame is None:
                     cv2.waitKey(30)  # transient hiccup -- keep the windows pumping, retry
                     continue
+
+                if self._roi is not None:
+                    # Crop to the fixed ROI, then upscale back to the ROI's reference size so the
+                    # preview window + recording show the same 4:3 zoomed feed validated with
+                    # scripts/diagnostics/usb_camera_roi_preview.py. Done before everything below,
+                    # so writer sizing, the clean write, the REC overlay, and imshow all inherit it.
+                    frame = cv2.resize(
+                        self._roi.crop(frame),
+                        (self._roi.ref_w, self._roi.ref_h),
+                        interpolation=cv2.INTER_LINEAR,
+                    )
 
                 want = self._record.is_set()
                 if want and not recording:

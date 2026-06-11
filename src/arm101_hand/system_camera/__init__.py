@@ -6,5 +6,6 @@ retinal images) in ``arm101_hand.fundus_camera``.
 """
 
 from .preview import WebcamPreview, open_capture
+from .roi import Roi
 
-__all__ = ["WebcamPreview", "open_capture"]
+__all__ = ["Roi", "WebcamPreview", "open_capture"]
