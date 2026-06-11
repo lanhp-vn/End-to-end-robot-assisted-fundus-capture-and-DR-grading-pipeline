@@ -39,7 +39,9 @@ def key_to_action(key: str) -> str | None:
 
 def press_base(state: TriggerState, base_min: int, base_max: int) -> int:
     """The IN base for a press: ``out_base + delta`` clamped to the calibrated window."""
-    return in_base(ToggleState(out_base=state.out_base, side=state.side, delta=state.delta), base_min, base_max)
+    return in_base(
+        ToggleState(out_base=state.out_base, side=state.side, delta=state.delta), base_min, base_max
+    )
 
 
 def apply_action(state: TriggerState, action: str) -> TriggerState:

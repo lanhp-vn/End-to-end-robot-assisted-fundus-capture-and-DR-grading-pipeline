@@ -63,8 +63,12 @@ def save_capture(
     out = dest_dir / capture_filename(info, captured_at)
     out.write_bytes(data)
     meta = sidecar_dict(
-        info, captured_at=captured_at, trigger_no=trigger_no,
-        camera_serial=camera_serial, camera_sw=camera_sw, camera_wifi=camera_wifi,
+        info,
+        captured_at=captured_at,
+        trigger_no=trigger_no,
+        camera_serial=camera_serial,
+        camera_sw=camera_sw,
+        camera_wifi=camera_wifi,
     )
     out.with_suffix(out.suffix + ".json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return out

@@ -27,12 +27,19 @@ def read_finger(controller, name, block) -> tuple[int, int]:
     """Present ``(base, side)`` (logical, clamped to limits) for finger ``name``."""
     lim = block.limits
     id1, id2 = FINGER_SERVO_IDS[name]
-    pos1 = servo_radians_to_degrees(id1, _scalar(controller.read_present_position(id1)), block.servo_1.middle_pos)
-    pos2 = servo_radians_to_degrees(id2, _scalar(controller.read_present_position(id2)), block.servo_2.middle_pos)
+    pos1 = servo_radians_to_degrees(
+        id1, _scalar(controller.read_present_position(id1)), block.servo_1.middle_pos
+    )
+    pos2 = servo_radians_to_degrees(
+        id2, _scalar(controller.read_present_position(id2)), block.servo_2.middle_pos
+    )
     base, side = decompose_finger(
-        round(pos1), round(pos2),
-        side_min=lim.side_min, side_max=lim.side_max,
-        base_min=lim.base_min, base_max=lim.base_max,
+        round(pos1),
+        round(pos2),
+        side_min=lim.side_min,
+        side_max=lim.side_max,
+        base_min=lim.base_min,
+        base_max=lim.base_max,
     )
     return int(base), int(side)
 
@@ -42,12 +49,17 @@ def drive_finger(controller, name, block, base, side, speed, *, tolerance_rad, t
     lim = block.limits
     id1, id2 = FINGER_SERVO_IDS[name]
     pos1, pos2 = compose_finger(
-        base, side,
-        base_min=lim.base_min, base_max=lim.base_max,
-        side_min=lim.side_min, side_max=lim.side_max,
+        base,
+        side,
+        base_min=lim.base_min,
+        base_max=lim.base_max,
+        side_min=lim.side_min,
+        side_max=lim.side_max,
     )
     targets = {
         id1: degrees_to_servo_radians(id1, pos1, block.servo_1.middle_pos),
         id2: degrees_to_servo_radians(id2, pos2, block.servo_2.middle_pos),
     }
-    drive_hand_servos(controller, targets, speed, tolerance_rad=tolerance_rad, timeout_s=timeout_s, poll_s=poll_s)
+    drive_hand_servos(
+        controller, targets, speed, tolerance_rad=tolerance_rad, timeout_s=timeout_s, poll_s=poll_s
+    )

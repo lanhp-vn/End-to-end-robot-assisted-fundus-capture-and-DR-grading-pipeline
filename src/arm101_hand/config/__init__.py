@@ -21,6 +21,12 @@ from .calibration import (
     load_hand_calibration,
     save_hand_calibration,
 )
+from .camera_config import (
+    CameraCapture,
+    CameraConfig,
+    CameraConnection,
+    load_camera_config,
+)
 from .hand_config import (
     HandConfig,
     HandConnection,
@@ -30,12 +36,6 @@ from .hand_config import (
     HandTuning,
     load_hand_config,
     save_hand_config,
-)
-from .camera_config import (
-    CameraCapture,
-    CameraConfig,
-    CameraConnection,
-    load_camera_config,
 )
 from .motor_ids import FINGER_SERVO_IDS
 

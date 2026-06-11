@@ -24,8 +24,9 @@ class _FakeController:
 
 def _block():
     lim = SimpleNamespace(base_min=-20, base_max=70, side_min=-60, side_max=60)
-    return SimpleNamespace(limits=lim, servo_1=SimpleNamespace(middle_pos=512),
-                           servo_2=SimpleNamespace(middle_pos=512))
+    return SimpleNamespace(
+        limits=lim, servo_1=SimpleNamespace(middle_pos=512), servo_2=SimpleNamespace(middle_pos=512)
+    )
 
 
 def test_read_finger_returns_int_pair():
@@ -35,7 +36,8 @@ def test_read_finger_returns_int_pair():
 
 def test_drive_finger_commands_both_index_servos():
     c = _FakeController()
-    drive_finger(c, "index", _block(), base=30, side=0, speed=3,
-                 tolerance_rad=0.1, timeout_s=0.05, poll_s=0.0)
+    drive_finger(
+        c, "index", _block(), base=30, side=0, speed=3, tolerance_rad=0.1, timeout_s=0.05, poll_s=0.0
+    )
     id1, id2 = FINGER_SERVO_IDS["index"]
     assert id1 in c.goals and id2 in c.goals

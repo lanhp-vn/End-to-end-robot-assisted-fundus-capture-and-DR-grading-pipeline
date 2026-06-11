@@ -36,8 +36,14 @@ class FakeSocket:
 
 
 def _client_with(sock):
-    c = PictorClient(host="x", discovery_port=3000, message_port=8000,
-                     discover_timeout_s=1, connect_timeout_s=1, io_timeout_s=1)
+    c = PictorClient(
+        host="x",
+        discovery_port=3000,
+        message_port=8000,
+        discover_timeout_s=1,
+        connect_timeout_s=1,
+        io_timeout_s=1,
+    )
     c._sock = sock
     return c
 

@@ -79,7 +79,7 @@ class PictorClient:
                 s.sendto(_DETECT_PACKET, (dest, self.discovery_port))
             try:
                 data, addr = s.recvfrom(2048)
-            except socket.timeout:
+            except TimeoutError:
                 return None
         finally:
             s.close()

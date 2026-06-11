@@ -1,5 +1,6 @@
 """AmazingHand device layer (rustypot-based) and pure-math kinematics."""
 
+from .finger_io import drive_finger, read_finger
 from .kinematics import (
     MAX_NAME_LEN,
     clamp,
@@ -22,7 +23,6 @@ from .pose_resolver import (
     available_pose_names,
     resolve_hand_pose_targets,
 )
-from .finger_io import drive_finger, read_finger
 from .range_calib import (
     JogState,
     apply_action,
