@@ -97,13 +97,24 @@ uv run python scripts/diagnostics/show_calib.py --device arm
 uv run python scripts/calibration/so_arm101/jog.py
 ```
 
+### 4. Robot-triggered fundus capture (optional)
+
+With an **Optomed Aurora** on the same Wi-Fi, the hand can press the camera's dual-action shutter and the workspace auto-pulls the freshly-captured image over the Pictor protocol:
+
+```powershell
+uv run python scripts/diagnostics/aurora_probe.py            # read-only reachability + status + filelist
+uv run python scripts/demos/grab_trigger_capture.py          # grab, SPACE presses the shutter, image lands in fundus_images/
+```
+
+Camera prerequisites (the API cannot set these — do it on the device): **Still imaging** mode, **Quick imaging ON**, and **Optomed Client closed** (the Pictor API allows a single client connection). Pulled images and their JSON sidecars save to `fundus_images/` (git-ignored — never commit medical images).
+
 ## Repo layout
 
 ```
 src/arm101_hand/        # device + application layer (subclass + console scripts)
 scripts/calibration/    # AmazingHand + SO-ARM101 calibration runners
-scripts/diagnostics/    # dual-device scan / show_calib / find_port
-scripts/demos/          # runnable demos (grab_sequence: staged grab; grab_toggle: + index-finger toggle)
+scripts/diagnostics/    # dual-device scan / show_calib / find_port + read-only aurora_probe (camera)
+scripts/demos/          # runnable demos (grab_sequence: staged grab; grab_toggle: + index-finger toggle; grab_trigger_capture: index presses the Aurora shutter + auto-pulls the fundus image)
 docs/BOM.md             # bill of materials, host PC spec
 docs/conventions/       # 00 Iron Laws → 07 KISS
 references/             # 5 git submodules — read-only (IL-2)

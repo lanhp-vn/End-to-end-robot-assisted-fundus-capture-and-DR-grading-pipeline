@@ -35,17 +35,18 @@ AmazingHand-ARM101-Follower/
 ├── .python-version            # 3.12
 ├── src/arm101_hand/
 │   ├── robots/                # device layer — SO-ARM101 subclass
-│   ├── hand/                  # device layer — rustypot kinematics + motion (position-poll) helpers, pose-jog/range-calib state machines, named-pose resolver
-│   ├── config/                # primitive layer — pydantic schemas (arm_config, hand_config, calibration, motor_ids)
-│   ├── data/                  # runtime operator config: arm_config.yaml + hand_config.yaml (+ README)
+│   ├── hand/                  # device layer — rustypot kinematics + motion (position-poll) helpers, finger_io (shared finger read/drive), pose-jog/range-calib + index_toggle/index_trigger state machines, named-pose resolver
+│   ├── camera/                # device layer — read-only Pictor/Aurora Wi-Fi client (discovery + file pull) + pure protocol
+│   ├── config/                # primitive layer — pydantic schemas (arm_config, hand_config, camera_config, calibration, motor_ids)
+│   ├── data/                  # runtime operator config: arm_config.yaml + hand_config.yaml + camera_config.yaml (+ README)
 │   └── scripts/               # application layer — console-script entries + shared device_setup/grab_common
 ├── scripts/
 │   ├── calibration/
 │   │   ├── amazing_hand/      # snake_case calibration/test/jog scripts + measurement-only YAML (v3 schema)
 │   │   └── so_arm101/         # follower calibration runner + sweep/set_pose/jog/capture_pose
-│   ├── diagnostics/           # dual-device scan/show_calib (--device arm|hand) + device-agnostic find_port
+│   ├── diagnostics/           # dual-device scan/show_calib (--device arm|hand) + device-agnostic find_port + read-only aurora_probe (camera)
 │   ├── teleop/                # planned
-│   └── demos/                 # runnable demos — grab_sequence (staged grab) + grab_toggle (grab, then index-finger button toggle)
+│   └── demos/                 # runnable demos — grab_sequence (staged grab) + grab_toggle (index-finger button) + grab_trigger_capture (index presses Aurora shutter, auto-pulls the fundus image)
 ├── tests/                     # host unit tests (tests/unit) + hardware-gated (tests/hardware)
 ├── docs/
 │   ├── BOM.md                 # bill of materials + host PC spec
@@ -83,6 +84,7 @@ uv run arm101-calibrate-follower `
 uv run python scripts/diagnostics/find_port.py                            # device-agnostic; lists all COM ports
 uv run python scripts/diagnostics/scan.py --device arm                    # bus health check (--device arm|hand, torque off)
 uv run python scripts/diagnostics/show_calib.py --device arm [--live]     # dump calibration; --live compares present pos
+uv run python scripts/diagnostics/aurora_probe.py                         # read-only Aurora reachability + status + filelist (Optomed Client must be closed)
 
 # SO-ARM101 motion helpers (read clamp range from so101_follower.json; never write it — IL-5)
 # Per-script detail in scripts/calibration/so_arm101/README.md §6.
@@ -94,6 +96,7 @@ uv run python scripts/calibration/so_arm101/capture_pose.py               # hand
 # Demos (read calibration + config; write neither — IL-5)
 uv run python scripts/demos/grab_sequence.py                              # staged arm+hand grab; 'h' on exit reverses the whole sequence
 uv run python scripts/demos/grab_toggle.py                                # grab, then SPACE toggles the index finger in/out like a button
+uv run python scripts/demos/grab_trigger_capture.py                       # grab the camera, SPACE presses the shutter + auto-pulls the new fundus image to fundus_images/ (camera: Still + Quick imaging, Optomed Client closed)
 
 # Lint / format / type-check / test
 uv run ruff format .

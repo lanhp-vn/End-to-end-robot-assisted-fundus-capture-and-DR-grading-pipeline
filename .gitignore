@@ -30,3 +30,6 @@ Thumbs.db
 # Per-submodule agent orientation notes (untracked; one per submodule)
 references/*/CLAUDE.md
 references/*/CLAUDE.local.md
+
+# Patient fundus captures pulled from the Aurora -- never commit medical images.
+fundus_images/
