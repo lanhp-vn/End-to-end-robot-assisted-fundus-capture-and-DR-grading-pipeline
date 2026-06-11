@@ -144,7 +144,9 @@ class WebcamPreview:
         self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.src_fps = float(cap.get(cv2.CAP_PROP_FPS))
         self.ok = True
-        cv2.namedWindow(self._title, cv2.WINDOW_NORMAL)
+        # WINDOW_NORMAL: resizable; KEEPRATIO: image keeps its native aspect ratio
+        # (letterboxed) on resize, so it scales uniformly and never stretches.
+        cv2.namedWindow(self._title, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
         self._ready.set()  # camera + window up -> unblock start()
 
         writer: cv2.VideoWriter | None = None
@@ -163,7 +165,9 @@ class WebcamPreview:
                     if decoded is not None:
                         still_frame = decoded
                         if not still_shown:
-                            cv2.namedWindow(self._still_title, cv2.WINDOW_NORMAL)
+                            # KEEPRATIO: the still keeps its native aspect ratio on resize
+                            # (letterboxed inside the window) -- scales uniformly, never stretches.
+                            cv2.namedWindow(self._still_title, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
                             cv2.resizeWindow(self._still_title, 720, 720)
                             still_shown = True
                 if still_frame is not None:
