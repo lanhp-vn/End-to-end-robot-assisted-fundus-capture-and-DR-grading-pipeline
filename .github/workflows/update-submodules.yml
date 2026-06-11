@@ -33,12 +33,19 @@ jobs:
           fetch-depth: 0
 
       - name: Update reference submodules to upstream (excluding lerobot, nous_vclient)
+        shell: bash  # mapfile / process substitution / array expansion are bash builtins
         run: |
           mapfile -t paths < <(
             git config --file .gitmodules --get-regexp '^submodule\..*\.path$' \
               | awk '{print $2}' \
               | grep -vE '^references/(lerobot|optomed-camera/nous_vclient)$'
           )
+          # Fail safe: an empty list would make `git submodule update` touch ALL
+          # submodules, re-introducing the private nous_vclient clone failure.
+          if [ "${#paths[@]}" -eq 0 ]; then
+            echo "No submodule paths resolved from .gitmodules — aborting." >&2
+            exit 1
+          fi
           echo "Updating: ${paths[*]}"
           git submodule update --init --remote -- "${paths[@]}"
 
@@ -50,6 +57,8 @@ jobs:
             echo "No submodule updates."
           else
             git add -A
-            git commit -m "chore: update references/ submodules to upstream"
+            git commit -m "chore(deps): update references/ submodules to upstream"
+            # Assumes main lets the Actions bot (default GITHUB_TOKEN) push directly.
+            # If main becomes branch-protected, switch this to a PR-based bump.
             git push
           fi
