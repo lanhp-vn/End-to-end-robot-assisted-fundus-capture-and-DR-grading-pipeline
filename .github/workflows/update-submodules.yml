@@ -4,6 +4,9 @@ name: Update submodules
 # Commits any gitlink bumps as lanhp-vn and pushes to the default branch.
 # Excludes references/lerobot: it is an editable build dependency, so an
 # unreviewed upstream bump could break `uv sync`. Bump lerobot deliberately.
+# Excludes references/optomed-camera/nous_vclient: it is a private repo the
+# runner's GITHUB_TOKEN cannot reach (token is scoped to this repo only), so a
+# recursive checkout or --remote bump fails to clone it. Bump it locally.
 
 on:
   schedule:
@@ -23,17 +26,21 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.3
         with:
-          submodules: recursive
+          # Do not auto-clone submodules here: a recursive clone would fail on
+          # the private nous_vclient. The update step inits only the paths it
+          # bumps (--init), so the runner never touches the unreachable one.
+          submodules: false
           fetch-depth: 0
 
-      - name: Update reference submodules to upstream (excluding lerobot)
+      - name: Update reference submodules to upstream (excluding lerobot, nous_vclient)
         run: |
           mapfile -t paths < <(
             git config --file .gitmodules --get-regexp '^submodule\..*\.path$' \
-              | awk '{print $2}' | grep -v '^references/lerobot$'
+              | awk '{print $2}' \
+              | grep -vE '^references/(lerobot|optomed-camera/nous_vclient)$'
           )
           echo "Updating: ${paths[*]}"
-          git submodule update --remote -- "${paths[@]}"
+          git submodule update --init --remote -- "${paths[@]}"
 
       - name: Commit and push if anything changed
         run: |
