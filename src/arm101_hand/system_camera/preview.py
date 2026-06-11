@@ -42,6 +42,23 @@ _FPS_FALLBACK = 20.0
 Backend = Literal["auto", "dshow"]
 
 
+def open_capture(index: int, backend: Backend = "auto") -> cv2.VideoCapture:
+    """Open a ``cv2.VideoCapture`` for ``index`` using ``backend``.
+
+    ``"dshow"`` (CAP_DSHOW) opens fast when it works but fails on some cameras ("can't be used
+    to capture by index"); on failure it falls back to the platform default (MSMF on Windows).
+    ``"auto"`` uses that platform default directly. Shared by :class:`WebcamPreview` and
+    ``scripts/diagnostics/usb_camera_capture.py`` so the dshow-quirk handling lives in one place.
+    """
+    if backend == "dshow":
+        cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+        if not cap.isOpened():
+            cap.release()
+            cap = cv2.VideoCapture(index)
+        return cap
+    return cv2.VideoCapture(index)  # auto: platform default backend
+
+
 class WebcamPreview:
     """Live USB-camera preview in a cv2 window on a daemon thread, with a record toggle."""
 
@@ -119,15 +136,7 @@ class WebcamPreview:
 
     # ---- capture-thread internals ---------------------------------------
     def _open_capture(self) -> cv2.VideoCapture:
-        if self._backend == "dshow":
-            # CAP_DSHOW opens fast when it works, but fails on some cameras ("can't be used to
-            # capture by index") -- fall back to the platform default (MSMF on Windows).
-            cap = cv2.VideoCapture(self._index, cv2.CAP_DSHOW)
-            if not cap.isOpened():
-                cap.release()
-                cap = cv2.VideoCapture(self._index)
-            return cap
-        return cv2.VideoCapture(self._index)  # auto: platform default backend
+        return open_capture(self._index, self._backend)
 
     def _writer_fps(self, cap: cv2.VideoCapture) -> float:
         fps = self._fps_override if self._fps_override else cap.get(cv2.CAP_PROP_FPS)
