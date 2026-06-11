@@ -1,0 +1,18 @@
+# src/arm101_hand/data/camera_config.yaml
+# camera_config.yaml -- Optomed Aurora operator config (Pictor Wi-Fi API).
+# Hand-editable; never written by runtime code (IL-5). host:null -> broadcast discover.
+schema_version: 1
+connection:
+  host: null
+  discovery_port: 3000
+  message_port: 8000
+  discover_timeout_s: 4.0
+  connect_timeout_s: 4.0
+  io_timeout_s: 8.0
+capture:
+  hold_seconds: 3.0
+  new_file_timeout_s: 15.0
+  poll_s: 0.5
+  stable_polls: 2
+  dcim_root: "\\DCIM"
+  fundus_dir: fundus_images

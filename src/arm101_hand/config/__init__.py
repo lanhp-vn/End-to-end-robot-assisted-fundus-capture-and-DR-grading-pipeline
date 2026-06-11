@@ -31,11 +31,20 @@ from .hand_config import (
     load_hand_config,
     save_hand_config,
 )
+from .camera_config import (
+    CameraCapture,
+    CameraConfig,
+    CameraConnection,
+    load_camera_config,
+)
 from .motor_ids import FINGER_SERVO_IDS
 
 __all__ = [
     "FINGER_NAMES",
     "FINGER_SERVO_IDS",
+    "CameraCapture",
+    "CameraConfig",
+    "CameraConnection",
     "ArmConfig",
     "ArmConnection",
     "ArmPose",
@@ -51,6 +60,7 @@ __all__ = [
     "HandTuning",
     "load_arm_config",
     "save_arm_config",
+    "load_camera_config",
     "load_hand_calibration",
     "load_hand_config",
     "save_hand_calibration",
