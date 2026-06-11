@@ -1,0 +1,16 @@
+# Keeps the GitHub Actions pinned in .github/workflows/ current.
+# We pin actions to exact release tags (e.g. actions/checkout@v6.0.3) for
+# reproducibility; without an auto-bumper those pins silently rot. Dependabot
+# scans every workflow under .github/workflows/ and opens a PR per new release,
+# so "always latest" stays true without manual version chasing. CI runs on each
+# PR, so a bad bump is caught before merge.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "ci"
+    open-pull-requests-limit: 5

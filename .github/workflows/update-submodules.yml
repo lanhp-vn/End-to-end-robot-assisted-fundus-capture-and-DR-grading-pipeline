@@ -47,7 +47,12 @@ jobs:
             exit 1
           fi
           echo "Updating: ${paths[*]}"
-          git submodule update --init --remote -- "${paths[@]}"
+          # --depth 1: shallow-fetch the upstream tip instead of full history.
+          # checkout uses submodules:false, so each listed submodule (incl. the
+          # large CV ones: opencv, opencv_contrib, mediapipe, RETFound) is cloned
+          # fresh each run; shallow keeps that cheap. --remote tracks the branch
+          # tip, so depth 1 of that tip is self-consistent.
+          git submodule update --init --remote --depth 1 -- "${paths[@]}"
 
       - name: Commit and push if anything changed
         run: |
