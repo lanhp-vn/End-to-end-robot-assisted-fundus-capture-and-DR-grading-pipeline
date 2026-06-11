@@ -83,3 +83,59 @@ def test_decode_fat32_datetime():
     time = (14 << 11) | (30 << 5) | (8 // 2)
     dt = decode_fat32_datetime(date, time)
     assert (dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second) == (2024, 3, 21, 14, 30, 8)
+
+
+# tests/unit/test_camera_protocol.py  (append)
+import struct as _struct
+from datetime import datetime, timezone
+
+from arm101_hand.camera.protocol import (
+    DIRECTORY,
+    FILE,
+    FileInfo,
+    capture_filename,
+    classify_capture,
+    diff_new_files,
+    sidecar_dict,
+)
+
+
+def _fi(name, size=100, ftype=FILE):
+    return FileInfo(filesize=size, file_type=ftype, file_date=0, file_time=0, filename=name)
+
+
+def test_diff_new_files_finds_new_excludes_dirs():
+    before = {"\\DCIM\\P0001\\IM0001EY.JPG"}
+    after = [
+        _fi("\\DCIM\\P0001", ftype=DIRECTORY),  # directory -> excluded
+        _fi("\\DCIM\\P0001\\IM0001EY.JPG"),  # already seen
+        _fi("\\DCIM\\P0001\\IM0002EY.JPG"),  # new
+    ]
+    new = diff_new_files(before, after)
+    assert [f.filename for f in new] == ["\\DCIM\\P0001\\IM0002EY.JPG"]
+
+
+def test_classify_capture():
+    assert classify_capture(_fi("\\DCIM\\P0001\\IM0002EY.JPG")) == "still"
+    assert classify_capture(_fi("\\DCIM\\P0001\\VID0001.MP4")) == "video"
+    assert classify_capture(_fi("\\299E51C4.PEF")) == "other"
+
+
+def test_capture_filename_prefixes_timestamp_and_sanitizes():
+    ts = datetime(2026, 6, 10, 14, 15, 30, tzinfo=timezone.utc)
+    name = capture_filename(_fi("\\DCIM\\P0001\\IM0010EY.JPG"), ts)
+    assert name == "20260610T141530Z_DCIM_P0001_IM0010EY.JPG"
+
+
+def test_sidecar_dict_has_provenance():
+    ts = datetime(2026, 6, 10, 14, 15, 30, tzinfo=timezone.utc)
+    info = _fi("\\DCIM\\P0001\\IM0010EY.JPG", size=123)
+    d = sidecar_dict(
+        info, captured_at=ts, trigger_no=3,
+        camera_serial="1125581093422", camera_sw="3.3.7.11860", camera_wifi="1.3.0.2563",
+    )
+    assert d["camera_filename"] == "\\DCIM\\P0001\\IM0010EY.JPG"
+    assert d["filesize"] == 123
+    assert d["trigger_no"] == 3
+    assert d["camera_serial"] == "1125581093422"
+    assert d["captured_at_utc"] == ts.isoformat()

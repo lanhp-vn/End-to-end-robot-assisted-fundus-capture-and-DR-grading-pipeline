@@ -133,3 +133,57 @@ class MessageFail:
     def parse(cls, payload: bytes) -> MessageFail:
         err_code = struct.unpack_from("<I", payload, 0)[0]
         return cls(err_code, _cstr(payload[4:68]))
+
+
+_VIDEO_EXTS = {"mp4", "avi", "mov", "mpg", "mpeg", "m4v"}
+_STILL_EXTS = {"jpg", "jpeg"}
+
+
+def diff_new_files(before: set[str], after: list[FileInfo]) -> list[FileInfo]:
+    """New (non-directory) files in ``after`` whose path was not in ``before``.
+
+    Does NOT filter by extension -- a stray video/raw sibling must be visible so the
+    caller can warn, not silently drop it (the camera's capture mode is operator-set).
+    """
+    return [f for f in after if not f.is_dir and f.filename not in before]
+
+
+def classify_capture(info: FileInfo) -> str:
+    """``"still"`` | ``"video"`` | ``"other"`` from the filename extension."""
+    ext = info.filename.rsplit(".", 1)[-1].lower() if "." in info.filename else ""
+    if ext in _STILL_EXTS:
+        return "still"
+    if ext in _VIDEO_EXTS:
+        return "video"
+    return "other"
+
+
+def capture_filename(info: FileInfo, captured_at: datetime) -> str:
+    """``<UTC-compact>_<sanitized-camera-path>`` (collision-free local name)."""
+    flat = info.filename.lstrip("\\").replace("\\", "_")
+    return f"{captured_at:%Y%m%dT%H%M%SZ}_{flat}"
+
+
+def sidecar_dict(
+    info: FileInfo,
+    *,
+    captured_at: datetime,
+    trigger_no: int,
+    camera_serial: str,
+    camera_sw: str,
+    camera_wifi: str,
+) -> dict:
+    """JSON-serializable provenance record saved beside each pulled image."""
+    fat = decode_fat32_datetime(info.file_date, info.file_time)
+    return {
+        "camera_filename": info.filename,
+        "filesize": info.filesize,
+        "file_type": f"0x{info.file_type:X}",
+        "classification": classify_capture(info),
+        "fat32_datetime": fat.isoformat(),
+        "captured_at_utc": captured_at.isoformat(),
+        "trigger_no": trigger_no,
+        "camera_serial": camera_serial,
+        "camera_sw_version": camera_sw,
+        "camera_wifi_version": camera_wifi,
+    }
