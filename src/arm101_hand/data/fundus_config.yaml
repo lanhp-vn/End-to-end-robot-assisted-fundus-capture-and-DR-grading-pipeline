@@ -1,6 +1,8 @@
-# src/arm101_hand/data/camera_config.yaml
-# camera_config.yaml -- Optomed Aurora operator config (Pictor Wi-Fi API).
-# Hand-editable; never written by runtime code (IL-5). host:null -> broadcast discover.
+# src/arm101_hand/data/fundus_config.yaml
+# fundus_config.yaml -- Optomed Aurora FUNDUS camera operator config (Pictor Wi-Fi API).
+# Captures patient retinal images. The arm-mounted USB observation camera is separate
+# (see system_camera_config.yaml). Hand-editable; never written by runtime code (IL-5).
+# host:null -> broadcast discover.
 schema_version: 1
 connection:
   host: null
@@ -15,4 +17,4 @@ capture:
   poll_s: 0.5
   stable_polls: 1  # 1 = download as soon as the new image is first seen (no second-confirmation wait)
   dcim_root: "\\DCIM"
-  fundus_dir: fundus_images
+  fundus_dir: media_outputs/fundus_images

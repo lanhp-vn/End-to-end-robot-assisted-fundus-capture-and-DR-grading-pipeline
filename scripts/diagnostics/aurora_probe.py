@@ -19,10 +19,10 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
-from arm101_hand.camera import CameraError, PictorClient  # noqa: E402
-from arm101_hand.config import load_camera_config  # noqa: E402
+from arm101_hand.config import load_fundus_config  # noqa: E402
+from arm101_hand.fundus_camera import CameraError, PictorClient  # noqa: E402
 
-_CONFIG = _REPO_ROOT / "src" / "arm101_hand" / "data" / "camera_config.yaml"
+_CONFIG = _REPO_ROOT / "src" / "arm101_hand" / "data" / "fundus_config.yaml"
 
 
 def main() -> int:
@@ -31,7 +31,7 @@ def main() -> int:
     ap.add_argument("--get-file", default=None, help="camera path to pull, e.g. \\DCIM\\P0001\\IM0002EY.JPG")
     args = ap.parse_args()
 
-    conn = load_camera_config(_CONFIG).connection
+    conn = load_fundus_config(_CONFIG).connection
     camera = PictorClient(
         host=args.host or conn.host,
         discovery_port=conn.discovery_port,

@@ -41,7 +41,7 @@ cd AmazingHand-ARM101-Follower
 uv sync
 ```
 
-`uv sync` provisions `.venv/` from `pyproject.toml` (lerobot[feetech] editable from the submodule, rustypot wheel, numpy, pyyaml, pydantic). About 60 packages get installed including `torch` — first sync takes a few minutes.
+`uv sync` provisions `.venv/` from `pyproject.toml` (lerobot[feetech] editable from the submodule, rustypot wheel, numpy, pyyaml, pydantic, opencv-python). About 60 packages get installed including `torch` — first sync takes a few minutes.
 
 You do **not** need to activate the venv. Use `uv run <command>` for everything.
 
@@ -99,22 +99,23 @@ uv run python scripts/calibration/so_arm101/jog.py
 
 ### 4. Robot-triggered fundus capture (optional)
 
-With an **Optomed Aurora** on the same Wi-Fi, the hand can press the camera's dual-action shutter and the workspace auto-pulls the freshly-captured image over the Pictor protocol:
+Two cameras are involved: the **Optomed Aurora** *fundus* camera (captures patient retinal images, over Wi-Fi/Pictor) and an arm-mounted USB *system* camera that films the Aurora's screen. With the Aurora on the same Wi-Fi, the hand presses its dual-action shutter and the workspace auto-pulls the freshly-captured image over the Pictor protocol; the demo also opens a live window for the system camera (press `r` to record that feed).
 
 ```powershell
-uv run python scripts/diagnostics/aurora_probe.py            # read-only reachability + status + filelist
-uv run python scripts/demos/grab_trigger_capture.py          # grab, SPACE presses the shutter, image lands in fundus_images/
+uv run python scripts/diagnostics/aurora_probe.py            # read-only Aurora reachability + status + filelist
+uv run python scripts/diagnostics/usb_camera_probe.py        # system-cam smoke test: live window + 'r' record (no motors/Aurora)
+uv run python scripts/demos/grab_trigger_capture.py          # live system-cam window; SPACE presses the shutter, image lands in media_outputs/fundus_images/
 ```
 
-Camera prerequisites (the API cannot set these — do it on the device): **Still imaging** mode, **Quick imaging ON**, and **Optomed Client closed** (the Pictor API allows a single client connection — `aurora_probe` counts too, so if you just ran it, give the camera a few seconds to free the slot before launching the demo). Pulled images and their JSON sidecars save to `fundus_images/` (git-ignored — never commit medical images).
+Camera prerequisites (the API cannot set these — do it on the device): **Still imaging** mode, **Quick imaging ON**, and **Optomed Client closed** (the Pictor API allows a single client connection — `aurora_probe` counts too, so if you just ran it, give the camera a few seconds to free the slot before launching the demo). The system-cam preview uses the full `opencv-python` wheel. Pulled fundus images + their JSON sidecars and any system-cam recordings save under `media_outputs/` (git-ignored — never commit medical images).
 
 ## Repo layout
 
 ```
 src/arm101_hand/        # device + application layer (subclass + console scripts)
 scripts/calibration/    # AmazingHand + SO-ARM101 calibration runners
-scripts/diagnostics/    # dual-device scan / show_calib / find_port + read-only aurora_probe (camera)
-scripts/demos/          # runnable demos (grab_sequence: staged grab; grab_toggle: + index-finger toggle; grab_trigger_capture: index presses the Aurora shutter + auto-pulls the fundus image)
+scripts/diagnostics/    # dual-device scan / show_calib / find_port + read-only aurora_probe + usb_camera_probe (cameras)
+scripts/demos/          # runnable demos (grab_sequence: staged grab; grab_toggle: + index-finger toggle; grab_trigger_capture: live system-cam window + Aurora shutter press + auto-pull)
 docs/BOM.md             # bill of materials, host PC spec
 docs/conventions/       # 00 Iron Laws → 07 KISS
 references/             # vendored git submodules — read-only (IL-2)

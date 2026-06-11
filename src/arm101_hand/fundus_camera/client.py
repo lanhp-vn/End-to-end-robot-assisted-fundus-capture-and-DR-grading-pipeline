@@ -13,7 +13,7 @@ import socket
 import time
 from collections.abc import Callable
 
-from arm101_hand.camera.protocol import (
+from arm101_hand.fundus_camera.protocol import (
     CODE_FAIL,
     CODE_OK,
     CODE_REQUEST,

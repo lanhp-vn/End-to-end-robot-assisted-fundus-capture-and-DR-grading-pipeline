@@ -1,9 +1,13 @@
-"""Grab the camera, then click the index finger to trigger a fundus capture and pull it.
+"""Grab the camera, stream the arm-mounted USB cam, and click the index finger to capture.
+
+On startup a live preview window opens for the arm-mounted USB camera (it points at the
+Aurora's screen) -- press 'r' anytime to start/stop recording that feed to a clip. The
+preview is best-effort: if the camera will not open, the demo continues without it.
 
 Runs the staged arm+hand grab (see ``arm101_hand.scripts.grab_common``); once both
 devices hold ``grab`` under torque, each SPACE runs ONE capture cycle:
   press the index onto the Aurora's shutter -> hold -> release ->
-  diff the camera filelist -> pull the new image(s) + metadata into ``fundus_images/``.
+  diff the camera filelist -> pull the new image(s) + metadata into ``media_outputs/fundus_images/``.
 
 PREREQUISITES (set on the camera; the API cannot):
   * Capture mode = STILL imaging  (a held press in VIDEO mode records a clip!)
@@ -11,8 +15,9 @@ PREREQUISITES (set on the camera; the API cannot):
   * Optomed Client CLOSED         (the Pictor API allows one client connection)
   * A study/patient selected      (new images land in the current study folder)
 
-Controls (torque ON the whole time):
+Controls (torque ON the whole time; focus the TERMINAL, not the preview window):
   SPACE       fire one capture cycle (press -> hold -> release -> pull)
+  r           start / stop recording the USB preview to media_outputs/camera_recordings/
   [ / ]       shrink / grow the press depth (applies to the NEXT press)
   q / Ctrl+C  stop and go to the exit prompt (Enter releases in place, 'h' reverses)
 
@@ -29,7 +34,13 @@ import sys
 import time
 from pathlib import Path
 
-from arm101_hand.camera import (
+from arm101_hand.config import (
+    FINGER_SERVO_IDS,
+    SystemCameraConfig,
+    load_fundus_config,
+    load_system_camera_config,
+)
+from arm101_hand.fundus_camera import (
     CameraError,
     PictorClient,
     classify_capture,
@@ -38,14 +49,16 @@ from arm101_hand.camera import (
     snapshot_filenames,
     wait_for_new_files,
 )
-from arm101_hand.config import FINGER_SERVO_IDS, load_camera_config
 from arm101_hand.hand import drive_finger, load_warning, read_finger
 from arm101_hand.hand.index_trigger import TriggerState, apply_action, key_to_action, press_base
 from arm101_hand.hand.pose_jog import HandJogState, format_hand_status
 from arm101_hand.scripts.grab_common import GrabHoldContext, run_grab_demo
+from arm101_hand.system_camera import WebcamPreview
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_CAMERA_CONFIG_PATH = _REPO_ROOT / "src" / "arm101_hand" / "data" / "camera_config.yaml"
+_DATA_DIR = _REPO_ROOT / "src" / "arm101_hand" / "data"
+_FUNDUS_CONFIG_PATH = _DATA_DIR / "fundus_config.yaml"
+_SYSTEM_CAMERA_CONFIG_PATH = _DATA_DIR / "system_camera_config.yaml"
 _STATIC_FINGERS = ("middle", "ring", "thumb")
 
 
@@ -83,10 +96,39 @@ def _print_poll(elapsed: float, n_new: int, note: str) -> None:
     print(f"    +{elapsed:4.1f}s  {detail}")
 
 
+def _start_preview(scfg: SystemCameraConfig) -> WebcamPreview | None:
+    """Best-effort: open the arm-cam preview window. None if disabled or the cam won't open."""
+    if not scfg.enabled:
+        return None
+    preview = WebcamPreview(
+        index=scfg.camera_index,
+        window_title=scfg.window_title,
+        record_dir=_REPO_ROOT / scfg.record_dir,
+        fps=scfg.fps,
+        backend=scfg.backend,
+    )
+    if not preview.start():
+        print(
+            f"WARNING: USB preview camera index {scfg.camera_index} not available -- "
+            "continuing without a preview window.",
+            file=sys.stderr,
+        )
+        return None
+    print(
+        f"USB preview: camera {scfg.camera_index} {preview.width}x{preview.height}"
+        f"@{preview.src_fps:.0f}fps -- 'r' starts/stops recording."
+    )
+    return preview
+
+
 def main() -> int:
-    cfg = load_camera_config(_CAMERA_CONFIG_PATH)
+    cfg = load_fundus_config(_FUNDUS_CONFIG_PATH)
     conn, cap = cfg.connection, cfg.capture
     fundus_dir = _REPO_ROOT / cap.fundus_dir
+
+    # Live arm-cam preview window (best-effort, independent of the Aurora link). Up before the
+    # arm moves so the operator can watch the Optomed screen throughout.
+    preview = _start_preview(load_system_camera_config(_SYSTEM_CAMERA_CONFIG_PATH))
 
     camera = PictorClient(
         host=conn.host,
@@ -103,6 +145,8 @@ def main() -> int:
         status = camera.get_status()
     except CameraError as e:
         print(f"ERROR: camera not ready: {e}", file=sys.stderr)
+        if preview is not None:
+            preview.stop()
         return 1
     serial = camera.info.serial if camera.info else "?"
     print(f"Camera ready: serial={serial} sw={status.sw_version} wifi={status.wifi_version}")
@@ -125,13 +169,21 @@ def main() -> int:
         others = {name: read_finger(c, name, calib.fingers[name]) for name in _STATIC_FINGERS}
         state = TriggerState(out_base=out_base, side=side)
 
-        print("Trigger capture: SPACE = capture, [ / ] = press depth, q = exit")
+        print("Trigger capture: SPACE = capture, r = record, [ / ] = press depth, q = exit")
         _print_prereqs()
         print("  " + _status_line(state, out_base, side, others))
 
         try:
             while True:
-                action = key_to_action(_read_key())
+                key = _read_key()
+                if key in ("r", "R"):  # toggle USB-preview recording (separate from the capture cycle)
+                    if preview is None:
+                        print("  (no USB preview window -- nothing to record)")
+                    else:
+                        rec_path = preview.toggle_record()
+                        print(f"  recording -> {rec_path}" if rec_path else "  recording stopped.")
+                    continue
+                action = key_to_action(key)
                 if action is None:
                     continue
                 if action == "quit":
@@ -230,6 +282,8 @@ def main() -> int:
         return run_grab_demo(_trigger_loop)
     finally:
         camera.close()
+        if preview is not None:
+            preview.stop()
         print("Camera connection closed.")
 
 

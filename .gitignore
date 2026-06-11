@@ -31,5 +31,6 @@ Thumbs.db
 references/*/CLAUDE.md
 references/*/CLAUDE.local.md
 
-# Patient fundus captures pulled from the Aurora -- never commit medical images.
-fundus_images/
+# Local media outputs: Aurora fundus captures (NEVER commit medical images) +
+# arm-cam recordings. All runtime-written, large/binary -- keep them out of the repo.
+media_outputs/

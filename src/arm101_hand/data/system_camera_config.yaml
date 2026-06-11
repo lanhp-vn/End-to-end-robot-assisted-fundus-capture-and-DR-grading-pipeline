@@ -1,0 +1,11 @@
+# src/arm101_hand/data/system_camera_config.yaml
+# system_camera_config.yaml -- arm-mounted USB OBSERVATION camera (films the Optomed Aurora's
+# screen). Live cv2 preview window + 'r' record. Distinct from the Aurora fundus camera
+# (see fundus_config.yaml). Hand-editable; never written by runtime code (IL-5).
+schema_version: 1
+enabled: true
+camera_index: 1     # the arm cam on this PC (index 0 is the built-in webcam)
+backend: auto       # this cam fails on dshow ("can't capture by index"); auto/MSMF works
+window_title: "Arm cam (Optomed view)"
+record_dir: media_outputs/camera_recordings   # repo-relative; 'r' writes usb_cam_<timestamp>.avi here
+fps: null           # null -> camera-reported fps (fallback 20)

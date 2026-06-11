@@ -16,8 +16,8 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from arm101_hand.camera.client import CameraError
-from arm101_hand.camera.protocol import FileInfo, capture_filename, diff_new_files, sidecar_dict
+from arm101_hand.fundus_camera.client import CameraError
+from arm101_hand.fundus_camera.protocol import FileInfo, capture_filename, diff_new_files, sidecar_dict
 
 
 def snapshot_filenames(client, dcim_root: str, *, retries: int = 5, retry_wait_s: float = 0.5) -> set[str]:

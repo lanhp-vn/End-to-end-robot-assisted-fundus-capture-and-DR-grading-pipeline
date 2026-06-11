@@ -29,8 +29,9 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
-from arm101_hand.camera import CameraError, FileInfo, PictorClient  # noqa: E402
-from arm101_hand.camera.protocol import (  # noqa: E402
+from arm101_hand.config import load_fundus_config  # noqa: E402
+from arm101_hand.fundus_camera import CameraError, FileInfo, PictorClient  # noqa: E402
+from arm101_hand.fundus_camera.protocol import (  # noqa: E402
     CODE_EVENT,
     CODE_FAIL,
     CODE_OK,
@@ -38,9 +39,8 @@ from arm101_hand.camera.protocol import (  # noqa: E402
     MessageFail,
     unpack_header,
 )
-from arm101_hand.config import load_camera_config  # noqa: E402
 
-_CONFIG = _REPO_ROOT / "src" / "arm101_hand" / "data" / "camera_config.yaml"
+_CONFIG = _REPO_ROOT / "src" / "arm101_hand" / "data" / "fundus_config.yaml"
 _CODE_NAMES = {
     CODE_OK: "CODE_OK",
     CODE_FAIL: "CODE_FAIL",
@@ -153,7 +153,7 @@ def main() -> int:
     ap.add_argument("--max-bytes", type=int, default=128, help="bytes to hex-dump per message (default: 128)")
     args = ap.parse_args()
 
-    conn = load_camera_config(_CONFIG).connection
+    conn = load_fundus_config(_CONFIG).connection
     tap = Tap(args.max_bytes)
     camera = PictorClient(
         host=args.host or conn.host,

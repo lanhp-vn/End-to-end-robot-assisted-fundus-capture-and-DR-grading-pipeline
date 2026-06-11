@@ -1,7 +1,7 @@
 import struct
 from datetime import UTC, datetime
 
-from arm101_hand.camera.protocol import (
+from arm101_hand.fundus_camera.protocol import (
     CODE_REQUEST,
     DETECT_CAMERA,
     DIRECTORY,

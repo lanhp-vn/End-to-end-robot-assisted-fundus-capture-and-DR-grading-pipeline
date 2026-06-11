@@ -2,8 +2,8 @@ import struct
 
 import pytest
 
-from arm101_hand.camera.client import CameraError, PictorClient, recv_exact
-from arm101_hand.camera.protocol import (
+from arm101_hand.fundus_camera.client import CameraError, PictorClient, recv_exact
+from arm101_hand.fundus_camera.protocol import (
     CODE_FAIL,
     CODE_OK,
     FILE,
@@ -166,7 +166,7 @@ def _discovering_client(timeout_s):
 def test_discover_retries_until_reply(monkeypatch):
     # Camera answers only after two missed probes; discover must re-send, not give up after one.
     fake = FakeUDPSocket(_CAMERA_DETECTED, ("192.168.1.50", 3000), timeouts=2)
-    monkeypatch.setattr("arm101_hand.camera.client.socket.socket", lambda *a, **k: fake)
+    monkeypatch.setattr("arm101_hand.fundus_camera.client.socket.socket", lambda *a, **k: fake)
     info = _discovering_client(2.0).discover()
     assert info is not None
     assert info.serial == "1125581093422"
@@ -175,5 +175,5 @@ def test_discover_retries_until_reply(monkeypatch):
 
 def test_discover_returns_none_when_never_answered(monkeypatch):
     fake = FakeUDPSocket(b"", None, timeouts=10**9)
-    monkeypatch.setattr("arm101_hand.camera.client.socket.socket", lambda *a, **k: fake)
+    monkeypatch.setattr("arm101_hand.fundus_camera.client.socket.socket", lambda *a, **k: fake)
     assert _discovering_client(0.02).discover() is None

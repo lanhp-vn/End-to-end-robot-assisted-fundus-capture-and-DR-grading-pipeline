@@ -3,14 +3,14 @@ from datetime import UTC, datetime
 
 import pytest
 
-from arm101_hand.camera.capture import (
+from arm101_hand.fundus_camera.capture import (
     pull_file,
     save_capture,
     snapshot_filenames,
     wait_for_new_files,
 )
-from arm101_hand.camera.client import CameraError
-from arm101_hand.camera.protocol import FILE, FileInfo
+from arm101_hand.fundus_camera.client import CameraError
+from arm101_hand.fundus_camera.protocol import FILE, FileInfo
 
 
 class _FakeClient:

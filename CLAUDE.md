@@ -30,23 +30,24 @@ Full text in `docs/conventions/00-iron-laws.md`. Read that file before editing.
 
 ```
 AmazingHand-ARM101-Follower/
-├── pyproject.toml             # uv-managed; lerobot[feetech] + rustypot
+├── pyproject.toml             # uv-managed; lerobot[feetech] + rustypot + opencv-python (full wheel)
 ├── uv.lock                    # committed
 ├── .python-version            # 3.12
 ├── src/arm101_hand/
 │   ├── robots/                # device layer — SO-ARM101 subclass
 │   ├── hand/                  # device layer — rustypot kinematics + motion (position-poll) helpers, finger_io (shared finger read/drive), pose-jog/range-calib + index_toggle/index_trigger state machines, named-pose resolver
-│   ├── camera/                # device layer — read-only Pictor/Aurora Wi-Fi client (discovery + file pull) + pure protocol
-│   ├── config/                # primitive layer — pydantic schemas (arm_config, hand_config, camera_config, calibration, motor_ids)
-│   ├── data/                  # runtime operator config: arm_config.yaml + hand_config.yaml + camera_config.yaml (+ README)
+│   ├── fundus_camera/         # device layer — Optomed Aurora: read-only Pictor Wi-Fi client (discovery + file pull) + pure protocol (patient retinal images)
+│   ├── system_camera/         # device layer — arm-mounted USB observation cam (films the Aurora screen): cv2 live preview + record
+│   ├── config/                # primitive layer — pydantic schemas (arm_config, hand_config, fundus_config, system_camera_config, calibration, motor_ids)
+│   ├── data/                  # runtime operator config: arm_config.yaml + hand_config.yaml + fundus_config.yaml + system_camera_config.yaml (+ README)
 │   └── scripts/               # application layer — console-script entries + shared device_setup/grab_common
 ├── scripts/
 │   ├── calibration/
 │   │   ├── amazing_hand/      # snake_case calibration/test/jog scripts + measurement-only YAML (v3 schema)
 │   │   └── so_arm101/         # follower calibration runner + sweep/set_pose/jog/capture_pose
-│   ├── diagnostics/           # dual-device scan/show_calib (--device arm|hand) + device-agnostic find_port + read-only aurora_probe / aurora_wiredump (camera)
+│   ├── diagnostics/           # dual-device scan/show_calib (--device arm|hand) + device-agnostic find_port + read-only aurora_probe / aurora_wiredump (fundus cam) + usb_camera_probe (system-cam smoke test)
 │   ├── teleop/                # planned
-│   └── demos/                 # runnable demos — grab_sequence (staged grab) + grab_toggle (index-finger button) + grab_trigger_capture (index presses Aurora shutter, auto-pulls the fundus image)
+│   └── demos/                 # runnable demos — grab_sequence (staged grab) + grab_toggle (index-finger button) + grab_trigger_capture (live system-cam window + 'r' record; index presses Aurora shutter, auto-pulls the fundus image)
 ├── tests/                     # host unit tests (tests/unit) + hardware-gated (tests/hardware)
 ├── docs/
 │   ├── BOM.md                 # bill of materials + host PC spec
@@ -86,6 +87,7 @@ uv run python scripts/diagnostics/scan.py --device arm                    # bus 
 uv run python scripts/diagnostics/show_calib.py --device arm [--live]     # dump calibration; --live compares present pos
 uv run python scripts/diagnostics/aurora_probe.py                         # read-only Aurora reachability + status + filelist (Optomed Client must be closed)
 uv run python scripts/diagnostics/aurora_wiredump.py                      # read-only hex dump of one GET_FILELIST/GET_FILE exchange (Pictor framing debug)
+uv run python scripts/diagnostics/usb_camera_probe.py [--camera N]        # system-cam smoke test: live cv2 window + 'r' record (no motors/Aurora)
 
 # SO-ARM101 motion helpers (read clamp range from so101_follower.json; never write it — IL-5)
 # Per-script detail in scripts/calibration/so_arm101/README.md §6.
@@ -97,7 +99,7 @@ uv run python scripts/calibration/so_arm101/capture_pose.py               # hand
 # Demos (read calibration + config; write neither — IL-5)
 uv run python scripts/demos/grab_sequence.py                              # staged arm+hand grab; 'h' on exit reverses the whole sequence
 uv run python scripts/demos/grab_toggle.py                                # grab, then SPACE toggles the index finger in/out like a button
-uv run python scripts/demos/grab_trigger_capture.py                       # grab the camera, SPACE presses the shutter + auto-pulls the new fundus image to fundus_images/ (camera: Still + Quick imaging, Optomed Client closed)
+uv run python scripts/demos/grab_trigger_capture.py                       # live system-cam window ('r' records to media_outputs/camera_recordings/); SPACE presses the shutter + auto-pulls the fundus image to media_outputs/fundus_images/ (camera: Still + Quick imaging, Optomed Client closed)
 
 # Lint / format / type-check / test
 uv run ruff format .
@@ -133,6 +135,6 @@ uv run pytest -m 'not hardware'           # host unit tests (no bus)
 ## 7. Tech-debt & known limitations
 
 - **No teleop, no policy, no dataset code.** The jog / calibration / diagnostic scripts drive poses; no teleoperation or learned-policy path yet.
-- **No computer-vision code yet.** `references/computer-vision/` (OpenCV, MediaPipe, GazeTracking) is vendored for planned fundus-image / gaze work; nothing under `src/` imports it.
+- **System-camera preview is the only computer-vision code so far.** `src/arm101_hand/system_camera/` (cv2 HighGUI window + recording) films the Aurora screen; used by `grab_trigger_capture` + `usb_camera_probe`. It needs the full `opencv-python` wheel, so `pyproject.toml` drops lerobot's `opencv-python-headless` pin via `[tool.uv] override-dependencies` — keep that override (a headless-pinning dep re-clobbers `cv2`). The vendored `references/computer-vision/` (OpenCV, MediaPipe, GazeTracking) is still untouched, for planned fundus-image / gaze work.
 - **No CI.** `ruff` / `pytest` are local-only for now.
 - **No discrete GPU.** Local ML training is CPU-bound; large-policy work needs cloud.
