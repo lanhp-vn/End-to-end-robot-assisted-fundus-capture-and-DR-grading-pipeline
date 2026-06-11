@@ -30,6 +30,7 @@ Thumbs.db
 # Per-submodule agent orientation notes (untracked; one per submodule)
 references/*/CLAUDE.md
 references/*/CLAUDE.local.md
+references/AIML-models/APTOS2019/
 
 # Local media outputs: Aurora fundus captures (NEVER commit medical images) +
 # arm-cam recordings. All runtime-written, large/binary -- keep them out of the repo.

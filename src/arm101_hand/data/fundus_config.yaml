@@ -13,7 +13,7 @@ connection:
   io_timeout_s: 8.0
 capture:
   hold_seconds: 3.0
-  new_file_timeout_s: 20.0
+  new_file_timeout_s: 10.0
   poll_s: 0.5
   stable_polls: 1  # 1 = download as soon as the new image is first seen (no second-confirmation wait)
   dcim_root: "\\DCIM"

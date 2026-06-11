@@ -5,7 +5,7 @@ preview window with a record toggle. Distinct from the Aurora *fundus* camera (p
 retinal images) in ``arm101_hand.fundus_camera``.
 """
 
-from .preview import WebcamPreview, open_capture
-from .roi import Roi
+from .preview import WebcamPreview, imshow_fit, open_capture
+from .roi import AURORA_SCREEN_ROI, Roi
 
-__all__ = ["Roi", "WebcamPreview", "open_capture"]
+__all__ = ["AURORA_SCREEN_ROI", "Roi", "WebcamPreview", "imshow_fit", "open_capture"]

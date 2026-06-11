@@ -61,6 +61,40 @@ def open_capture(index: int, backend: Backend = "auto") -> cv2.VideoCapture:
     return cv2.VideoCapture(index)  # auto: platform default backend
 
 
+def _letterbox(frame: np.ndarray, win_w: int, win_h: int) -> np.ndarray:
+    """Scale ``frame`` to fit ``win_w x win_h`` preserving aspect ratio, padded with black bars.
+
+    The fitted image is centred on a black canvas of exactly the window size, so when ``imshow``
+    maps it 1:1 into the window the picture never stretches -- letterboxed (bars top/bottom) or
+    pillarboxed (bars left/right) as the window's shape requires.
+    """
+    fh, fw = frame.shape[:2]
+    scale = min(win_w / fw, win_h / fh)
+    new_w, new_h = max(1, round(fw * scale)), max(1, round(fh * scale))
+    interp = cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR
+    resized = cv2.resize(frame, (new_w, new_h), interpolation=interp)
+    canvas = np.zeros((win_h, win_w, 3), dtype=frame.dtype)
+    x0, y0 = (win_w - new_w) // 2, (win_h - new_h) // 2
+    canvas[y0 : y0 + new_h, x0 : x0 + new_w] = resized
+    return canvas
+
+
+def imshow_fit(window_title: str, frame: np.ndarray) -> None:
+    """``imshow`` ``frame`` letterboxed to the window's current size (aspect ratio preserved).
+
+    Replaces the ``WINDOW_KEEPRATIO`` flag, which letterboxes only on OpenCV's Qt highgui backend
+    and is a silent no-op on the Win32 backend the ``opencv-python`` Windows wheel ships -- there
+    ``imshow`` stretches the image to fill a resized window. We read the window's image rect and
+    pad to it ourselves, so the picture never distorts however the window is dragged. If the rect
+    is not ready yet (just-created window), the raw frame is shown and the next frame letterboxes.
+    """
+    _, _, win_w, win_h = cv2.getWindowImageRect(window_title)
+    if win_w <= 0 or win_h <= 0:
+        cv2.imshow(window_title, frame)  # window not sized yet -- self-corrects next loop
+        return
+    cv2.imshow(window_title, _letterbox(frame, win_w, win_h))
+
+
 class WebcamPreview:
     """Live USB-camera preview in a cv2 window on a daemon thread, with a record toggle.
 
@@ -163,9 +197,15 @@ class WebcamPreview:
         self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.src_fps = float(cap.get(cv2.CAP_PROP_FPS))
         self.ok = True
-        # WINDOW_NORMAL: resizable; KEEPRATIO: image keeps its native aspect ratio
-        # (letterboxed) on resize, so it scales uniformly and never stretches.
-        cv2.namedWindow(self._title, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+        # WINDOW_NORMAL: resizable. We keep the aspect ratio ourselves via imshow_fit (letterbox) --
+        # WINDOW_KEEPRATIO is Qt-only and a no-op on this wheel's Win32 backend, so imshow would
+        # otherwise stretch the frame on resize. resizeWindow sets a sane initial size = the
+        # displayed frame (the ROI's reference size when cropping, else the camera's native size).
+        disp_w = self._roi.ref_w if self._roi is not None else self.width
+        disp_h = self._roi.ref_h if self._roi is not None else self.height
+        cv2.namedWindow(self._title, cv2.WINDOW_NORMAL)
+        if disp_w > 0 and disp_h > 0:
+            cv2.resizeWindow(self._title, disp_w, disp_h)
         self._ready.set()  # camera + window up -> unblock start()
 
         writer: cv2.VideoWriter | None = None
@@ -184,13 +224,14 @@ class WebcamPreview:
                     if decoded is not None:
                         still_frame = decoded
                         if not still_shown:
-                            # KEEPRATIO: the still keeps its native aspect ratio on resize
-                            # (letterboxed inside the window) -- scales uniformly, never stretches.
-                            cv2.namedWindow(self._still_title, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+                            # WINDOW_NORMAL + manual letterbox (imshow_fit): keep the still's aspect
+                            # ratio ourselves. KEEPRATIO is Qt-only -- a no-op on the Win32 backend,
+                            # where imshow would stretch the still as the window is resized.
+                            cv2.namedWindow(self._still_title, cv2.WINDOW_NORMAL)
                             cv2.resizeWindow(self._still_title, 720, 720)
                             still_shown = True
                 if still_frame is not None:
-                    cv2.imshow(self._still_title, still_frame)
+                    imshow_fit(self._still_title, still_frame)
 
                 ok, frame = cap.read()
                 if not ok or frame is None:
@@ -225,7 +266,7 @@ class WebcamPreview:
                     cv2.putText(
                         frame, "REC", (12, 32), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2, cv2.LINE_AA
                     )
-                cv2.imshow(self._title, frame)
+                imshow_fit(self._title, frame)
                 cv2.waitKey(1)  # pump GUI events; required for the window to stay responsive
         finally:
             if writer is not None:

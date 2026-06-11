@@ -48,3 +48,12 @@ class Roi:
         fh, fw = frame.shape[:2]
         x, y, w, h = self.for_frame(fw, fh)
         return frame[y : y + h, x : x + w]
+
+
+# Canonical ROI for the arm-mounted USB observation camera: a 4:3 crop (uniform zoom, no
+# distortion) of the Optomed Aurora's screen, measured against a 640x480 frame -- option 1 / 2.29x,
+# validated live with scripts/diagnostics/usb_camera_roi_preview.py. The arm + hand + camera
+# geometry is fixed, so the screen always lands here. SINGLE SOURCE OF TRUTH: grab_trigger_capture.py
+# imports this for its preview + recording; usb_camera_roi_preview.py defaults its editable _ROI to
+# it. Re-tune by validating a new value in the diagnostic, then editing it HERE.
+AURORA_SCREEN_ROI = Roi(x=130, y=6, w=280, h=210, ref_w=640, ref_h=480)

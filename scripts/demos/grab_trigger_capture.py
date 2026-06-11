@@ -2,7 +2,7 @@
 
 On startup a live preview window opens for the arm-mounted USB camera (it points at the
 Aurora's screen). The feed is cropped to a fixed ROI that zooms onto just the Aurora's screen
-(``_PREVIEW_ROI``; validated with ``scripts/diagnostics/usb_camera_roi_preview.py``) -- press 'r'
+(``AURORA_SCREEN_ROI``; validated with ``scripts/diagnostics/usb_camera_roi_preview.py``) -- press 'r'
 anytime to start/stop recording that zoomed feed to a clip. The preview is best-effort: if the
 camera will not open, the demo continues without it.
 
@@ -59,19 +59,13 @@ from arm101_hand.hand import drive_finger, load_warning, read_finger
 from arm101_hand.hand.index_trigger import TriggerState, apply_action, key_to_action, press_base
 from arm101_hand.hand.pose_jog import HandJogState, format_hand_status
 from arm101_hand.scripts.grab_common import GrabHoldContext, run_grab_demo
-from arm101_hand.system_camera import Roi, WebcamPreview
+from arm101_hand.system_camera import AURORA_SCREEN_ROI, WebcamPreview
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DATA_DIR = _REPO_ROOT / "src" / "arm101_hand" / "data"
 _FUNDUS_CONFIG_PATH = _DATA_DIR / "fundus_config.yaml"
 _SYSTEM_CAMERA_CONFIG_PATH = _DATA_DIR / "system_camera_config.yaml"
 _STATIC_FINGERS = ("middle", "ring", "thumb")
-
-# Fixed ROI for the USB preview + recording: a 4:3 crop (uniform zoom, no distortion) of the
-# Optomed Aurora's screen, measured against a 640x480 frame -- option 1 / 2.29x, validated live
-# with scripts/diagnostics/usb_camera_roi_preview.py. The arm + hand + camera geometry is fixed,
-# so the screen always lands here; ``Roi`` rescales it if the camera delivers another resolution.
-_PREVIEW_ROI = Roi(x=130, y=6, w=280, h=210, ref_w=640, ref_h=480)
 
 
 def _read_key() -> str:
@@ -108,6 +102,16 @@ def _print_poll(elapsed: float, n_new: int, note: str) -> None:
     print(f"    +{elapsed:4.1f}s  {detail}")
 
 
+def _toggle_recording(preview: WebcamPreview | None) -> None:
+    """Start/stop USB-preview recording (best-effort) and report it. Shared by the key loop and
+    the image-pull wait so 'r' works in both."""
+    if preview is None:
+        print("  (no USB preview window -- nothing to record)")
+        return
+    rec_path = preview.toggle_record()
+    print(f"  recording -> {rec_path}" if rec_path else "  recording stopped.")
+
+
 def _start_preview(scfg: SystemCameraConfig) -> WebcamPreview | None:
     """Best-effort: open the arm-cam preview window. None if disabled or the cam won't open."""
     if not scfg.enabled:
@@ -118,7 +122,7 @@ def _start_preview(scfg: SystemCameraConfig) -> WebcamPreview | None:
         record_dir=_REPO_ROOT / scfg.record_dir,
         fps=scfg.fps,
         backend=scfg.backend,
-        roi=_PREVIEW_ROI,
+        roi=AURORA_SCREEN_ROI,
     )
     if not preview.start():
         print(
@@ -129,7 +133,7 @@ def _start_preview(scfg: SystemCameraConfig) -> WebcamPreview | None:
         return None
     print(
         f"USB preview: camera {scfg.camera_index} {preview.width}x{preview.height}"
-        f"@{preview.src_fps:.0f}fps, cropped to a {_PREVIEW_ROI.w}x{_PREVIEW_ROI.h} ROI "
+        f"@{preview.src_fps:.0f}fps, cropped to a {AURORA_SCREEN_ROI.w}x{AURORA_SCREEN_ROI.h} ROI "
         "(zoom of the Aurora screen) -- 'r' starts/stops recording."
     )
     return preview
@@ -183,6 +187,20 @@ def main() -> int:
         others = {name: read_finger(c, name, calib.fingers[name]) for name in _STATIC_FINGERS}
         state = TriggerState(out_base=out_base, side=side)
 
+        def _on_poll(elapsed: float, n_new: int, note: str) -> None:
+            # Per-poll progress, plus let 'r' stop/start recording while we're blocked waiting for
+            # the image to land. Ctrl+C still aborts (as elsewhere); other keys are drained here so
+            # they do not queue up and fire after the wait returns.
+            _print_poll(elapsed, n_new, note)
+            while msvcrt.kbhit():
+                ch = msvcrt.getwch()
+                if ch in ("\x00", "\xe0"):  # arrow / function-key prefix -> consume 2nd byte
+                    msvcrt.getwch()
+                elif ch == "\x03":  # Ctrl+C
+                    raise KeyboardInterrupt
+                elif ch in ("r", "R"):
+                    _toggle_recording(preview)
+
         print("Trigger capture: SPACE = capture, r = record, [ / ] = press depth, q = exit")
         _print_prereqs()
         print("  " + _status_line(state, out_base, side, others))
@@ -191,11 +209,7 @@ def main() -> int:
             while True:
                 key = _read_key()
                 if key in ("r", "R"):  # toggle USB-preview recording (separate from the capture cycle)
-                    if preview is None:
-                        print("  (no USB preview window -- nothing to record)")
-                    else:
-                        rec_path = preview.toggle_record()
-                        print(f"  recording -> {rec_path}" if rec_path else "  recording stopped.")
+                    _toggle_recording(preview)
                     continue
                 action = key_to_action(key)
                 if action is None:
@@ -236,7 +250,10 @@ def main() -> int:
                 # (3) Pull wait: starts now (press released). Generous + counted, and tolerant of
                 #     the camera's intermittent filelist error -- it keeps polling, so a good poll
                 #     within the window still catches the capture.
-                print(f"  released. Waiting up to {cap.new_file_timeout_s:.0f}s for the image to land ...")
+                print(
+                    f"  released. Waiting up to {cap.new_file_timeout_s:.0f}s for the image to land "
+                    "('r' still toggles recording) ..."
+                )
                 new = wait_for_new_files(
                     camera,
                     before,
@@ -244,7 +261,7 @@ def main() -> int:
                     timeout_s=cap.new_file_timeout_s,
                     poll_s=cap.poll_s,
                     stable_polls=cap.stable_polls,
-                    on_poll=_print_poll,
+                    on_poll=_on_poll,
                 )
 
                 if not new:

@@ -1,9 +1,10 @@
 """Preview the fixed ROI zoom of the arm-mounted USB observation camera (read-only diagnostic).
 
-Validates the hardcoded region of interest that zooms the live preview + recording onto just the
-Optomed Aurora's screen, BEFORE wiring it into ``scripts/demos/grab_trigger_capture.py``. The
-arm + hand + camera geometry is fixed, so the screen always lands in the same place -- the ROI is
-a constant here (``_ROI``). Run this, eyeball the framing, and adjust ``_ROI`` if needed.
+Validates the region of interest that zooms the live preview + recording onto just the Optomed
+Aurora's screen. The arm + hand + camera geometry is fixed, so the screen always lands in the same
+place -- ``_ROI`` defaults to the canonical ``AURORA_SCREEN_ROI`` (exactly what
+``scripts/demos/grab_trigger_capture.py`` records). Run this, eyeball the framing; to re-tune,
+replace ``_ROI`` with a literal (see the note by it), then promote the value into AURORA_SCREEN_ROI.
 
 NOT the Aurora *fundus* camera (patient retinal images -- that is ``arm101_hand.fundus_camera``);
 this is the host webcam in ``arm101_hand.system_camera``. No motors, no Aurora link.
@@ -41,12 +42,14 @@ import cv2
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
-from arm101_hand.system_camera import Roi, open_capture  # noqa: E402
+from arm101_hand.system_camera import AURORA_SCREEN_ROI, imshow_fit, open_capture  # noqa: E402
 
-# Fixed ROI: a 4:3 crop (uniform zoom, no distortion) of the Aurora screen, measured against a
-# 640x480 frame -- option 1 / 2.29x from the ROI selection gallery. ``Roi`` rescales it to the
-# live frame at crop time, so a different capture resolution still maps to the same region.
-_ROI = Roi(x=130, y=6, w=280, h=210, ref_w=640, ref_h=480)
+# ROI to preview. Defaults to the canonical AURORA_SCREEN_ROI (exactly what the demo records), so
+# this tool and the demo never drift. To experiment with a different framing, replace this with a
+# literal -- e.g. ``from arm101_hand.system_camera import Roi`` then
+# ``_ROI = Roi(x=120, y=0, w=320, h=240)`` -- and once validated, promote the value into
+# AURORA_SCREEN_ROI in src/arm101_hand/system_camera/roi.py.
+_ROI = AURORA_SCREEN_ROI
 
 _ZOOM_SIZE = (640, 480)  # upscale target for the "ROI zoom" window (matches the reference frame)
 _GREEN = (0, 255, 0)
@@ -113,10 +116,14 @@ def main() -> int:
             file=sys.stderr,
         )
 
-    # WINDOW_NORMAL | KEEPRATIO: resizable + letterboxed -- scales uniformly, never stretches
-    # (same flags as WebcamPreview's window in preview.py).
-    for name in (zoom_title, full_title):
-        cv2.namedWindow(name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+    # WINDOW_NORMAL + manual letterbox via imshow_fit: keep the aspect ratio ourselves. KEEPRATIO
+    # is Qt-only -- a no-op on this wheel's Win32 backend, where imshow stretches on resize (see
+    # preview.py). resizeWindow sets a sane initial size for each window.
+    cv2.namedWindow(zoom_title, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(zoom_title, *_ZOOM_SIZE)
+    cv2.namedWindow(full_title, cv2.WINDOW_NORMAL)
+    if width > 0 and height > 0:
+        cv2.resizeWindow(full_title, width, height)
 
     started = time.monotonic()
     last_good: float | None = None  # time of the most recent successful grab
@@ -157,13 +164,13 @@ def main() -> int:
             # ROI zoom: crop to the region, then upscale to the reference size -- this is exactly
             # the zoomed feed the demo's preview + recording will produce.
             zoom = cv2.resize(_ROI.crop(frame), _ZOOM_SIZE, interpolation=cv2.INTER_LINEAR)
-            cv2.imshow(zoom_title, zoom)
+            imshow_fit(zoom_title, zoom)
 
             # Full frame with the ROI rectangle drawn (on a copy so the crop above stays clean).
             x, y, w, h = _ROI.for_frame(frame.shape[1], frame.shape[0])
             overlay = frame.copy()
             cv2.rectangle(overlay, (x, y), (x + w, y + h), _GREEN, 2)
-            cv2.imshow(full_title, overlay)
+            imshow_fit(full_title, overlay)
 
             cv2.waitKey(1)  # pump GUI events; required for the windows to stay responsive
             if _poll_key() in ("q", "Q", "\x1b"):  # q / ESC

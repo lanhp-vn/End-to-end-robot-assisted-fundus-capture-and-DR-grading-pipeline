@@ -9,8 +9,8 @@ Single-threaded by design: unlike ``usb_camera_probe.py`` (which exercises the d
 ``WebcamPreview``), this tool reads + shows frames itself. Keys are read from the TERMINAL via a
 non-blocking ``msvcrt.kbhit()`` poll -- we can't block on ``getwch`` like the probe does, because
 the cv2 window needs ``waitKey`` pumped every loop or it freezes. It shares only ``open_capture``
-with the device layer (the dshow-quirk handling); the window uses the same ratio-fixed flags as
-``WebcamPreview`` (``WINDOW_NORMAL | WINDOW_KEEPRATIO`` -- letterboxed, never stretched on resize).
+with the device layer: ``open_capture`` (the dshow-quirk handling) and ``imshow_fit`` (manual
+letterbox -- KEEPRATIO is Qt-only, a no-op on the Win32 backend; see ``preview.py``).
 
 The full ``opencv-python`` wheel is required for the window (lerobot's ``opencv-python-headless``
 has no HighGUI); ``pyproject.toml`` drops the headless pin so the full build is the sole ``cv2``.
@@ -38,7 +38,7 @@ import cv2
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
-from arm101_hand.system_camera import open_capture  # noqa: E402
+from arm101_hand.system_camera import imshow_fit, open_capture  # noqa: E402
 
 _FONT = cv2.FONT_HERSHEY_SIMPLEX
 _GREEN = (0, 255, 0)
@@ -100,9 +100,12 @@ def main() -> int:
         "Keys (focus THIS terminal): SPACE = capture, q/ESC = quit."
     )
 
-    # WINDOW_NORMAL | KEEPRATIO: resizable + letterboxed -- scales uniformly, never stretches
-    # (same flags as WebcamPreview's window in preview.py).
-    cv2.namedWindow(title, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+    # WINDOW_NORMAL + manual letterbox via imshow_fit: keep the aspect ratio ourselves. KEEPRATIO
+    # is Qt-only -- a no-op on this wheel's Win32 backend (see preview.py). resizeWindow sets a sane
+    # initial size.
+    cv2.namedWindow(title, cv2.WINDOW_NORMAL)
+    if width > 0 and height > 0:
+        cv2.resizeWindow(title, width, height)
     saved = 0
     started = time.monotonic()
     last_good: float | None = None  # time of the most recent successful grab
@@ -146,7 +149,7 @@ def main() -> int:
                 cv2.putText(
                     disp, f"saved: {saved}", (12, disp.shape[0] - 14), _FONT, 0.7, _GREEN, 2, cv2.LINE_AA
                 )
-            cv2.imshow(title, disp)
+            imshow_fit(title, disp)
             cv2.waitKey(1)  # pump GUI events; required for the window to stay responsive
 
             key = _poll_key()
