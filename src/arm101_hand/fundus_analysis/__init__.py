@@ -12,6 +12,12 @@ from arm101_hand.fundus_analysis.preprocess import (
     circle_crop,
     confidence_band,
 )
+from arm101_hand.fundus_analysis.render import (
+    GradedShot,
+    compose_summary_panel,
+    decode_bgr,
+    encode_png,
+)
 from arm101_hand.fundus_analysis.sidecar import sidecar_path, weights_sha8, write_sidecar
 
 __all__ = [
@@ -22,6 +28,10 @@ __all__ = [
     "build_eval_transform",
     "circle_crop",
     "confidence_band",
+    "GradedShot",
+    "compose_summary_panel",
+    "decode_bgr",
+    "encode_png",
     "sidecar_path",
     "weights_sha8",
     "write_sidecar",
