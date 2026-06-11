@@ -90,6 +90,28 @@ def test_fail_response_raises_camera_error():
     assert "0x16AC6005" in str(ei.value)
 
 
+# A spurious "phantom" CODE_FAIL the Aurora emits with seqId=0 / cmdId=0 (errCode ERR_UNKNOWN_TYPE).
+# Not a reply to our request; reading it as the reply is what desynced the stream on the wire.
+_PHANTOM = (
+    pack_header(0, CODE_FAIL, 0) + struct.pack("<I", 0x16AC6007) + b"Unknown type: 0x0".ljust(64, b"\x00")
+)
+
+
+def test_out_of_sync_phantom_fails_are_skipped_until_real_reply():
+    # Our first request is seq=1; the real OK reply echoes it. The two leading seq=0 phantoms must
+    # be skipped (per spec: match seqId) so the genuine filelist behind them parses normally.
+    rec = struct.pack("<IIHH", 100, FILE, 0, 0) + b"\\DCIM\\P0001\\IM0002EY.JPG".ljust(28, b"\x00")
+    ok = pack_header(GET_FILELIST, CODE_OK, 1) + struct.pack("<I", 1) + rec
+    files = _client_with(FakeSocket(_PHANTOM + _PHANTOM + ok)).get_filelist("\\DCIM")
+    assert len(files) == 1 and files[0].filename == "\\DCIM\\P0001\\IM0002EY.JPG"
+
+
+def test_too_many_out_of_sync_phantoms_raise():
+    with pytest.raises(CameraError) as ei:
+        _client_with(FakeSocket(_PHANTOM * 20)).get_filelist("\\DCIM")
+    assert "out-of-sync" in str(ei.value)
+
+
 # Real 56-byte CAMERA_DETECTED reply (serial 1125581093422), reused as a discovery payload.
 _CAMERA_DETECTED = bytes.fromhex(
     "0130ac16"

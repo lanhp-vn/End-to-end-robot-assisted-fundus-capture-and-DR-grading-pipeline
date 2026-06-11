@@ -207,8 +207,10 @@ def main() -> int:
                     if not data.startswith(b"\xff\xd8\xff") or len(data) != info.filesize:
                         print(
                             f"  WARNING: {f.filename} failed validation "
-                            f"(jpeg={data[:3].hex()} bytes={len(data)}/{info.filesize}) -- saving anyway."
+                            f"(jpeg={data[:3].hex()} bytes={len(data)}/{info.filesize}) -- NOT saving "
+                            "(corrupt / non-JPEG pull).\n  -> press SPACE to capture again."
                         )
+                        continue
                     trigger_no["n"] += 1
                     saved = save_capture(
                         info,

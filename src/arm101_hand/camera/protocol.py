@@ -8,6 +8,7 @@ All multi-byte fields are little-endian; char arrays are NUL-terminated ASCII.
 
 from __future__ import annotations
 
+import re
 import struct
 from dataclasses import dataclass
 from datetime import datetime
@@ -157,9 +158,20 @@ def classify_capture(info: FileInfo) -> str:
     return "other"
 
 
+_ILLEGAL_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]")
+
+
 def capture_filename(info: FileInfo, captured_at: datetime) -> str:
-    """``<UTC-compact>_<sanitized-camera-path>`` (collision-free local name)."""
+    """``<UTC-compact>_<sanitized-camera-path>`` -- always a valid local filename.
+
+    The camera path is untrusted: backslashes become ``_``, then any remaining character unsafe
+    in a local filename (Windows forbids ``< > : " / | ? *`` and control bytes; a corrupt reply
+    can carry arbitrary bytes) is also replaced with ``_``. This guarantees the name can never
+    trigger an OS write error -- a remote device must not be able to crash the local process.
+    Falls back to ``unnamed`` if sanitizing leaves nothing.
+    """
     flat = info.filename.lstrip("\\").replace("\\", "_")
+    flat = _ILLEGAL_FILENAME_CHARS.sub("_", flat) or "unnamed"
     return f"{captured_at:%Y%m%dT%H%M%SZ}_{flat}"
 
 

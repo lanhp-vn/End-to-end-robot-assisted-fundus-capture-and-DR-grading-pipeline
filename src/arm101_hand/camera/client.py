@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import socket
 import time
+from collections.abc import Callable
 
 from arm101_hand.camera.protocol import (
     CODE_FAIL,
+    CODE_OK,
     CODE_REQUEST,
     DETECT_CAMERA,
     GET_CAMERA_STATUS,
@@ -30,6 +32,7 @@ from arm101_hand.camera.protocol import (
 
 _DETECT_PACKET = pack_header(DETECT_CAMERA, 0, 0)[:4]  # discovery payload = the 4-byte cmdId
 _DISCOVER_RESEND_S = 0.5  # re-send the discovery probe at least this often within the timeout
+_MAX_SKIPS = 8  # give up after this many out-of-sync (phantom) frames in one reply -> drain + fail
 
 
 class CameraError(RuntimeError):
@@ -57,6 +60,7 @@ class PictorClient:
         discover_timeout_s: float,
         connect_timeout_s: float,
         io_timeout_s: float,
+        trace: Callable[[str, bytes], None] | None = None,
     ):
         self.host = host
         self.discovery_port = discovery_port
@@ -64,6 +68,9 @@ class PictorClient:
         self.discover_timeout_s = discover_timeout_s
         self.connect_timeout_s = connect_timeout_s
         self.io_timeout_s = io_timeout_s
+        # Optional wire tap: trace(label, raw_bytes) fires on every send + logical recv when set
+        # (default None -> no overhead). Read-only diagnostic aid; never alters what is sent.
+        self._trace = trace
         self._sock: socket.socket | None = None
         self._seq = 0
         self.info: CameraInfo | None = None
@@ -138,14 +145,72 @@ class PictorClient:
         self._seq += 1
         return self._seq
 
+    def _recv(self, n: int, label: str) -> bytes:
+        """``recv_exact`` + an optional trace of the bytes read (for the wire tap)."""
+        data = recv_exact(self._sock, n)
+        if self._trace is not None:
+            self._trace(label, data)
+        return data
+
+    def _drain(self) -> bytes:
+        """Discard and return everything currently buffered on the socket (non-blocking).
+
+        Recovery for an out-of-sync frame we cannot resize (an unexpected event / unknown code):
+        clear the buffer so a retry starts clean rather than reading shifted garbage. Read-only.
+        """
+        assert self._sock is not None
+        self._sock.settimeout(0)
+        out = bytearray()
+        try:
+            while True:
+                try:
+                    chunk = self._sock.recv(65536)
+                except (BlockingIOError, TimeoutError):
+                    break
+                if not chunk:
+                    break
+                out += chunk
+        finally:
+            self._sock.settimeout(self.io_timeout_s)
+        return bytes(out)
+
     def _send(self, cmd: int, payload: bytes = b"") -> tuple[int, int, int]:
         assert self._sock is not None, "not connected"
-        self._sock.sendall(pack_header(cmd, CODE_REQUEST, self._next_seq()) + payload)
-        return unpack_header(recv_exact(self._sock, 12))
+        seq = self._next_seq()
+        packet = pack_header(cmd, CODE_REQUEST, seq) + payload
+        if self._trace is not None:
+            self._trace(f"SEND cmd=0x{cmd:X} seq={seq}", packet)
+        self._sock.sendall(packet)
+        return self._recv_response(seq)
+
+    def _recv_response(self, seq: int) -> tuple[int, int, int]:
+        """Read reply headers, skipping spurious out-of-sync CODE_FAIL frames, until ours arrives.
+
+        The Aurora intermittently emits CODE_FAIL frames (errCode ERR_UNKNOWN_TYPE, cmdId=0,
+        seqId=0) that are NOT replies to the request just sent -- reading one as the reply, then
+        its 68-byte payload, is what desynced the whole stream (verified on the wire: we sent
+        seq=3, the failure frames came back seq=0). The spec says a real reply echoes the
+        request's seqId (Table 6) and the receiver must check it (Fig 5 "Check seqNo"), so a
+        CODE_FAIL whose seqId != ours is a phantom: consume its fixed-size messageFail payload and
+        read the next header. A CODE_OK is taken as our reply WITHOUT a seqId check -- this camera
+        is already off-spec, so we don't bet the working path on it echoing seqId on success.
+        """
+        for _ in range(_MAX_SKIPS):
+            rcmd, code, rseq = unpack_header(self._recv(12, "RECV header"))
+            if code == CODE_OK or (code == CODE_FAIL and rseq == seq):
+                return rcmd, code, rseq  # our reply (OK assumed in-order; FAIL matched by seqId)
+            if code == CODE_FAIL:
+                self._recv(68, "RECV skip-phantom")  # spurious CODE_FAIL -> consume + keep reading
+                continue
+            # Unknown/unsized out-of-sync frame (e.g. an event) -> cannot realign; drain + fail.
+            self._drain()
+            raise CameraError(f"out-of-sync reply (cmdId=0x{rcmd:X} code=0x{code:X} seq={rseq})")
+        self._drain()
+        raise CameraError(f"too many out-of-sync replies (expected seq={seq})")
 
     def _raise_if_fail(self, code: int) -> None:
         if code == CODE_FAIL:
-            fail = MessageFail.parse(recv_exact(self._sock, 68))
+            fail = MessageFail.parse(self._recv(68, "RECV fail-payload"))
             raise CameraError(f"camera CODE_FAIL errCode=0x{fail.err_code:X} msg={fail.message!r}")
 
     @staticmethod
@@ -159,16 +224,16 @@ class PictorClient:
     def get_status(self) -> CameraStatus:
         _, code, _ = self._send(GET_CAMERA_STATUS)
         self._raise_if_fail(code)
-        return CameraStatus.parse(recv_exact(self._sock, 36))
+        return CameraStatus.parse(self._recv(36, "RECV status"))
 
     def get_filelist(self, path: str) -> list[FileInfo]:
         _, code, _ = self._send(GET_FILELIST, self._filepath(path))
         self._raise_if_fail(code)
-        count = int.from_bytes(recv_exact(self._sock, 4), "little")
-        return [FileInfo.parse(recv_exact(self._sock, FileInfo.SIZE)) for _ in range(count)]
+        count = int.from_bytes(self._recv(4, "RECV filelist-count"), "little")
+        return [FileInfo.parse(self._recv(FileInfo.SIZE, "RECV filelist-rec")) for _ in range(count)]
 
     def get_file(self, path: str) -> tuple[FileInfo, bytes]:
         _, code, _ = self._send(GET_FILE, self._filepath(path))
         self._raise_if_fail(code)
-        info = FileInfo.parse(recv_exact(self._sock, FileInfo.SIZE))
-        return info, recv_exact(self._sock, info.filesize)
+        info = FileInfo.parse(self._recv(FileInfo.SIZE, "RECV fileinfo"))
+        return info, self._recv(info.filesize, "RECV filedata")

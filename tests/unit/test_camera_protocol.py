@@ -116,6 +116,16 @@ def test_capture_filename_prefixes_timestamp_and_sanitizes():
     assert name == "20260610T141530Z_DCIM_P0001_IM0010EY.JPG"
 
 
+def test_capture_filename_strips_illegal_chars():
+    # A garbled/corrupt camera filename (Windows-illegal + control + non-ASCII bytes) must still
+    # yield a valid local name -- a remote device must never be able to crash write_bytes (Errno 22).
+    ts = datetime(2026, 6, 10, 14, 15, 30, tzinfo=UTC)
+    name = capture_filename(_fi('\\DCIM\\%*�:?|"<>.PEF\x01'), ts)
+    safe = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+    assert name.startswith("20260610T141530Z_")
+    assert set(name) <= safe  # no illegal / control / non-ASCII char survives
+
+
 def test_sidecar_dict_has_provenance():
     ts = datetime(2026, 6, 10, 14, 15, 30, tzinfo=UTC)
     info = _fi("\\DCIM\\P0001\\IM0010EY.JPG", size=123)
