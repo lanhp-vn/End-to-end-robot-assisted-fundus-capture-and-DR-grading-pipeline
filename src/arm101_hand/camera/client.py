@@ -10,6 +10,7 @@ Aurora 2026-06-10.
 from __future__ import annotations
 
 import socket
+import time
 
 from arm101_hand.camera.protocol import (
     CODE_FAIL,
@@ -28,6 +29,7 @@ from arm101_hand.camera.protocol import (
 )
 
 _DETECT_PACKET = pack_header(DETECT_CAMERA, 0, 0)[:4]  # discovery payload = the 4-byte cmdId
+_DISCOVER_RESEND_S = 0.5  # re-send the discovery probe at least this often within the timeout
 
 
 class CameraError(RuntimeError):
@@ -68,27 +70,38 @@ class PictorClient:
 
     # -- discovery / connection --
     def discover(self) -> CameraInfo | None:
-        """Broadcast (or unicast) DETECT_CAMERA; return the parsed reply or None."""
+        """Broadcast (or unicast) DETECT_CAMERA, re-sending every ``_DISCOVER_RESEND_S``
+        until a reply arrives or ``discover_timeout_s`` elapses; return the parsed reply or None.
+
+        Re-sending (vs a single send + one wait) tolerates a dropped UDP packet and a camera
+        that is briefly silent -- e.g. just after another client (aurora_probe / Optomed Client)
+        released the single connection the camera allows.
+        """
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        s.settimeout(self.discover_timeout_s)
+        s.settimeout(min(_DISCOVER_RESEND_S, self.discover_timeout_s))
         targets = [self.host] if self.host else ["255.255.255.255"]
+        deadline = time.monotonic() + self.discover_timeout_s
         try:
-            for dest in targets:
-                s.sendto(_DETECT_PACKET, (dest, self.discovery_port))
-            try:
-                data, addr = s.recvfrom(2048)
-            except TimeoutError:
-                return None
+            while True:
+                for dest in targets:
+                    s.sendto(_DETECT_PACKET, (dest, self.discovery_port))
+                try:
+                    data, addr = s.recvfrom(2048)
+                except TimeoutError:
+                    if time.monotonic() >= deadline:
+                        return None
+                    continue  # no reply this round -- re-send until the budget runs out
+                if len(data) >= 56:
+                    info = CameraInfo.parse(data)
+                    if self.host is None:  # remember where the reply came from for the TCP dial
+                        self.host = addr[0]
+                    self.info = info
+                    return info
+                if time.monotonic() >= deadline:
+                    return None
         finally:
             s.close()
-        if len(data) < 56:
-            return None
-        info = CameraInfo.parse(data)
-        if self.host is None:  # remember where the reply came from for the TCP dial
-            self.host = addr[0]
-        self.info = info
-        return info
 
     def connect(self) -> None:
         """Open the TCP message socket (call promptly after ``discover``)."""
@@ -104,7 +117,11 @@ class PictorClient:
             return
         info = self.discover()
         if info is None:
-            raise CameraError("no camera responded to discovery (on the same Wi-Fi?)")
+            raise CameraError(
+                "no camera responded to discovery (on the same Wi-Fi?). If another client just "
+                "released it (aurora_probe / Optomed Client), wait a few seconds and retry -- "
+                "the camera allows one client at a time."
+            )
         if info.reserved:
             raise CameraError("camera is busy (cameraReserved=1) -- close Optomed Client")
         self.connect()

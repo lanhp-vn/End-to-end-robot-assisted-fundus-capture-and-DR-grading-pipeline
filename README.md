@@ -106,7 +106,7 @@ uv run python scripts/diagnostics/aurora_probe.py            # read-only reachab
 uv run python scripts/demos/grab_trigger_capture.py          # grab, SPACE presses the shutter, image lands in fundus_images/
 ```
 
-Camera prerequisites (the API cannot set these — do it on the device): **Still imaging** mode, **Quick imaging ON**, and **Optomed Client closed** (the Pictor API allows a single client connection). Pulled images and their JSON sidecars save to `fundus_images/` (git-ignored — never commit medical images).
+Camera prerequisites (the API cannot set these — do it on the device): **Still imaging** mode, **Quick imaging ON**, and **Optomed Client closed** (the Pictor API allows a single client connection — `aurora_probe` counts too, so if you just ran it, give the camera a few seconds to free the slot before launching the demo). Pulled images and their JSON sidecars save to `fundus_images/` (git-ignored — never commit medical images).
 
 ## Repo layout
 

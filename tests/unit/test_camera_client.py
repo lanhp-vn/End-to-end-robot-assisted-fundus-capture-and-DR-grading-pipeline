@@ -88,3 +88,70 @@ def test_fail_response_raises_camera_error():
     with pytest.raises(CameraError) as ei:
         _client_with(sock).get_file("\\bad")
     assert "0x16AC6005" in str(ei.value)
+
+
+# Real 56-byte CAMERA_DETECTED reply (serial 1125581093422), reused as a discovery payload.
+_CAMERA_DETECTED = bytes.fromhex(
+    "0130ac16"
+    "02000000"
+    "64632d66332d31632d33662d32312d6130000000"
+    "01000000"
+    "01000000"
+    "3131323535383130393334323200000000000000"
+)
+
+
+class FakeUDPSocket:
+    """Discovery-socket stand-in: the first ``timeouts`` recvfrom calls raise TimeoutError,
+    then a reply arrives from ``addr`` -- mimics a lossy / briefly-silent camera."""
+
+    def __init__(self, reply, addr, timeouts):
+        self._reply = reply
+        self._addr = addr
+        self._timeouts = timeouts
+        self.send_count = 0
+
+    def setsockopt(self, *a):
+        pass
+
+    def settimeout(self, t):
+        pass
+
+    def sendto(self, data, dest):
+        self.send_count += 1
+
+    def recvfrom(self, n):
+        if self._timeouts > 0:
+            self._timeouts -= 1
+            raise TimeoutError
+        return self._reply, self._addr
+
+    def close(self):
+        pass
+
+
+def _discovering_client(timeout_s):
+    return PictorClient(
+        host=None,
+        discovery_port=3000,
+        message_port=8000,
+        discover_timeout_s=timeout_s,
+        connect_timeout_s=1,
+        io_timeout_s=1,
+    )
+
+
+def test_discover_retries_until_reply(monkeypatch):
+    # Camera answers only after two missed probes; discover must re-send, not give up after one.
+    fake = FakeUDPSocket(_CAMERA_DETECTED, ("192.168.1.50", 3000), timeouts=2)
+    monkeypatch.setattr("arm101_hand.camera.client.socket.socket", lambda *a, **k: fake)
+    info = _discovering_client(2.0).discover()
+    assert info is not None
+    assert info.serial == "1125581093422"
+    assert fake.send_count >= 3  # re-sent the probe rather than giving up on the first timeout
+
+
+def test_discover_returns_none_when_never_answered(monkeypatch):
+    fake = FakeUDPSocket(b"", None, timeouts=10**9)
+    monkeypatch.setattr("arm101_hand.camera.client.socket.socket", lambda *a, **k: fake)
+    assert _discovering_client(0.02).discover() is None
