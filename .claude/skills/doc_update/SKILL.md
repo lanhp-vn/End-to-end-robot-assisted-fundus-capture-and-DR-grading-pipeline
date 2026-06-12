@@ -85,6 +85,7 @@ Every `.md` file this skill produces should render cleanly in GitHub-flavored Ma
 
 Required formatting:
 
+- **Paragraphs**: one line per paragraph — do NOT hard-wrap (manually break) prose at ~80 columns. Write each paragraph and each list item as a single unbroken line and let the editor/renderer soft-wrap it. Hard-wrapped prose produces ragged line breaks in GitHub and Notion and pollutes diffs (a one-word edit reflows the whole block). Exception: hard line breaks are fine inside code fences, where they are literal.
 - **Headings**: H1–H3 for primary structure; H4 sparingly. One blank line before/after every heading.
 - **Lists**: `-` for bullets (not `*` or `+`). 2-space nesting. Task lists `- [ ]` import as Notion to-dos.
 - **Tables**: GitHub pipe syntax. Header row + `---` separator. **Cells single-line** — Notion does not render `<br/>` or embedded bullets in cells. Rewrite multi-line cells as comma-separated clauses or split into rows. Escape literal pipes as `\|`. Skip alignment markers (`:---:`).
@@ -101,6 +102,7 @@ Lint-before-diff checklist — grep each draft and fix before presenting:
 - Lines starting with `*` followed by whitespace (outside code fences) → change to `- `.
 - Any table row with mismatched pipe count → fix.
 - Any emoji character (Unicode pictographs, dingbats, ✓, warning signs, colored symbols) → delete or replace with a plain-text label.
+- Any prose paragraph or list item split across multiple lines (a soft newline mid-sentence, outside code fences and tables) → join into one line.
 
 Fix silently; do not surface formatting churn in the user-facing diff summary.
 

@@ -44,6 +44,9 @@ One-time setup, then grade:
 
 - Model: RETFound MAE Vision Transformer, `vit_large_patch16_224`, `global_pool=avg`.
 - Fine-tune: APTOS2019 five-category split, `input_size=224`, 5 classes, best epoch 27.
+- Upstream credit/source: the APTOS2019 model checkpoint was downloaded from the
+  RETFound project's benchmark checkpoint listing:
+  [rmaphoh/RETFound `BENCHMARK.md`](https://github.com/rmaphoh/RETFound/blob/main/BENCHMARK.md).
 - Source checkpoint: `references/AIML-models/APTOS2019/checkpoint-best.pth` (3.64 GB,
   includes optimizer state; the export keeps only the 296 model tensors).
 - Slim weights: `models/retfound_aptos2019_vitl16.safetensors` (~1.21 GB),

@@ -122,7 +122,7 @@ uv run python scripts/fundus_analysis/aptos_eval.py         # optional: validate
 uv run arm101-dr-grade                                       # grade media_outputs/fundus_images/*.JPG
 ```
 
-`arm101-dr-grade` writes a `<image>.dr.json` sidecar (predicted grade, per-class probabilities, confidence band, crop region, model hash) to `media_outputs/fundus_analysis/` and prints a summary table. Re-runs skip already-graded images unless you pass `--force`. The slim weights come from the read-only checkpoint under `references/AIML-models/APTOS2019/` (IL-2); the export never modifies it.
+`arm101-dr-grade` writes a `<image>.dr.json` sidecar (predicted grade, per-class probabilities, confidence band, crop region, model hash) to `media_outputs/fundus_analysis/` and prints a summary table. Re-runs skip already-graded images unless you pass `--force`. The slim weights come from the read-only checkpoint under `references/AIML-models/APTOS2019/` (IL-2); the export never modifies it. Credit/source for the downloaded APTOS2019 checkpoint: [rmaphoh/RETFound `BENCHMARK.md`](https://github.com/rmaphoh/RETFound/blob/main/BENCHMARK.md).
 
 You can also grade **inline during capture** instead of running the batch CLI afterward:
 
