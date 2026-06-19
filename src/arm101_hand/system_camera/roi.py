@@ -51,9 +51,12 @@ class Roi:
 
 
 # Canonical ROI for the arm-mounted USB observation camera: a 4:3 crop (uniform zoom, no
-# distortion) of the Optomed Aurora's screen, measured against a 640x480 frame -- option 1 / 2.29x,
-# validated live with scripts/diagnostics/system_camera/usb_camera_roi_preview.py. The arm + hand + camera
-# geometry is fixed, so the screen always lands here. SINGLE SOURCE OF TRUTH: grab_trigger_capture.py
-# imports this for its preview + recording; usb_camera_roi_preview.py defaults its editable _ROI to
-# it. Re-tune by validating a new value in the diagnostic, then editing it HERE.
-AURORA_SCREEN_ROI = Roi(x=130, y=6, w=280, h=210, ref_w=640, ref_h=480)
+# distortion) of the Optomed Aurora's screen, measured against a 640x480 frame -- ~3.3x zoom.
+# Re-measured 2026-06-19 for the IFWATER 12 MP cam: the screen was marked with a red rectangle and
+# the box detected in both the 640x480 and 4000x3000 captures (they agreed), then expanded from the
+# screen's ~16:10 to 4:3 about its center so the crop->reference upscale stays distortion-free (the
+# preview/recording resize the crop to ref_w x ref_h). The arm + hand + camera geometry is fixed, so
+# the screen always lands here. SINGLE SOURCE OF TRUTH: grab_trigger_capture.py imports this for its
+# preview + recording; usb_camera_roi_preview.py defaults its editable _ROI to it. Re-tune by
+# validating a new value in the diagnostic, then editing it HERE.
+AURORA_SCREEN_ROI = Roi(x=50, y=75, w=196, h=147, ref_w=640, ref_h=480)

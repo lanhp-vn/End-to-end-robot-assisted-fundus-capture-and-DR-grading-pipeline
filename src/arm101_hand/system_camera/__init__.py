@@ -5,6 +5,7 @@ preview window with a record toggle. Distinct from the Aurora *fundus* camera (p
 retinal images) in ``arm101_hand.fundus_camera``.
 """
 
+from .focus import best_sample, focus_reached_baseline, focus_steps, sharpness
 from .preview import (
     WebcamPreview,
     grab_full_res_frame,
@@ -18,8 +19,12 @@ __all__ = [
     "AURORA_SCREEN_ROI",
     "Roi",
     "WebcamPreview",
+    "best_sample",
+    "focus_reached_baseline",
+    "focus_steps",
     "grab_full_res_frame",
     "imshow_fit",
     "open_capture",
     "read_settled_frame",
+    "sharpness",
 ]

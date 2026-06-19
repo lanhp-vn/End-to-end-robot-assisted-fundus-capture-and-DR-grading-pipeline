@@ -1,9 +1,10 @@
 """Capture a still from the arm-mounted USB observation camera (read-only diagnostic).
 
 Opens a live cv2 preview of the USB camera that films the Optomed Aurora's screen so you can
-frame the shot. The preview streams at a smooth low resolution; on SPACE the tool reopens the
-device at the full still resolution, grabs one frame, saves it, then reopens the smooth stream --
-so framing stays smooth while saved stills are full quality (12 MP on the IFWATER cam). (MSMF
+frame the shot. The preview streams at a smooth low resolution. Each SPACE saves TWO paired images
+(shared timestamp): the live low-res frame at that instant, then -- after reopening the device at
+the full still resolution -- a full-quality grab (12 MP on the IFWATER cam), before the smooth
+stream resumes. So framing stays smooth while you keep both a smooth-res and a full-res shot. (MSMF
 cannot switch resolution on an open capture, so the grab reopens rather than switches in place;
 see ``grab_full_res_frame``.) All resolutions come from ``system_camera_config.yaml``. NOT the
 Aurora *fundus* camera (patient retinal images -- that is ``arm101_hand.fundus_camera``); this is
@@ -25,7 +26,8 @@ Usage:
                                                           [--out-dir DIR]
 
 Keys (focus the TERMINAL, not the window):
-  SPACE   grab one full-resolution still to --out-dir as usb_cam_<timestamp>.jpg
+  SPACE   save TWO paired images to --out-dir: the live frame usb_cam_<ts>_<w>x<h>.jpg
+          + a full-resolution grab usb_cam_<ts>_<w>x<h>.jpg (same <ts>)
           (preview freezes ~1-2 s while the device reopens at full res, then resumes)
   q/ESC   quit (Ctrl+C also works)
 """
@@ -70,6 +72,19 @@ def _poll_key() -> str:
     if ch == "\x03":  # Ctrl+C
         raise KeyboardInterrupt
     return ch
+
+
+def _write_image(out_dir: Path, ts: str, img) -> bool:
+    """Write ``img`` to ``out_dir`` as ``usb_cam_<ts>_<w>x<h>.jpg`` and report it. The shared ``ts``
+    pairs the two files SPACE saves (the live frame + the full-res grab); the ``<w>x<h>`` suffix
+    tells them apart. Returns True on success."""
+    h, w = img.shape[:2]
+    path = out_dir / f"usb_cam_{ts}_{w}x{h}.jpg"
+    if cv2.imwrite(str(path), img):
+        print(f"  saved -> {path}  ({w}x{h})")
+        return True
+    print(f"  WARNING: could not write {path}", file=sys.stderr)
+    return False
 
 
 def main() -> int:
@@ -174,7 +189,11 @@ def main() -> int:
             key = _poll_key()
             if key in ("q", "Q", "\x1b"):  # q / ESC
                 break
-            if key == " ":  # SPACE -> reopen at full res, grab ONE still, reopen the stream (~1-2s)
+            if key == " ":  # SPACE -> save the live frame NOW + a full-res grab (preview freezes ~1-2s)
+                out_dir.mkdir(parents=True, exist_ok=True)
+                ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # shared stem pairs both files
+                if _write_image(out_dir, ts, frame):  # the live 640x480 stream frame at SPACE time
+                    saved += 1
                 print("  capturing full-res still (reopening at full res; hold steady) ...")
                 still, cap = grab_full_res_frame(
                     cap,
@@ -187,24 +206,18 @@ def main() -> int:
                     stream_height=cfg.height,
                 )
                 if still is not None:
-                    out_dir.mkdir(parents=True, exist_ok=True)
-                    ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # ms -> no same-second clobber
-                    path = out_dir / f"usb_cam_{ts}.jpg"
-                    if cv2.imwrite(str(path), still):
+                    if _write_image(out_dir, ts, still):
                         saved += 1
-                        h, w = still.shape[:2]
-                        print(f"  saved -> {path}  ({w}x{h})")
-                        if cfg.still_width and w < cfg.still_width:
-                            print(
-                                f"  NOTE: grabbed {w}x{h}, below the requested {cfg.still_width}x"
-                                f"{cfg.still_height} -- raise warmup_frames in grab_full_res_frame "
-                                "if this persists.",
-                                file=sys.stderr,
-                            )
-                    else:
-                        print(f"  WARNING: could not write {path}", file=sys.stderr)
+                    h, w = still.shape[:2]
+                    if cfg.still_width and w < cfg.still_width:
+                        print(
+                            f"  NOTE: grabbed {w}x{h}, below the requested {cfg.still_width}x"
+                            f"{cfg.still_height} -- raise warmup_frames in grab_full_res_frame "
+                            "if this persists.",
+                            file=sys.stderr,
+                        )
                 else:
-                    print("  WARNING: capture returned no frame -- try again.", file=sys.stderr)
+                    print("  WARNING: full-res grab returned no frame.", file=sys.stderr)
                 if not cap.isOpened():
                     print("  ERROR: camera did not reopen after the grab -- stopping.", file=sys.stderr)
                     break
@@ -214,7 +227,7 @@ def main() -> int:
     finally:
         cap.release()
         cv2.destroyAllWindows()
-        print(f"Camera closed. {saved} still(s) saved to {out_dir}.")
+        print(f"Camera closed. {saved} image(s) saved to {out_dir}.")
     return 0
 
 
