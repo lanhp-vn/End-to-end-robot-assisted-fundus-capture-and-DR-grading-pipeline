@@ -42,7 +42,10 @@ import cv2
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
+from arm101_hand.config import load_system_camera_config  # noqa: E402
 from arm101_hand.system_camera import AURORA_SCREEN_ROI, imshow_fit, open_capture  # noqa: E402
+
+_CONFIG_PATH = _REPO_ROOT / "src" / "arm101_hand" / "data" / "system_camera_config.yaml"
 
 # ROI to preview. Defaults to the canonical AURORA_SCREEN_ROI (exactly what the demo records), so
 # this tool and the demo never drift. To experiment with a different framing, replace this with a
@@ -78,21 +81,26 @@ def _poll_key() -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument(
-        "--camera", type=int, default=0, help="USB camera index (default 0; the arm cam is usually 1)"
+        "--camera",
+        type=int,
+        default=None,
+        help="USB camera index (default: camera_index from system_camera_config.yaml)",
     )
     ap.add_argument("--backend", choices=("auto", "dshow"), default="auto", help="cv2 capture backend")
     args = ap.parse_args()
 
-    title = f"USB cam {args.camera} (ROI)"
+    cfg = load_system_camera_config(_CONFIG_PATH)
+    camera_index = args.camera if args.camera is not None else cfg.camera_index
+    title = f"USB cam {camera_index} (ROI)"
     zoom_title = f"{title} -- ROI zoom"
     full_title = f"{title} -- full frame"
 
-    print(f"Opening USB camera index {args.camera} ({args.backend}) ...")
-    cap = open_capture(args.camera, args.backend)
+    print(f"Opening USB camera index {camera_index} ({args.backend}) ...")
+    cap = open_capture(camera_index, args.backend, fourcc=cfg.fourcc, width=cfg.width, height=cfg.height)
     if not cap.isOpened():
         cap.release()
         print(
-            f"ERROR: could not open camera index {args.camera}. "
+            f"ERROR: could not open camera index {camera_index}. "
             "Try another --camera N (the arm cam is usually 1; index 0 is often the built-in "
             "webcam) or --backend dshow.",
             file=sys.stderr,
@@ -137,7 +145,7 @@ def main() -> int:
                 now = time.monotonic()
                 if last_good is None and now - started > _OPEN_GRACE_S:
                     print(
-                        f"\nERROR: camera index {args.camera} opened but delivered no frames in "
+                        f"\nERROR: camera index {camera_index} opened but delivered no frames in "
                         f"{_OPEN_GRACE_S:.0f}s.\n"
                         "  Likely in use by another app (Optomed Client / Windows Camera / Teams / "
                         "browser) or left invalidated by a previous run.\n"
@@ -148,7 +156,7 @@ def main() -> int:
                     return 1
                 if last_good is not None and now - last_good > _STALL_S:
                     print(
-                        f"\nERROR: camera index {args.camera} stopped delivering frames "
+                        f"\nERROR: camera index {camera_index} stopped delivering frames "
                         f"({_STALL_S:.0f}s stall) -- it may have been unplugged or grabbed by "
                         "another app. Reconnect it and retry.",
                         file=sys.stderr,

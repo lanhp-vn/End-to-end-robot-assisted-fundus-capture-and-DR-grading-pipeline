@@ -32,7 +32,10 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
+from arm101_hand.config import load_system_camera_config  # noqa: E402
 from arm101_hand.system_camera import WebcamPreview  # noqa: E402
+
+_CONFIG_PATH = _REPO_ROOT / "src" / "arm101_hand" / "data" / "system_camera_config.yaml"
 
 
 def _read_key() -> str:
@@ -48,7 +51,12 @@ def _read_key() -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--camera", type=int, default=0, help="USB camera index (default 0)")
+    ap.add_argument(
+        "--camera",
+        type=int,
+        default=None,
+        help="USB camera index (default: camera_index from system_camera_config.yaml)",
+    )
     ap.add_argument("--backend", choices=("auto", "dshow"), default="auto", help="cv2 capture backend")
     ap.add_argument(
         "--record-dir",
@@ -58,17 +66,22 @@ def main() -> int:
     ap.add_argument("--fps", type=float, default=None, help="force writer fps (default: camera-reported)")
     args = ap.parse_args()
 
+    cfg = load_system_camera_config(_CONFIG_PATH)
+    camera_index = args.camera if args.camera is not None else cfg.camera_index
     preview = WebcamPreview(
-        index=args.camera,
-        window_title=f"USB cam {args.camera} (smoke test)",
+        index=camera_index,
+        window_title=f"USB cam {camera_index} (smoke test)",
         record_dir=Path(args.record_dir),
         fps=args.fps,
         backend=args.backend,
+        fourcc=cfg.fourcc,
+        width=cfg.width,
+        height=cfg.height,
     )
-    print(f"Opening USB camera index {args.camera} ({args.backend}) ...")
+    print(f"Opening USB camera index {camera_index} ({args.backend}) ...")
     if not preview.start():
         print(
-            f"ERROR: could not open camera index {args.camera}. "
+            f"ERROR: could not open camera index {camera_index}. "
             "Try another --camera N (built-in webcam is often 0) or --backend dshow.",
             file=sys.stderr,
         )

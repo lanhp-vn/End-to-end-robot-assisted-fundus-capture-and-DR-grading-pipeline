@@ -123,6 +123,9 @@ def _start_preview(scfg: SystemCameraConfig) -> WebcamPreview | None:
         fps=scfg.fps,
         backend=scfg.backend,
         roi=AURORA_SCREEN_ROI,
+        fourcc=scfg.fourcc,
+        width=scfg.width,
+        height=scfg.height,
     )
     if not preview.start():
         print(

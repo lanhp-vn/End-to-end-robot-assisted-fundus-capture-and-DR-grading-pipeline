@@ -2,10 +2,24 @@
 # system_camera_config.yaml -- arm-mounted USB OBSERVATION camera (films the Optomed Aurora's
 # screen). Live cv2 preview window + 'r' record. Distinct from the Aurora fundus camera
 # (see fundus_config.yaml). Hand-editable; never written by runtime code (IL-5).
-schema_version: 1
+schema_version: 3
 enabled: true
 camera_index: 1     # the arm cam on this PC (index 0 is the built-in webcam)
 backend: auto       # this cam fails on dshow ("can't capture by index"); auto/MSMF works
 window_title: "Arm cam (Optomed view)"
 record_dir: media_outputs/camera_recordings   # repo-relative; 'r' writes usb_cam_<timestamp>.avi here
 fps: null           # null -> camera-reported fps (fallback 20)
+# This cam = IFWATER IF-USB12MP02AF (IMX362, USB 2.0): 4000x3000 max still, MJPG-only for hi-res
+# (YUY2 is uncompressed + capped low). MJPG also lets the low-res stream run at a high frame rate.
+#
+# DECOUPLED: the LIVE stream (width/height, used by the preview + recording everywhere) is kept
+# small for a smooth feed; usb_camera_capture briefly reopens the device at the STILL size for one
+# SPACE grab, then resumes the stream -- so framing stays smooth while saved stills are full 12 MP.
+# (MSMF can't switch resolution on an open capture, so the grab reopens rather than switching it.)
+# (The demos film the Aurora screen only; they never save a USB-cam still, just the stream.)
+# Set any of these to null to request the driver's max instead (it clamps a large request down).
+fourcc: MJPG
+width: 640          # live stream: smooth ~60 fps; matches the ROI reference size exactly
+height: 480
+still_width: 4000   # full-res SPACE grab in usb_camera_capture (12 MP), then back to the stream res
+still_height: 3000

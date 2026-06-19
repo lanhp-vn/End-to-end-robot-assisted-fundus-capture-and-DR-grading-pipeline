@@ -18,7 +18,7 @@ class SystemCameraConfig(BaseModel):
     """Arm-mounted USB observation camera: live preview window (cv2) + record toggle."""
 
     model_config = ConfigDict(extra="forbid")
-    schema_version: int = 1
+    schema_version: int = 3
     enabled: bool = Field(default=True, description="open the preview window when the demo runs")
     camera_index: int = Field(default=0, ge=0, description="USB camera index (the arm-mounted cam)")
     backend: Literal["auto", "dshow"] = Field(
@@ -30,6 +30,31 @@ class SystemCameraConfig(BaseModel):
     )
     fps: float | None = Field(
         default=None, gt=0, description="force writer fps; null = camera-reported (fallback 20)"
+    )
+    fourcc: str = Field(
+        default="MJPG",
+        min_length=4,
+        max_length=4,
+        description="capture pixel format (4-char FOURCC); MJPG is the only way UVC cams expose "
+        "their high-res modes -- YUY2 is uncompressed and capped low",
+    )
+    width: int | None = Field(
+        default=None,
+        ge=1,
+        description="LIVE STREAM width in px (preview + recording); keep it low for a smooth feed. "
+        "null = request the camera's max (the driver clamps a large request to its largest mode)",
+    )
+    height: int | None = Field(
+        default=None, ge=1, description="live stream height in px; null = request the camera's max"
+    )
+    still_width: int | None = Field(
+        default=None,
+        ge=1,
+        description="full-res STILL width in px -- usb_camera_capture briefly switches the open "
+        "capture up to this for one SPACE grab, then back to the stream res; null = the camera's max",
+    )
+    still_height: int | None = Field(
+        default=None, ge=1, description="full-res still height in px; null = request the camera's max"
     )
 
 

@@ -43,22 +43,121 @@ from .roi import Roi
 _FPS_FALLBACK = 20.0
 Backend = Literal["auto", "dshow"]
 
+# A width/height request the driver clamps down to its largest supported mode -- how we ask for
+# "the camera's max" without hardcoding a resolution (see open_capture's width/height=None path).
+_MAX_DIM_REQUEST = 100_000
 
-def open_capture(index: int, backend: Backend = "auto") -> cv2.VideoCapture:
-    """Open a ``cv2.VideoCapture`` for ``index`` using ``backend``.
+
+def _apply_format(cap: cv2.VideoCapture, fourcc: str, width: int | None, height: int | None) -> None:
+    """Request ``fourcc`` then resolution on an open capture (no-op if it never opened).
+
+    FOURCC is set BEFORE the frame size on purpose: UVC webcams expose their high-resolution modes
+    only once the compressed format (MJPG) is selected -- request width/height first and the driver
+    keeps you on a low-res uncompressed (YUY2) mode. ``width``/``height`` of ``None`` request the
+    driver's maximum via :data:`_MAX_DIM_REQUEST` (it clamps the oversized request down).
+    """
+    if not cap.isOpened():
+        return
+    if fourcc:
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc(*fourcc))
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width or _MAX_DIM_REQUEST)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height or _MAX_DIM_REQUEST)
+
+
+def open_capture(
+    index: int,
+    backend: Backend = "auto",
+    *,
+    fourcc: str = "MJPG",
+    width: int | None = None,
+    height: int | None = None,
+) -> cv2.VideoCapture:
+    """Open a ``cv2.VideoCapture`` for ``index`` using ``backend``, then request format + resolution.
 
     ``"dshow"`` (CAP_DSHOW) opens fast when it works but fails on some cameras ("can't be used
     to capture by index"); on failure it falls back to the platform default (MSMF on Windows).
     ``"auto"`` uses that platform default directly. Shared by :class:`WebcamPreview` and
     ``scripts/diagnostics/system_camera/usb_camera_capture.py`` so the dshow-quirk handling lives in one place.
+
+    Once open, the capture is set to ``fourcc`` (default ``"MJPG"``) and ``width``/``height``;
+    ``None`` for either dimension requests the camera's max (the default = full quality). See
+    :func:`_apply_format` for why MJPG + the max-request matter on UVC cams.
     """
     if backend == "dshow":
         cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
         if not cap.isOpened():
             cap.release()
             cap = cv2.VideoCapture(index)
-        return cap
-    return cv2.VideoCapture(index)  # auto: platform default backend
+    else:
+        cap = cv2.VideoCapture(index)  # auto: platform default backend
+    _apply_format(cap, fourcc, width, height)
+    return cap
+
+
+def read_settled_frame(
+    cap: cv2.VideoCapture,
+    *,
+    warmup_frames: int = 5,
+    target: tuple[int, int] | None = None,
+    max_attempts: int = 40,
+) -> np.ndarray | None:
+    """Read frames until the sensor settles, returning the freshest good frame.
+
+    Discards the first ``warmup_frames`` *good* frames (so PDAF autofocus + exposure settle after a
+    fresh open) then returns the next good frame. A frame counts as good when it decodes and -- if
+    ``target`` (a numpy ``(h, w)`` shape) is given -- matches that size. Up to ``max_attempts`` reads
+    are made so the dead reads right after (re)opening don't exhaust the budget. Returns the last
+    frame of any size if the target count is never reached, or ``None`` if no frame ever arrives.
+    """
+    good_seen = 0
+    fallback: np.ndarray | None = None
+    for _ in range(max_attempts):
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            continue
+        fallback = frame
+        if target is None or frame.shape[:2] == target:
+            good_seen += 1
+            if good_seen > warmup_frames:
+                return frame
+    return fallback
+
+
+def grab_full_res_frame(
+    cap: cv2.VideoCapture,
+    index: int,
+    backend: Backend = "auto",
+    *,
+    fourcc: str = "MJPG",
+    still_width: int | None = None,
+    still_height: int | None = None,
+    stream_width: int | None = None,
+    stream_height: int | None = None,
+    warmup_frames: int = 5,
+) -> tuple[np.ndarray | None, cv2.VideoCapture]:
+    """Grab one full-resolution still by REOPENING the device, then resume the low-res stream.
+
+    MSMF (the Windows default backend) cannot reliably change resolution on an open capture -- it
+    logs ``initStream Failed to select stream 0`` and then hands back a corrupt buffer that crashes
+    ``cap.read()``. Opening *fresh* at a resolution works, so this releases ``cap``, opens a new
+    capture at the still size (``still_width``x``still_height``; ``None`` = the camera's max) for one
+    grab, releases that, then reopens at the stream size (``stream_width``x``stream_height``).
+
+    Returns ``(frame_or_None, new_stream_capture)``. The caller MUST adopt the returned capture --
+    the original was released. The full-res open/grab/reopen costs ~1-2 s (the preview freezes);
+    raise ``warmup_frames`` if the first full-res frame comes back soft (autofocus still settling).
+    """
+    cap.release()
+    target = (still_height, still_width) if still_width and still_height else None  # numpy (h, w)
+    grab_cap = open_capture(index, backend, fourcc=fourcc, width=still_width, height=still_height)
+    frame = (
+        read_settled_frame(grab_cap, warmup_frames=warmup_frames, target=target)
+        if grab_cap.isOpened()
+        else None
+    )
+    grab_cap.release()
+    stream_cap = open_capture(index, backend, fourcc=fourcc, width=stream_width, height=stream_height)
+    return frame, stream_cap
 
 
 def _letterbox(frame: np.ndarray, win_w: int, win_h: int) -> np.ndarray:
@@ -112,6 +211,9 @@ class WebcamPreview:
         fps: float | None = None,
         backend: Backend = "auto",
         roi: Roi | None = None,
+        fourcc: str = "MJPG",
+        width: int | None = None,
+        height: int | None = None,
     ) -> None:
         self._index = index
         self._title = window_title
@@ -119,6 +221,9 @@ class WebcamPreview:
         self._fps_override = fps
         self._backend: Backend = backend
         self._roi = roi
+        self._fourcc = fourcc
+        self._width = width
+        self._height = height
 
         self._stop = threading.Event()
         self._record = threading.Event()
@@ -180,7 +285,13 @@ class WebcamPreview:
 
     # ---- capture-thread internals ---------------------------------------
     def _open_capture(self) -> cv2.VideoCapture:
-        return open_capture(self._index, self._backend)
+        return open_capture(
+            self._index,
+            self._backend,
+            fourcc=self._fourcc,
+            width=self._width,
+            height=self._height,
+        )
 
     def _writer_fps(self, cap: cv2.VideoCapture) -> float:
         fps = self._fps_override if self._fps_override else cap.get(cv2.CAP_PROP_FPS)

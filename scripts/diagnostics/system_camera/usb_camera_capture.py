@@ -1,16 +1,21 @@
 """Capture a still from the arm-mounted USB observation camera (read-only diagnostic).
 
 Opens a live cv2 preview of the USB camera that films the Optomed Aurora's screen so you can
-frame the shot, then writes the CURRENT frame to disk on SPACE. NOT the Aurora *fundus* camera
-(patient retinal images -- that is ``arm101_hand.fundus_camera``); this is the host webcam in
-``arm101_hand.system_camera``.
+frame the shot. The preview streams at a smooth low resolution; on SPACE the tool reopens the
+device at the full still resolution, grabs one frame, saves it, then reopens the smooth stream --
+so framing stays smooth while saved stills are full quality (12 MP on the IFWATER cam). (MSMF
+cannot switch resolution on an open capture, so the grab reopens rather than switches in place;
+see ``grab_full_res_frame``.) All resolutions come from ``system_camera_config.yaml``. NOT the
+Aurora *fundus* camera (patient retinal images -- that is ``arm101_hand.fundus_camera``); this is
+the host webcam in ``arm101_hand.system_camera``.
 
 Single-threaded by design: unlike ``usb_camera_probe.py`` (which exercises the daemon-threaded
 ``WebcamPreview``), this tool reads + shows frames itself. Keys are read from the TERMINAL via a
 non-blocking ``msvcrt.kbhit()`` poll -- we can't block on ``getwch`` like the probe does, because
-the cv2 window needs ``waitKey`` pumped every loop or it freezes. It shares only ``open_capture``
-with the device layer: ``open_capture`` (the dshow-quirk handling) and ``imshow_fit`` (manual
-letterbox -- KEEPRATIO is Qt-only, a no-op on the Win32 backend; see ``preview.py``).
+the cv2 window needs ``waitKey`` pumped every loop or it freezes. It shares with the device layer:
+``open_capture`` (dshow-quirk handling + stream format), ``grab_full_res_frame`` (the SPACE
+full-res grab via device reopen), and ``imshow_fit`` (manual letterbox -- KEEPRATIO is Qt-only, a
+no-op on the Win32 backend; see ``preview.py``).
 
 The full ``opencv-python`` wheel is required for the window (lerobot's ``opencv-python-headless``
 has no HighGUI); ``pyproject.toml`` drops the headless pin so the full build is the sole ``cv2``.
@@ -20,7 +25,8 @@ Usage:
                                                           [--out-dir DIR]
 
 Keys (focus the TERMINAL, not the window):
-  SPACE   save the current frame to --out-dir as usb_cam_<timestamp>.jpg
+  SPACE   grab one full-resolution still to --out-dir as usb_cam_<timestamp>.jpg
+          (preview freezes ~1-2 s while the device reopens at full res, then resumes)
   q/ESC   quit (Ctrl+C also works)
 """
 
@@ -38,8 +44,10 @@ import cv2
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
-from arm101_hand.system_camera import imshow_fit, open_capture  # noqa: E402
+from arm101_hand.config import load_system_camera_config  # noqa: E402
+from arm101_hand.system_camera import grab_full_res_frame, imshow_fit, open_capture  # noqa: E402
 
+_CONFIG_PATH = _REPO_ROOT / "src" / "arm101_hand" / "data" / "system_camera_config.yaml"
 _FONT = cv2.FONT_HERSHEY_SIMPLEX
 _GREEN = (0, 255, 0)
 _OPEN_GRACE_S = 5.0  # bail if the camera opens but delivers no frame within this window
@@ -67,7 +75,10 @@ def _poll_key() -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument(
-        "--camera", type=int, default=0, help="USB camera index (default 0; the arm cam is usually 1)"
+        "--camera",
+        type=int,
+        default=None,
+        help="USB camera index (default: camera_index from system_camera_config.yaml)",
     )
     ap.add_argument("--backend", choices=("auto", "dshow"), default="auto", help="cv2 capture backend")
     ap.add_argument(
@@ -77,15 +88,19 @@ def main() -> int:
     )
     args = ap.parse_args()
 
+    cfg = load_system_camera_config(_CONFIG_PATH)
+    camera_index = args.camera if args.camera is not None else cfg.camera_index
     out_dir = Path(args.out_dir)
-    title = f"USB cam {args.camera} (capture)"
+    title = f"USB cam {camera_index} (capture)"
 
-    print(f"Opening USB camera index {args.camera} ({args.backend}) ...")
-    cap = open_capture(args.camera, args.backend)
+    # Stream at the smooth preview resolution (cfg.width/height); each SPACE momentarily switches
+    # this same capture up to the full still size (cfg.still_width/height) for one grab.
+    print(f"Opening USB camera index {camera_index} ({args.backend}) ...")
+    cap = open_capture(camera_index, args.backend, fourcc=cfg.fourcc, width=cfg.width, height=cfg.height)
     if not cap.isOpened():
         cap.release()
         print(
-            f"ERROR: could not open camera index {args.camera}. "
+            f"ERROR: could not open camera index {camera_index}. "
             "Try another --camera N (the arm cam is usually 1; index 0 is often the built-in "
             "webcam) or --backend dshow.",
             file=sys.stderr,
@@ -95,8 +110,12 @@ def main() -> int:
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     src_fps = cap.get(cv2.CAP_PROP_FPS)
+    still_desc = (
+        f"{cfg.still_width}x{cfg.still_height}" if cfg.still_width and cfg.still_height else "camera max"
+    )
     print(
-        f"Window open: {width}x{height} @ {src_fps:.0f} fps (camera-reported).\n"
+        f"Streaming {width}x{height} @ {src_fps:.0f} fps (smooth preview); "
+        f"SPACE grabs a full-res still ({still_desc}).\n"
         "Keys (focus THIS terminal): SPACE = capture, q/ESC = quit."
     )
 
@@ -119,7 +138,7 @@ def main() -> int:
                 now = time.monotonic()
                 if last_good is None and now - started > _OPEN_GRACE_S:
                     print(
-                        f"\nERROR: camera index {args.camera} opened but delivered no frames in "
+                        f"\nERROR: camera index {camera_index} opened but delivered no frames in "
                         f"{_OPEN_GRACE_S:.0f}s.\n"
                         "  Likely in use by another app (Optomed Client / Windows Camera / Teams / "
                         "browser) or left invalidated by a previous run.\n"
@@ -130,7 +149,7 @@ def main() -> int:
                     return 1
                 if last_good is not None and now - last_good > _STALL_S:
                     print(
-                        f"\nERROR: camera index {args.camera} stopped delivering frames "
+                        f"\nERROR: camera index {camera_index} stopped delivering frames "
                         f"({_STALL_S:.0f}s stall) -- it may have been unplugged or grabbed by "
                         "another app. Reconnect it and retry.",
                         file=sys.stderr,
@@ -155,15 +174,41 @@ def main() -> int:
             key = _poll_key()
             if key in ("q", "Q", "\x1b"):  # q / ESC
                 break
-            if key == " ":  # SPACE -> save the CLEAN current frame
-                out_dir.mkdir(parents=True, exist_ok=True)
-                ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # ms -> no same-second clobber
-                path = out_dir / f"usb_cam_{ts}.jpg"
-                if cv2.imwrite(str(path), frame):
-                    saved += 1
-                    print(f"  saved -> {path}")
+            if key == " ":  # SPACE -> reopen at full res, grab ONE still, reopen the stream (~1-2s)
+                print("  capturing full-res still (reopening at full res; hold steady) ...")
+                still, cap = grab_full_res_frame(
+                    cap,
+                    camera_index,
+                    args.backend,
+                    fourcc=cfg.fourcc,
+                    still_width=cfg.still_width,
+                    still_height=cfg.still_height,
+                    stream_width=cfg.width,
+                    stream_height=cfg.height,
+                )
+                if still is not None:
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                    ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # ms -> no same-second clobber
+                    path = out_dir / f"usb_cam_{ts}.jpg"
+                    if cv2.imwrite(str(path), still):
+                        saved += 1
+                        h, w = still.shape[:2]
+                        print(f"  saved -> {path}  ({w}x{h})")
+                        if cfg.still_width and w < cfg.still_width:
+                            print(
+                                f"  NOTE: grabbed {w}x{h}, below the requested {cfg.still_width}x"
+                                f"{cfg.still_height} -- raise warmup_frames in grab_full_res_frame "
+                                "if this persists.",
+                                file=sys.stderr,
+                            )
+                    else:
+                        print(f"  WARNING: could not write {path}", file=sys.stderr)
                 else:
-                    print(f"  WARNING: could not write {path}", file=sys.stderr)
+                    print("  WARNING: capture returned no frame -- try again.", file=sys.stderr)
+                if not cap.isOpened():
+                    print("  ERROR: camera did not reopen after the grab -- stopping.", file=sys.stderr)
+                    break
+                last_good = time.monotonic()  # the fresh stream cap is healthy; reset the stall clock
     except KeyboardInterrupt:
         print("\n^C")
     finally:
