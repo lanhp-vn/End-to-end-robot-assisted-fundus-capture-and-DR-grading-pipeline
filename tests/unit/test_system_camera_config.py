@@ -27,7 +27,27 @@ def test_resolution_fourcc_defaults():
     assert cfg.still_width is None
     assert cfg.still_height is None
     assert cfg.fourcc == "MJPG"
-    assert cfg.schema_version == 3
+    assert cfg.schema_version == 4
+
+
+def test_focus_defaults():
+    # Focus is off by default in the SCHEMA (callers that want autofocus get it for free); the
+    # locked manual value lives only in the data yaml. autofocus True => let the cam drive AF;
+    # focus None => don't touch CAP_PROP_FOCUS.
+    cfg = SystemCameraConfig()
+    assert cfg.autofocus is True
+    assert cfg.focus is None
+
+
+def test_focus_round_trips():
+    cfg = SystemCameraConfig.model_validate({"autofocus": False, "focus": 600})
+    assert cfg.autofocus is False
+    assert cfg.focus == 600
+
+
+def test_negative_focus_rejected():
+    with pytest.raises(ValidationError):
+        SystemCameraConfig.model_validate({"focus": -1})
 
 
 def test_still_resolution_round_trips():
@@ -79,9 +99,13 @@ def test_invalid_backend_rejected():
 def test_data_yaml_loads():
     cfg = load_system_camera_config(_DATA)
     assert cfg.camera_index == 1  # the arm cam on this PC
-    assert cfg.backend == "auto"
+    # dshow is REQUIRED: manual focus only drives the VCM on the DSHOW backend (MSMF ignores it).
+    assert cfg.backend == "dshow"
     assert cfg.enabled is True
     # Smooth live stream (640x480) decoupled from the full 12 MP still grab (4000x3000), MJPG.
     assert (cfg.width, cfg.height) == (640, 480)
     assert (cfg.still_width, cfg.still_height) == (4000, 3000)
     assert cfg.fourcc == "MJPG"
+    # Manual focus locked at the value the focus probe found (autofocus off so it never breathes).
+    assert cfg.autofocus is False
+    assert cfg.focus == 600

@@ -64,6 +64,24 @@ def _apply_format(cap: cv2.VideoCapture, fourcc: str, width: int | None, height:
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height or _MAX_DIM_REQUEST)
 
 
+def _apply_focus(cap: cv2.VideoCapture, autofocus: bool, focus: int | None) -> None:
+    """Apply the autofocus / manual-focus policy to an open capture (no-op if it never opened).
+
+    The arm + camera + Aurora-screen geometry is fixed, so one manual lens position keeps the screen
+    permanently sharp -- no autofocus hunting onto the room behind it, no breathing while recording.
+    Manual mode is requested when autofocus is off OR an explicit ``focus`` value is given;
+    ``CAP_PROP_AUTOFOCUS`` is set first (0 = off), then the lens position. Setting ``focus`` only
+    drives the VCM on the DSHOW backend -- MSMF accepts the calls but ignores them (see the
+    ``system_camera_manual_focus`` note); pick ``backend="dshow"`` when locking focus.
+    """
+    if not cap.isOpened():
+        return
+    manual = (not autofocus) or (focus is not None)
+    cap.set(cv2.CAP_PROP_AUTOFOCUS, 0.0 if manual else 1.0)
+    if focus is not None:
+        cap.set(cv2.CAP_PROP_FOCUS, float(focus))
+
+
 def open_capture(
     index: int,
     backend: Backend = "auto",
@@ -71,6 +89,8 @@ def open_capture(
     fourcc: str = "MJPG",
     width: int | None = None,
     height: int | None = None,
+    autofocus: bool = True,
+    focus: int | None = None,
 ) -> cv2.VideoCapture:
     """Open a ``cv2.VideoCapture`` for ``index`` using ``backend``, then request format + resolution.
 
@@ -81,7 +101,9 @@ def open_capture(
 
     Once open, the capture is set to ``fourcc`` (default ``"MJPG"``) and ``width``/``height``;
     ``None`` for either dimension requests the camera's max (the default = full quality). See
-    :func:`_apply_format` for why MJPG + the max-request matter on UVC cams.
+    :func:`_apply_format` for why MJPG + the max-request matter on UVC cams. Finally focus is applied
+    (:func:`_apply_focus`): the defaults (``autofocus=True``, ``focus=None``) leave the camera's
+    autofocus alone, so callers that don't lock focus are unaffected.
     """
     if backend == "dshow":
         cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
@@ -91,6 +113,7 @@ def open_capture(
     else:
         cap = cv2.VideoCapture(index)  # auto: platform default backend
     _apply_format(cap, fourcc, width, height)
+    _apply_focus(cap, autofocus, focus)
     return cap
 
 
@@ -134,6 +157,8 @@ def grab_full_res_frame(
     stream_width: int | None = None,
     stream_height: int | None = None,
     warmup_frames: int = 5,
+    autofocus: bool = True,
+    focus: int | None = None,
 ) -> tuple[np.ndarray | None, cv2.VideoCapture]:
     """Grab one full-resolution still by REOPENING the device, then resume the low-res stream.
 
@@ -143,20 +168,40 @@ def grab_full_res_frame(
     capture at the still size (``still_width``x``still_height``; ``None`` = the camera's max) for one
     grab, releases that, then reopens at the stream size (``stream_width``x``stream_height``).
 
+    ``autofocus``/``focus`` are forwarded to BOTH reopens so the locked manual focus holds through
+    the full-res grab AND the resumed stream -- otherwise the grab comes back soft / the stream
+    reverts to autofocus hunting. Manual focus needs ``backend="dshow"`` (see :func:`_apply_focus`).
+
     Returns ``(frame_or_None, new_stream_capture)``. The caller MUST adopt the returned capture --
     the original was released. The full-res open/grab/reopen costs ~1-2 s (the preview freezes);
     raise ``warmup_frames`` if the first full-res frame comes back soft (autofocus still settling).
     """
     cap.release()
     target = (still_height, still_width) if still_width and still_height else None  # numpy (h, w)
-    grab_cap = open_capture(index, backend, fourcc=fourcc, width=still_width, height=still_height)
+    grab_cap = open_capture(
+        index,
+        backend,
+        fourcc=fourcc,
+        width=still_width,
+        height=still_height,
+        autofocus=autofocus,
+        focus=focus,
+    )
     frame = (
         read_settled_frame(grab_cap, warmup_frames=warmup_frames, target=target)
         if grab_cap.isOpened()
         else None
     )
     grab_cap.release()
-    stream_cap = open_capture(index, backend, fourcc=fourcc, width=stream_width, height=stream_height)
+    stream_cap = open_capture(
+        index,
+        backend,
+        fourcc=fourcc,
+        width=stream_width,
+        height=stream_height,
+        autofocus=autofocus,
+        focus=focus,
+    )
     return frame, stream_cap
 
 
@@ -214,6 +259,8 @@ class WebcamPreview:
         fourcc: str = "MJPG",
         width: int | None = None,
         height: int | None = None,
+        autofocus: bool = True,
+        focus: int | None = None,
     ) -> None:
         self._index = index
         self._title = window_title
@@ -224,6 +271,8 @@ class WebcamPreview:
         self._fourcc = fourcc
         self._width = width
         self._height = height
+        self._autofocus = autofocus
+        self._focus = focus
 
         self._stop = threading.Event()
         self._record = threading.Event()
@@ -291,6 +340,8 @@ class WebcamPreview:
             fourcc=self._fourcc,
             width=self._width,
             height=self._height,
+            autofocus=self._autofocus,
+            focus=self._focus,
         )
 
     def _writer_fps(self, cap: cv2.VideoCapture) -> float:

@@ -95,7 +95,12 @@ def main() -> int:
         default=None,
         help="USB camera index (default: camera_index from system_camera_config.yaml)",
     )
-    ap.add_argument("--backend", choices=("auto", "dshow"), default="auto", help="cv2 capture backend")
+    ap.add_argument(
+        "--backend",
+        choices=("auto", "dshow"),
+        default=None,
+        help="cv2 capture backend (default: backend from system_camera_config.yaml)",
+    )
     ap.add_argument(
         "--out-dir",
         default=str(_REPO_ROOT / "media_outputs" / "camera_captures"),
@@ -105,13 +110,23 @@ def main() -> int:
 
     cfg = load_system_camera_config(_CONFIG_PATH)
     camera_index = args.camera if args.camera is not None else cfg.camera_index
+    backend = args.backend if args.backend is not None else cfg.backend
     out_dir = Path(args.out_dir)
     title = f"USB cam {camera_index} (capture)"
 
     # Stream at the smooth preview resolution (cfg.width/height); each SPACE momentarily switches
-    # this same capture up to the full still size (cfg.still_width/height) for one grab.
-    print(f"Opening USB camera index {camera_index} ({args.backend}) ...")
-    cap = open_capture(camera_index, args.backend, fourcc=cfg.fourcc, width=cfg.width, height=cfg.height)
+    # this same capture up to the full still size (cfg.still_width/height) for one grab. Focus is
+    # locked per cfg.autofocus/cfg.focus (DSHOW-only) so the Aurora screen stays sharp.
+    print(f"Opening USB camera index {camera_index} ({backend}) ...")
+    cap = open_capture(
+        camera_index,
+        backend,
+        fourcc=cfg.fourcc,
+        width=cfg.width,
+        height=cfg.height,
+        autofocus=cfg.autofocus,
+        focus=cfg.focus,
+    )
     if not cap.isOpened():
         cap.release()
         print(
@@ -198,12 +213,14 @@ def main() -> int:
                 still, cap = grab_full_res_frame(
                     cap,
                     camera_index,
-                    args.backend,
+                    backend,
                     fourcc=cfg.fourcc,
                     still_width=cfg.still_width,
                     still_height=cfg.still_height,
                     stream_width=cfg.width,
                     stream_height=cfg.height,
+                    autofocus=cfg.autofocus,
+                    focus=cfg.focus,
                 )
                 if still is not None:
                     if _write_image(out_dir, ts, still):

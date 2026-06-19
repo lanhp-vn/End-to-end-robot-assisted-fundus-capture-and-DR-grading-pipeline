@@ -18,11 +18,22 @@ class SystemCameraConfig(BaseModel):
     """Arm-mounted USB observation camera: live preview window (cv2) + record toggle."""
 
     model_config = ConfigDict(extra="forbid")
-    schema_version: int = 3
+    schema_version: int = 4
     enabled: bool = Field(default=True, description="open the preview window when the demo runs")
     camera_index: int = Field(default=0, ge=0, description="USB camera index (the arm-mounted cam)")
     backend: Literal["auto", "dshow"] = Field(
         default="auto", description="cv2 capture backend; 'auto' = platform default (MSMF on Windows)"
+    )
+    autofocus: bool = Field(
+        default=True,
+        description="let the camera drive autofocus; set false to lock the manual 'focus' value. "
+        "Manual focus only takes effect on the 'dshow' backend (MSMF ignores it)",
+    )
+    focus: int | None = Field(
+        default=None,
+        ge=0,
+        description="manual lens position (UVC VCM range ~0..1023); null = don't touch the focus "
+        "position. Found with usb_camera_focus_probe.py; needs autofocus=false + backend=dshow",
     )
     window_title: str = Field(default="Arm cam (Optomed view)", description="preview window title")
     record_dir: str = Field(

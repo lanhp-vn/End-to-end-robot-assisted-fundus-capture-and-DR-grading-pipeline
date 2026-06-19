@@ -105,10 +105,11 @@ Two cameras are involved: the **Optomed Aurora** *fundus* camera (captures patie
 uv run python scripts/diagnostics/fundus_camera/aurora_probe.py        # read-only Aurora reachability + status + filelist
 uv run python scripts/diagnostics/system_camera/usb_camera_probe.py    # system-cam smoke test: live window + 'r' record (no motors/Aurora)
 uv run python scripts/diagnostics/system_camera/usb_camera_roi_preview.py  # preview the fixed ROI zoom of the Aurora screen (no motors/Aurora)
+uv run python scripts/diagnostics/system_camera/usb_camera_focus_probe.py  # sweep + fine-tune the manual focus value (needs --backend dshow; no motors/Aurora)
 uv run python scripts/demos/grab_trigger_capture.py                    # live ROI-zoomed system-cam window; SPACE presses the shutter, image lands in media_outputs/fundus_images/ and pops up until the next capture
 ```
 
-Camera prerequisites (the API cannot set these — do it on the device): **Still imaging** mode, **Quick imaging ON**, and **Optomed Client closed** (the Pictor API allows a single client connection — `aurora_probe` counts too, so if you just ran it, give the camera a few seconds to free the slot before launching the demo). The system-cam preview uses the full `opencv-python` wheel. Pulled fundus images + their JSON sidecars and any system-cam recordings save under `media_outputs/` (git-ignored — never commit medical images).
+Camera prerequisites (the API cannot set these — do it on the device): **Still imaging** mode, **Quick imaging ON**, and **Optomed Client closed** (the Pictor API allows a single client connection — `aurora_probe` counts too, so if you just ran it, give the camera a few seconds to free the slot before launching the demo). The system-cam preview uses the full `opencv-python` wheel, and locks the camera to a fixed manual focus (`autofocus: false` / `focus: 600` in `system_camera_config.yaml`) so the Aurora screen stays sharp instead of autofocus hunting — this requires `backend: dshow` (only DSHOW drives this camera's focus motor); the value was found with `usb_camera_focus_probe.py`. Pulled fundus images + their JSON sidecars and any system-cam recordings save under `media_outputs/` (git-ignored — never commit medical images).
 
 ### 5. Diabetic-retinopathy grading (optional)
 
@@ -137,7 +138,7 @@ This runs the same robot-triggered capture as `grab_trigger_capture` but, per pa
 ```
 src/arm101_hand/        # device + application layer (subclass + console scripts + fundus_analysis DR grader)
 scripts/calibration/    # AmazingHand + SO-ARM101 calibration runners
-scripts/diagnostics/    # motors/ (scan / show_calib / find_port) + fundus_camera/ (aurora_probe / aurora_wiredump) + system_camera/ (usb_camera_probe / usb_camera_capture / usb_camera_roi_preview)
+scripts/diagnostics/    # motors/ (scan / show_calib / find_port) + fundus_camera/ (aurora_probe / aurora_wiredump) + system_camera/ (usb_camera_probe / usb_camera_capture / usb_camera_roi_preview / usb_camera_focus_probe)
 scripts/demos/          # runnable demos (grab_sequence: staged grab; grab_toggle: + index-finger toggle; grab_trigger_capture: live system-cam window + Aurora shutter press + auto-pull; grab_trigger_capture_analysis: + inline DR grading + results panel)
 scripts/fundus_analysis/ # DR-grading ops: export_weights (slim weight export) + aptos_eval (validation)
 models/                 # git-ignored slim model weights exported from references/ checkpoints

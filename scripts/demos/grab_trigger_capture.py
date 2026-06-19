@@ -126,6 +126,8 @@ def _start_preview(scfg: SystemCameraConfig) -> WebcamPreview | None:
         fourcc=scfg.fourcc,
         width=scfg.width,
         height=scfg.height,
+        autofocus=scfg.autofocus,
+        focus=scfg.focus,
     )
     if not preview.start():
         print(

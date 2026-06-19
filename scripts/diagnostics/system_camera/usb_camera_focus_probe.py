@@ -199,7 +199,12 @@ def _report_verdict(best: tuple[int, float] | None, af_baseline: float, range_to
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--camera", type=int, default=None, help="camera index (default: config camera_index)")
-    ap.add_argument("--backend", choices=("auto", "dshow"), default="auto", help="cv2 capture backend")
+    ap.add_argument(
+        "--backend",
+        choices=("auto", "dshow"),
+        default=None,
+        help="cv2 capture backend (default: backend from system_camera_config.yaml; focus needs dshow)",
+    )
     ap.add_argument("--min", type=int, default=0, help="lowest focus value to sweep")
     ap.add_argument(
         "--max", type=int, default=1023, help="highest focus value to sweep (UVC VCM range is often 0..1023)"
@@ -216,9 +221,12 @@ def main() -> int:
 
     cfg = load_system_camera_config(_CONFIG_PATH)
     camera_index = args.camera if args.camera is not None else cfg.camera_index
+    backend = args.backend if args.backend is not None else cfg.backend
 
-    print(f"Opening USB camera index {camera_index} ({args.backend}) ...")
-    cap = open_capture(camera_index, args.backend, fourcc=cfg.fourcc, width=cfg.width, height=cfg.height)
+    # This probe MANAGES focus itself (it sweeps), so it never passes cfg.focus to open_capture --
+    # the defaults (autofocus on, focus untouched) leave it free to measure the AF baseline first.
+    print(f"Opening USB camera index {camera_index} ({backend}) ...")
+    cap = open_capture(camera_index, backend, fourcc=cfg.fourcc, width=cfg.width, height=cfg.height)
     if not cap.isOpened():
         cap.release()
         print(

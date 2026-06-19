@@ -86,17 +86,32 @@ def main() -> int:
         default=None,
         help="USB camera index (default: camera_index from system_camera_config.yaml)",
     )
-    ap.add_argument("--backend", choices=("auto", "dshow"), default="auto", help="cv2 capture backend")
+    ap.add_argument(
+        "--backend",
+        choices=("auto", "dshow"),
+        default=None,
+        help="cv2 capture backend (default: backend from system_camera_config.yaml)",
+    )
     args = ap.parse_args()
 
     cfg = load_system_camera_config(_CONFIG_PATH)
     camera_index = args.camera if args.camera is not None else cfg.camera_index
+    backend = args.backend if args.backend is not None else cfg.backend
     title = f"USB cam {camera_index} (ROI)"
     zoom_title = f"{title} -- ROI zoom"
     full_title = f"{title} -- full frame"
 
-    print(f"Opening USB camera index {camera_index} ({args.backend}) ...")
-    cap = open_capture(camera_index, args.backend, fourcc=cfg.fourcc, width=cfg.width, height=cfg.height)
+    # Focus is locked per cfg.autofocus/cfg.focus (DSHOW-only) so the ROI you're checking is sharp.
+    print(f"Opening USB camera index {camera_index} ({backend}) ...")
+    cap = open_capture(
+        camera_index,
+        backend,
+        fourcc=cfg.fourcc,
+        width=cfg.width,
+        height=cfg.height,
+        autofocus=cfg.autofocus,
+        focus=cfg.focus,
+    )
     if not cap.isOpened():
         cap.release()
         print(

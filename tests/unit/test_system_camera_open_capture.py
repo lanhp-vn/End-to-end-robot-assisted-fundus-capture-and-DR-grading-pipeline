@@ -72,6 +72,32 @@ def test_open_capture_explicit_resolution_and_format(monkeypatch):
     assert _value_for(fake, cv2.CAP_PROP_FRAME_HEIGHT) == 3000
 
 
+def test_open_capture_default_leaves_autofocus_on(monkeypatch):
+    # Default: autofocus=True + focus=None => request AF on, never touch the focus position. Callers
+    # that don't lock focus (e.g. usb_camera_probe with the schema defaults) keep the cam's autofocus.
+    fake = _FakeCap()
+    monkeypatch.setattr(cv2, "VideoCapture", lambda *a, **k: fake)
+
+    open_capture(0)
+
+    assert _value_for(fake, cv2.CAP_PROP_AUTOFOCUS) == 1.0
+    assert cv2.CAP_PROP_FOCUS not in _props(fake)  # focus position untouched when focus=None
+
+
+def test_open_capture_manual_focus(monkeypatch):
+    # autofocus=False + focus=600 => AF off (0.0) then the manual lens position. This is what the
+    # data yaml asks for so the Aurora screen stays sharp (DSHOW-only; see system_camera_manual_focus).
+    fake = _FakeCap()
+    monkeypatch.setattr(cv2, "VideoCapture", lambda *a, **k: fake)
+
+    open_capture(0, autofocus=False, focus=600)
+
+    assert _value_for(fake, cv2.CAP_PROP_AUTOFOCUS) == 0.0
+    assert _value_for(fake, cv2.CAP_PROP_FOCUS) == 600.0
+    # AF must be turned off BEFORE the manual focus position takes hold.
+    assert _props(fake).index(cv2.CAP_PROP_AUTOFOCUS) < _props(fake).index(cv2.CAP_PROP_FOCUS)
+
+
 def test_open_capture_skips_format_when_device_will_not_open(monkeypatch):
     fake = _FakeCap(opened=False)
     monkeypatch.setattr(cv2, "VideoCapture", lambda *a, **k: fake)
@@ -85,8 +111,16 @@ def test_open_capture_skips_format_when_device_will_not_open(monkeypatch):
 def test_webcampreview_forwards_format_to_open_capture(monkeypatch):
     captured: dict[str, object] = {}
 
-    def _spy(index, backend="auto", *, fourcc="MJPG", width=None, height=None):
-        captured.update(index=index, backend=backend, fourcc=fourcc, width=width, height=height)
+    def _spy(index, backend="auto", *, fourcc="MJPG", width=None, height=None, autofocus=True, focus=None):
+        captured.update(
+            index=index,
+            backend=backend,
+            fourcc=fourcc,
+            width=width,
+            height=height,
+            autofocus=autofocus,
+            focus=focus,
+        )
         return _FakeCap(opened=False)
 
     monkeypatch.setattr("arm101_hand.system_camera.preview.open_capture", _spy)
@@ -95,19 +129,23 @@ def test_webcampreview_forwards_format_to_open_capture(monkeypatch):
         index=2,
         window_title="t",
         record_dir=Path("."),
-        backend="auto",
+        backend="dshow",
         fourcc="MJPG",
         width=4000,
         height=3000,
+        autofocus=False,
+        focus=600,
     )
     preview._open_capture()
 
     assert captured == {
         "index": 2,
-        "backend": "auto",
+        "backend": "dshow",
         "fourcc": "MJPG",
         "width": 4000,
         "height": 3000,
+        "autofocus": False,
+        "focus": 600,
     }
 
 
@@ -155,8 +193,8 @@ def test_grab_full_res_frame_reopens_at_still_then_stream(monkeypatch):
     opened = [grab_cap, stream_cap]
     calls = []
 
-    def _spy(index, backend="auto", *, fourcc="MJPG", width=None, height=None):
-        calls.append((index, backend, fourcc, width, height))
+    def _spy(index, backend="auto", *, fourcc="MJPG", width=None, height=None, autofocus=True, focus=None):
+        calls.append((index, backend, fourcc, width, height, autofocus, focus))
         return opened.pop(0)
 
     monkeypatch.setattr("arm101_hand.system_camera.preview.open_capture", _spy)
@@ -164,18 +202,24 @@ def test_grab_full_res_frame_reopens_at_still_then_stream(monkeypatch):
     frame, new_cap = grab_full_res_frame(
         original,
         1,
-        "auto",
+        "dshow",
         fourcc="MJPG",
         still_width=4000,
         still_height=3000,
         stream_width=640,
         stream_height=480,
         warmup_frames=2,
+        autofocus=False,
+        focus=600,
     )
 
     assert original.released is True  # the live stream capture is freed BEFORE reopening
-    assert calls[0][3:] == (4000, 3000)  # reopened at the still size for the grab
-    assert calls[1][3:] == (640, 480)  # then reopened at the stream size
+    assert calls[0][3:5] == (4000, 3000)  # reopened at the still size for the grab
+    assert calls[1][3:5] == (640, 480)  # then reopened at the stream size
+    # Manual focus must hold through BOTH reopens (the still grab AND the resumed stream), else the
+    # full-res grab on DSHOW comes back soft / the stream goes back to autofocus hunting.
+    assert calls[0][5:] == (False, 600)
+    assert calls[1][5:] == (False, 600)
     assert grab_cap.released is True  # the full-res grab capture is freed after the grab
     assert frame is not None and frame.shape[:2] == (3000, 4000)
     assert new_cap is stream_cap  # caller must adopt the returned stream capture
@@ -187,7 +231,7 @@ def test_grab_full_res_frame_returns_none_frame_but_still_reopens_stream(monkeyp
     stream_cap = _FrameCap(640, 480)
     opened = [grab_cap, stream_cap]
 
-    def _spy(index, backend="auto", *, fourcc="MJPG", width=None, height=None):
+    def _spy(index, backend="auto", *, fourcc="MJPG", width=None, height=None, autofocus=True, focus=None):
         return opened.pop(0)
 
     monkeypatch.setattr("arm101_hand.system_camera.preview.open_capture", _spy)

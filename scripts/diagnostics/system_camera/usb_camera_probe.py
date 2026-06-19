@@ -57,7 +57,12 @@ def main() -> int:
         default=None,
         help="USB camera index (default: camera_index from system_camera_config.yaml)",
     )
-    ap.add_argument("--backend", choices=("auto", "dshow"), default="auto", help="cv2 capture backend")
+    ap.add_argument(
+        "--backend",
+        choices=("auto", "dshow"),
+        default=None,
+        help="cv2 capture backend (default: backend from system_camera_config.yaml)",
+    )
     ap.add_argument(
         "--record-dir",
         default=str(_REPO_ROOT / "media_outputs" / "camera_recordings"),
@@ -68,17 +73,20 @@ def main() -> int:
 
     cfg = load_system_camera_config(_CONFIG_PATH)
     camera_index = args.camera if args.camera is not None else cfg.camera_index
+    backend = args.backend if args.backend is not None else cfg.backend
     preview = WebcamPreview(
         index=camera_index,
         window_title=f"USB cam {camera_index} (smoke test)",
         record_dir=Path(args.record_dir),
         fps=args.fps,
-        backend=args.backend,
+        backend=backend,
         fourcc=cfg.fourcc,
         width=cfg.width,
         height=cfg.height,
+        autofocus=cfg.autofocus,
+        focus=cfg.focus,
     )
-    print(f"Opening USB camera index {camera_index} ({args.backend}) ...")
+    print(f"Opening USB camera index {camera_index} ({backend}) ...")
     if not preview.start():
         print(
             f"ERROR: could not open camera index {camera_index}. "

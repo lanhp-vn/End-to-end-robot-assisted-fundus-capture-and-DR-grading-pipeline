@@ -2,11 +2,19 @@
 # system_camera_config.yaml -- arm-mounted USB OBSERVATION camera (films the Optomed Aurora's
 # screen). Live cv2 preview window + 'r' record. Distinct from the Aurora fundus camera
 # (see fundus_config.yaml). Hand-editable; never written by runtime code (IL-5).
-schema_version: 3
+schema_version: 4
 enabled: true
 camera_index: 1     # the arm cam on this PC (index 0 is the built-in webcam)
-backend: auto       # this cam fails on dshow ("can't capture by index"); auto/MSMF works
+backend: dshow      # REQUIRED for manual focus: only DSHOW drives this cam's VCM (MSMF accepts the
+                    # CAP_PROP_FOCUS calls but doesn't move the lens). DSHOW also handles the full-res
+                    # grab + the stream open by index on this unit.
 window_title: "Arm cam (Optomed view)"
+# Manual focus: the arm + camera + Aurora screen geometry is fixed, so one lens position keeps the
+# screen permanently sharp -- no autofocus hunting onto the room behind it, no breathing while
+# recording. autofocus:false locks it; focus:600 came from usb_camera_focus_probe.py (the manual
+# sweep peak, ~3x the autofocus baseline; AF itself settled at 599). Needs backend:dshow above.
+autofocus: false
+focus: 600
 record_dir: media_outputs/camera_recordings   # repo-relative; 'r' writes usb_cam_<timestamp>.avi here
 fps: null           # null -> camera-reported fps (fallback 20)
 # This cam = IFWATER IF-USB12MP02AF (IMX362, USB 2.0): 4000x3000 max still, MJPG-only for hi-res
