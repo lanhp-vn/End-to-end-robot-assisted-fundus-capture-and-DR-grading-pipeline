@@ -2,7 +2,7 @@
 # system_camera_config.yaml -- arm-mounted USB OBSERVATION camera (films the Optomed Aurora's
 # screen). Live cv2 preview window + 'r' record. Distinct from the Aurora fundus camera
 # (see fundus_config.yaml). Hand-editable; never written by runtime code (IL-5).
-schema_version: 4
+schema_version: 5
 enabled: true
 camera_index: 1     # the arm cam on this PC (index 0 is the built-in webcam)
 backend: dshow      # REQUIRED for manual focus: only DSHOW drives this cam's VCM (MSMF accepts the
@@ -31,3 +31,22 @@ width: 640          # live stream: smooth ~60 fps; matches the ROI reference siz
 height: 480
 still_width: 4000   # full-res SPACE grab in usb_camera_capture (12 MP), then back to the stream res
 still_height: 3000
+# --- Automated trigger (grab_auto_trigger_analysis.py) -------------------------------------------
+# Detect the Aurora's two on-screen alignment ARCS in the ROI; when they turn GREEN (aligned),
+# auto-fire the capture cycle. HSV masking per arc-band (OpenCV H 0-180, S/V 0-255). The regions +
+# HSV bands below are STARTING ESTIMATES -- tune them against the saved red/green ROI frames.
+auto_trigger:
+  left_arc:  {x: 60,  y: 110, w: 70, h: 190, ref_w: 640, ref_h: 480}   # left arc band in the ROI
+  right_arc: {x: 420, y: 110, w: 70, h: 190, ref_w: 640, ref_h: 480}   # right arc band in the ROI
+  red_bands:                       # red wraps hue 0/180 -> two bands OR'd
+    - {h_lo: 0,   s_lo: 80, v_lo: 80, h_hi: 10,  s_hi: 255, v_hi: 255}
+    - {h_lo: 170, s_lo: 80, v_lo: 80, h_hi: 180, s_hi: 255, v_hi: 255}
+  green_bands:                     # single green band; keep h_hi <= ~90 so blue UI icons don't leak
+    - {h_lo: 40, s_lo: 40, v_lo: 60, h_hi: 90, s_hi: 255, v_hi: 255}
+  coverage_threshold: 0.04         # fraction of an arc band that must match a color to count
+  morph_kernel: 3                  # MORPH_OPEN kernel (px) to despeckle the mask
+  stable_seconds: 1.0              # green must hold this long before firing
+  cooldown_seconds: 3.0            # min gap after a fire
+  detect_interval_s: 0.2           # how often to sample the ROI in auto mode
+  require_red_between: true        # after a fire, wait for arcs to go red again before re-arming
+  require_no_red: false            # if true, "ready" also requires NO band is red (tighter)

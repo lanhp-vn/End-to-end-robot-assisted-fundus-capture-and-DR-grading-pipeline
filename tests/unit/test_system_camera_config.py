@@ -27,7 +27,7 @@ def test_resolution_fourcc_defaults():
     assert cfg.still_width is None
     assert cfg.still_height is None
     assert cfg.fourcc == "MJPG"
-    assert cfg.schema_version == 4
+    assert cfg.schema_version == 5
 
 
 def test_focus_defaults():
@@ -109,3 +109,30 @@ def test_data_yaml_loads():
     # Manual focus locked at the value the focus probe found (autofocus off so it never breathes).
     assert cfg.autofocus is False
     assert cfg.focus == 600
+    at = cfg.auto_trigger
+    assert at.left_arc.w == 70 and at.right_arc.w == 70
+    assert len(at.red_bands) == 2 and len(at.green_bands) == 1
+    assert at.stable_seconds == 1.0
+
+
+def test_auto_trigger_defaults():
+    at = SystemCameraConfig().auto_trigger
+    assert at.stable_seconds == 1.0
+    assert at.cooldown_seconds == 3.0
+    assert at.detect_interval_s == 0.2
+    assert at.require_red_between is True
+    assert at.require_no_red is False
+    assert at.coverage_threshold == 0.04
+    assert len(at.red_bands) == 2  # red wraps hue 0/180
+    assert len(at.green_bands) == 1
+    assert (at.left_arc.ref_w, at.left_arc.ref_h) == (640, 480)
+
+
+def test_auto_trigger_coverage_threshold_bounds():
+    with pytest.raises(ValidationError):
+        SystemCameraConfig.model_validate({"auto_trigger": {"coverage_threshold": 1.5}})
+
+
+def test_auto_trigger_extra_keys_forbidden():
+    with pytest.raises(ValidationError):
+        SystemCameraConfig.model_validate({"auto_trigger": {"bogus": 1}})

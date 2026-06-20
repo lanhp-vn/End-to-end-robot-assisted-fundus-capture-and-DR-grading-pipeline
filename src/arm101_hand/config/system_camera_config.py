@@ -14,11 +14,59 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class HsvBand(BaseModel):
+    """An inclusive OpenCV HSV threshold band (8-bit: H 0-180, S/V 0-255)."""
+
+    model_config = ConfigDict(extra="forbid")
+    h_lo: int = Field(ge=0, le=180)
+    s_lo: int = Field(ge=0, le=255)
+    v_lo: int = Field(ge=0, le=255)
+    h_hi: int = Field(ge=0, le=180)
+    s_hi: int = Field(ge=0, le=255)
+    v_hi: int = Field(ge=0, le=255)
+
+
+class ArcRegion(BaseModel):
+    """A pixel rectangle measured against a reference frame size (mirrors system_camera.Roi)."""
+
+    model_config = ConfigDict(extra="forbid")
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+    w: int = Field(ge=1)
+    h: int = Field(ge=1)
+    ref_w: int = Field(default=640, ge=1)
+    ref_h: int = Field(default=480, ge=1)
+
+
+class AutoTriggerConfig(BaseModel):
+    """Arc-based auto-trigger detection + lifecycle tuning (grab_auto_trigger_analysis demo)."""
+
+    model_config = ConfigDict(extra="forbid")
+    left_arc: ArcRegion = Field(default_factory=lambda: ArcRegion(x=60, y=110, w=70, h=190))
+    right_arc: ArcRegion = Field(default_factory=lambda: ArcRegion(x=420, y=110, w=70, h=190))
+    red_bands: list[HsvBand] = Field(
+        default_factory=lambda: [
+            HsvBand(h_lo=0, s_lo=80, v_lo=80, h_hi=10, s_hi=255, v_hi=255),
+            HsvBand(h_lo=170, s_lo=80, v_lo=80, h_hi=180, s_hi=255, v_hi=255),
+        ]
+    )
+    green_bands: list[HsvBand] = Field(
+        default_factory=lambda: [HsvBand(h_lo=40, s_lo=40, v_lo=60, h_hi=90, s_hi=255, v_hi=255)]
+    )
+    coverage_threshold: float = Field(default=0.04, ge=0.0, le=1.0)
+    morph_kernel: int = Field(default=3, ge=1)
+    stable_seconds: float = Field(default=1.0, gt=0.0)
+    cooldown_seconds: float = Field(default=3.0, ge=0.0)
+    detect_interval_s: float = Field(default=0.2, gt=0.0)
+    require_red_between: bool = True
+    require_no_red: bool = False
+
+
 class SystemCameraConfig(BaseModel):
     """Arm-mounted USB observation camera: live preview window (cv2) + record toggle."""
 
     model_config = ConfigDict(extra="forbid")
-    schema_version: int = 4
+    schema_version: int = 5
     enabled: bool = Field(default=True, description="open the preview window when the demo runs")
     camera_index: int = Field(default=0, ge=0, description="USB camera index (the arm-mounted cam)")
     backend: Literal["auto", "dshow"] = Field(
@@ -35,6 +83,7 @@ class SystemCameraConfig(BaseModel):
         description="manual lens position (UVC VCM range ~0..1023); null = don't touch the focus "
         "position. Found with usb_camera_focus_probe.py; needs autofocus=false + backend=dshow",
     )
+    auto_trigger: AutoTriggerConfig = Field(default_factory=AutoTriggerConfig)
     window_title: str = Field(default="Arm cam (Optomed view)", description="preview window title")
     record_dir: str = Field(
         default="media_outputs/camera_recordings", description="repo-relative clip folder"
