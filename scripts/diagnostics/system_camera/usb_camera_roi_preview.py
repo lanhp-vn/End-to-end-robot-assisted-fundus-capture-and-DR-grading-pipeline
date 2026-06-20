@@ -14,6 +14,12 @@ Two windows open (both letterboxed, never stretched on resize):
   * "<title> -- full frame" the full camera frame with the ROI rectangle drawn, so you can see
                             exactly what is being cropped against the whole scene.
 
+Press SPACE to save the framed shot: the ROI zoom (640x480) plus a full-resolution ROI crop -- the
+same screen region cropped from a 4000x3000 grab (~1225x919) -- so you keep a sharp high-res zoom of
+the Aurora screen. The full-res grab reopens the device (preview freezes ~1-2 s) exactly like
+``usb_camera_capture.py`` (``grab_full_res_frame``); focus is held through the reopen so the crop
+stays sharp. Both files share a timestamp; the ``<w>x<h>`` suffix tells them apart.
+
 Single-threaded by design (like ``usb_camera_capture.py``): this tool reads + shows frames itself
 and polls the TERMINAL for keys via ``msvcrt.kbhit`` -- it can't block on ``getwch`` because the
 cv2 windows need ``waitKey`` pumped every loop or they freeze. Shares ``open_capture`` and the
@@ -23,15 +29,20 @@ The full ``opencv-python`` wheel is required for the windows (lerobot's ``opencv
 has no HighGUI); ``pyproject.toml`` drops the headless pin so the full build is the sole ``cv2``.
 
 Usage:
-  uv run python scripts/diagnostics/system_camera/usb_camera_roi_preview.py [--camera N] [--backend auto|dshow]
+  uv run python scripts/diagnostics/system_camera/usb_camera_roi_preview.py [--camera N]
+                                                       [--backend auto|dshow] [--out-dir DIR]
 
 Keys (focus the TERMINAL, not the windows):
+  SPACE   save TWO paired images to --out-dir: the ROI zoom roi_<ts>_640x480.jpg
+          + a full-res ROI crop roi_<ts>_<w>x<h>.jpg (same <ts>)
+          (preview freezes ~1-2 s while the device reopens at full res, then resumes)
   q/ESC   quit (Ctrl+C also works)
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import msvcrt
 import sys
 import time
@@ -43,7 +54,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
 from arm101_hand.config import load_system_camera_config  # noqa: E402
-from arm101_hand.system_camera import AURORA_SCREEN_ROI, imshow_fit, open_capture  # noqa: E402
+from arm101_hand.system_camera import (  # noqa: E402
+    AURORA_SCREEN_ROI,
+    grab_full_res_frame,
+    imshow_fit,
+    open_capture,
+)
 
 _CONFIG_PATH = _REPO_ROOT / "src" / "arm101_hand" / "data" / "system_camera_config.yaml"
 
@@ -78,6 +94,19 @@ def _poll_key() -> str:
     return ch
 
 
+def _write_image(out_dir: Path, ts: str, img) -> bool:
+    """Write ``img`` to ``out_dir`` as ``roi_<ts>_<w>x<h>.jpg`` and report it. The shared ``ts``
+    pairs the two files SPACE saves (the ROI zoom + the full-res ROI crop); the ``<w>x<h>`` suffix
+    tells them apart. (The crop is a numpy view, which imwrite accepts.) Returns True on success."""
+    h, w = img.shape[:2]
+    path = out_dir / f"roi_{ts}_{w}x{h}.jpg"
+    if cv2.imwrite(str(path), img):
+        print(f"  saved -> {path}  ({w}x{h})")
+        return True
+    print(f"  WARNING: could not write {path}", file=sys.stderr)
+    return False
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument(
@@ -92,11 +121,17 @@ def main() -> int:
         default=None,
         help="cv2 capture backend (default: backend from system_camera_config.yaml)",
     )
+    ap.add_argument(
+        "--out-dir",
+        default=str(_REPO_ROOT / "media_outputs" / "camera_captures"),
+        help="folder for SPACE-saved ROI stills (default: <repo>/media_outputs/camera_captures)",
+    )
     args = ap.parse_args()
 
     cfg = load_system_camera_config(_CONFIG_PATH)
     camera_index = args.camera if args.camera is not None else cfg.camera_index
     backend = args.backend if args.backend is not None else cfg.backend
+    out_dir = Path(args.out_dir)
     title = f"USB cam {camera_index} (ROI)"
     zoom_title = f"{title} -- ROI zoom"
     full_title = f"{title} -- full frame"
@@ -126,11 +161,19 @@ def main() -> int:
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     src_fps = cap.get(cv2.CAP_PROP_FPS)
     rx, ry, rw, rh = _ROI.for_frame(width, height)
+    # Read back what the device actually accepted -- the requested focus only proves we ASKED.
+    # On DSHOW a working VCM reports CAP_PROP_FOCUS near the requested value + AUTOFOCUS prop 2
+    # (manual); on MSMF the calls are accepted but the lens never moves (focus stays ~0).
+    focus_req = "untouched (autofocus)" if cfg.focus is None else str(cfg.focus)
+    focus_actual = cap.get(cv2.CAP_PROP_FOCUS)
+    af_actual = cap.get(cv2.CAP_PROP_AUTOFOCUS)
     print(
         f"Window open: {width}x{height} @ {src_fps:.0f} fps (camera-reported).\n"
+        f"Focus: autofocus {'off' if not cfg.autofocus else 'on'}, requested {focus_req} -- "
+        f"camera reports focus={focus_actual:.0f}, autofocus_prop={af_actual:g}.\n"
         f"ROI (this frame): x={rx} y={ry} w={rw} h={rh}  (constant {_ROI.w}x{_ROI.h} @ "
         f"{_ROI.ref_w}x{_ROI.ref_h}).\n"
-        "Keys (focus THIS terminal): q/ESC = quit."
+        "Keys (focus THIS terminal): SPACE = save ROI zoom + full-res ROI crop, q/ESC = quit."
     )
     if (width, height) != (_ROI.ref_w, _ROI.ref_h):
         print(
@@ -150,6 +193,7 @@ def main() -> int:
 
     started = time.monotonic()
     last_good: float | None = None  # time of the most recent successful grab
+    saved = 0
     try:
         while True:
             ok, frame = cap.read()
@@ -196,14 +240,50 @@ def main() -> int:
             imshow_fit(full_title, overlay)
 
             cv2.waitKey(1)  # pump GUI events; required for the windows to stay responsive
-            if _poll_key() in ("q", "Q", "\x1b"):  # q / ESC
+            key = _poll_key()
+            if key in ("q", "Q", "\x1b"):  # q / ESC
                 break
+            if key == " ":  # SPACE -> save the ROI zoom NOW + a full-res ROI crop (preview freezes ~1-2s)
+                out_dir.mkdir(parents=True, exist_ok=True)
+                ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # shared stem pairs both files
+                if _write_image(out_dir, ts, zoom):  # the 640x480 ROI zoom shown above
+                    saved += 1
+                print("  capturing full-res ROI crop (reopening at full res; hold steady) ...")
+                still, cap = grab_full_res_frame(
+                    cap,
+                    camera_index,
+                    backend,
+                    fourcc=cfg.fourcc,
+                    still_width=cfg.still_width,
+                    still_height=cfg.still_height,
+                    stream_width=cfg.width,
+                    stream_height=cfg.height,
+                    autofocus=cfg.autofocus,
+                    focus=cfg.focus,
+                )
+                if still is not None:
+                    fh, fw = still.shape[:2]
+                    if _write_image(out_dir, ts, _ROI.crop(still)):  # ROI region at full-res scale
+                        saved += 1
+                    if cfg.still_width and fw < cfg.still_width:
+                        print(
+                            f"  NOTE: full-res grab came back {fw}x{fh}, below the requested "
+                            f"{cfg.still_width}x{cfg.still_height} -- raise warmup_frames in "
+                            "grab_full_res_frame if this persists.",
+                            file=sys.stderr,
+                        )
+                else:
+                    print("  WARNING: full-res grab returned no frame.", file=sys.stderr)
+                if not cap.isOpened():
+                    print("  ERROR: camera did not reopen after the grab -- stopping.", file=sys.stderr)
+                    break
+                last_good = time.monotonic()  # the fresh stream cap is healthy; reset the stall clock
     except KeyboardInterrupt:
         print("\n^C")
     finally:
         cap.release()
         cv2.destroyAllWindows()
-        print("Camera closed.")
+        print(f"Camera closed. {saved} image(s) saved to {out_dir}.")
     return 0
 
 
