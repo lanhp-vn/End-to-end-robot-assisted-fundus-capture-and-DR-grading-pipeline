@@ -58,7 +58,7 @@ class AutoTriggerConfig(BaseModel):
     stable_seconds: float = Field(default=1.0, gt=0.0)
     cooldown_seconds: float = Field(default=3.0, ge=0.0)
     detect_interval_s: float = Field(default=0.2, gt=0.0)
-    require_red_between: bool = True
+    require_clear_between: bool = True
     require_no_red: bool = False
 
 

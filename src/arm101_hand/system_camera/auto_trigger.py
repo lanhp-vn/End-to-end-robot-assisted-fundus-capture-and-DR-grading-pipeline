@@ -1,8 +1,8 @@
 """Auto-trigger lifecycle for the arc-driven Aurora capture (device layer, pure + clock-injected).
 
 Drives the transition: wait for the alignment arcs to go GREEN -> require it stable for
-``stable_seconds`` -> fire ONE capture -> cooldown -> (optionally) wait for the arcs to go RED again
-before re-arming. ``update`` is pure: it takes the current state, the latest AlignmentState, a
+``stable_seconds`` -> fire ONE capture -> cooldown -> (optionally) wait for the arcs to LEAVE green
+before re-arming for the next shot. ``update`` is pure: it takes the current state, the latest AlignmentState, a
 monotonic ``now``, and the config, and returns the next state plus a one-shot ``should_fire``.
 No cv2, no time calls -- the caller injects ``now`` (so it is fully unit-testable).
 """
@@ -18,7 +18,7 @@ from .arc_detector import AlignmentState
 WAIT_GREEN = "WAIT_GREEN"
 STABILIZING = "STABILIZING"
 COOLDOWN = "COOLDOWN"
-WAIT_RED = "WAIT_RED"
+WAIT_CLEAR = "WAIT_CLEAR"
 
 
 @dataclass(frozen=True)
@@ -56,11 +56,13 @@ def update(
     if state.phase == COOLDOWN:
         assert state.fired_at is not None
         if now - state.fired_at >= cfg.cooldown_seconds:
-            nxt = WAIT_RED if cfg.require_red_between else WAIT_GREEN
+            nxt = WAIT_CLEAR if cfg.require_clear_between else WAIT_GREEN
             return replace(state, phase=nxt, green_since=None, fired_at=None), False
         return state, False
 
-    # WAIT_RED: re-arm once the arcs go red again (operator repositioned for the next patient).
-    if alignment.left == "RED" or alignment.right == "RED":
+    # WAIT_CLEAR: re-arm once the arcs LEAVE green (operator moved off / is re-aligning for the next
+    # shot). Keyed on "not ready", NOT specifically red -- off-eye the screen often goes blank/NONE,
+    # which an explicit-red gate would miss (it would stick here forever, ignoring the next green).
+    if not alignment.ready:
         return replace(state, phase=WAIT_GREEN), False
     return state, False

@@ -48,5 +48,5 @@ auto_trigger:
   stable_seconds: 1.0              # green must hold this long before firing
   cooldown_seconds: 3.0            # min gap after a fire
   detect_interval_s: 0.2           # how often to sample the ROI in auto mode
-  require_red_between: true        # after a fire, wait for arcs to go red again before re-arming
+  require_clear_between: true      # re-arm only after the arcs LEAVE green (re-align per shot); false = burst while green
   require_no_red: false            # if true, "ready" also requires NO band is red (tighter)

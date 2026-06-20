@@ -3,9 +3,10 @@
 This is the AUTO-trigger variant of ``grab_trigger_capture_analysis.py`` (which fires only on
 SPACE). It watches the Optomed Aurora's on-screen alignment arcs in the live USB preview: when
 they turn GREEN (correct working distance) and stay green, it auto-fires the SAME capture cycle
-SPACE would -- no keypress needed -- then HOLDS (green is ignored) until you grade the shot
-with 'g' and press 'n' to advance to the next patient. The trigger starts in MANUAL (SPACE-only);
-'m' toggles into AUTO (an explicit arm) and back. Each patient turn accumulates one or more captured fundus
+SPACE would -- no keypress needed -- and captures AGAIN each time you re-align to green (the arcs
+must leave green and come back between shots). Press 'g' to grade ALL of the patient's shots, then
+'n' to advance to the next patient (AUTO holds after 'g' until 'n'). The trigger starts in MANUAL
+(SPACE-only); 'm' toggles into AUTO (an explicit arm) and back. Each patient turn accumulates one or more captured fundus
 images (each pops up RAW as it lands), and pressing 'g' grades every shot of the turn
 with the RETFound ViT-L/16 ``DRGrader``, writes a ``<stem>.dr.json`` sidecar per shot
 (identical to ``arm101-dr-grade``) to ``media_outputs/fundus_analysis/``, and shows ONE
@@ -43,7 +44,7 @@ Controls (torque ON the whole time; focus the TERMINAL, not the preview window):
   m           toggle MANUAL <-> AUTO trigger mode (AUTO is the explicit arm; starts MANUAL)
   SPACE       (MANUAL only) fire one capture cycle -- ignored in AUTO (capture is automatic)
   g           analyze the current patient turn (grade every shot, show the combined panel)
-  n           next patient: re-arm AUTO to watch for green again (grade the held shot with 'g' first)
+  n           next patient: re-arm AUTO after grading (grade this patient's shots with 'g' first)
   r           start / stop recording the USB preview
   [ / ]       shrink / grow the press depth (applies to the NEXT press)
   q / Ctrl+C  stop and go to the exit prompt
@@ -428,8 +429,8 @@ def main() -> int:
                 target = acfg.captures_per_patient
                 if mode == "AUTO":
                     print(
-                        f"  shot {len(turn_shots)} captured (AUTO held) -- "
-                        "press 'g' to grade, then 'n' for the next patient."
+                        f"  shot {len(turn_shots)} captured (AUTO) -- "
+                        "re-align to green for another, or 'g' to grade this patient."
                     )
                 elif len(turn_shots) >= target:
                     print(
@@ -441,7 +442,7 @@ def main() -> int:
 
         mode = "MANUAL"
         state_auto = auto_trigger.arm()
-        armed = True  # AUTO fires only while armed; HELD (False) after a fire until 'n' (next patient)
+        armed = True  # AUTO captures while armed; HELD (False) after 'g' grading until 'n' (next patient)
         last_detect = 0.0
         print(
             "Trigger: m=auto/manual, SPACE=capture(MANUAL), g=analyze, n=next patient, r=record, [/]=depth, q=exit"
@@ -473,7 +474,10 @@ def main() -> int:
                         print(f"  analyzing {len(turn_shots)} shot(s) ...")
                         _analyze_turn(grader, turn_shots, analysis_output_dir, preview, grading_reason)
                         turn_shots = []
+                        armed = False  # HOLD after grading: ignore green until 'n' (next patient)
                         print("  patient turn complete -- press 'n' for the next patient.")
+                        if mode == "AUTO" and preview is not None:
+                            preview.set_status_text("graded -- press 'n' for next patient", (0, 255, 255))
                 elif key in ("n", "N"):  # advance to the next patient (re-arm AUTO)
                     if turn_shots and grading_enabled:
                         print(
@@ -523,10 +527,6 @@ def main() -> int:
                         if fire:
                             print("  AUTO: arcs green + stable -> firing capture")
                             _fire_capture_cycle()
-                            armed = False  # HOLD: ignore green until the operator presses 'n'
-                            preview.set_status_text(
-                                "AUTO captured -- 'g' to grade, 'n' for next patient", (0, 255, 255)
-                            )
                 elif mode == "AUTO" and preview is None:
                     print("  AUTO unavailable: no USB preview window -- staying MANUAL.")
                     mode = "MANUAL"

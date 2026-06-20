@@ -120,7 +120,7 @@ def test_auto_trigger_defaults():
     assert at.stable_seconds == 1.0
     assert at.cooldown_seconds == 3.0
     assert at.detect_interval_s == 0.2
-    assert at.require_red_between is True
+    assert at.require_clear_between is True
     assert at.require_no_red is False
     assert at.coverage_threshold == 0.04
     assert len(at.red_bands) == 2  # red wraps hue 0/180
