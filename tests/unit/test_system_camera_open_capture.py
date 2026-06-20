@@ -250,3 +250,13 @@ def test_grab_full_res_frame_returns_none_frame_but_still_reopens_stream(monkeyp
 
     assert frame is None
     assert new_cap is stream_cap  # stream is reopened either way so the caller can keep going
+
+
+def test_latest_frame_none_before_start(tmp_path):
+    p = WebcamPreview(index=0, window_title="t", record_dir=tmp_path)
+    assert p.latest_frame() is None
+
+
+def test_set_status_text_does_not_raise(tmp_path):
+    p = WebcamPreview(index=0, window_title="t", record_dir=tmp_path)
+    p.set_status_text("AUTO armed", (0, 255, 0))  # safe before the thread starts

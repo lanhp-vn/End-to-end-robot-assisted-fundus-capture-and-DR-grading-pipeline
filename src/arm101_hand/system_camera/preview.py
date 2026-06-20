@@ -285,6 +285,14 @@ class WebcamPreview:
         self._still_lock = threading.Lock()
         self._still_pending: bytes | None = None
 
+        # Latest ROI-cropped frame for callers that detect on it (e.g. the auto-trigger demo),
+        # plus an optional status string the capture thread overlays. Both thread-safe.
+        self._latest_lock = threading.Lock()
+        self._latest: np.ndarray | None = None
+        self._status_lock = threading.Lock()
+        self._status_text = ""
+        self._status_color: tuple[int, int, int] = (0, 255, 0)
+
         self._ready = threading.Event()  # set once the thread has tried to open the camera
         self.ok = False  # True iff the camera opened
         self.width = 0
@@ -325,6 +333,17 @@ class WebcamPreview:
         non-blocking; a no-op if the capture thread never opened the camera."""
         with self._still_lock:
             self._still_pending = image_bytes
+
+    def latest_frame(self) -> np.ndarray | None:
+        """Thread-safe copy of the most recent ROI-cropped frame, or None before the first frame."""
+        with self._latest_lock:
+            return None if self._latest is None else self._latest.copy()
+
+    def set_status_text(self, text: str, color: tuple[int, int, int] = (0, 255, 0)) -> None:
+        """Thread-safe: a status line the capture thread overlays bottom-left (display only)."""
+        with self._status_lock:
+            self._status_text = text
+            self._status_color = color
 
     def stop(self) -> None:
         """Signal teardown and wait for the thread to release the window + cv2 on its own side."""
@@ -411,6 +430,9 @@ class WebcamPreview:
                         interpolation=cv2.INTER_LINEAR,
                     )
 
+                with self._latest_lock:
+                    self._latest = frame.copy()  # clean ROI frame for latest_frame() consumers
+
                 want = self._record.is_set()
                 if want and not recording:
                     writer = self._open_writer(cap, frame)
@@ -427,6 +449,19 @@ class WebcamPreview:
                 if recording:  # putText mutates in place -> display only, after the write above
                     cv2.putText(
                         frame, "REC", (12, 32), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2, cv2.LINE_AA
+                    )
+                with self._status_lock:
+                    status, status_color = self._status_text, self._status_color
+                if status:
+                    cv2.putText(
+                        frame,
+                        status,
+                        (12, frame.shape[0] - 14),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        status_color,
+                        2,
+                        cv2.LINE_AA,
                     )
                 imshow_fit(self._title, frame)
                 cv2.waitKey(1)  # pump GUI events; required for the window to stay responsive
