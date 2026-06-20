@@ -58,6 +58,3 @@
 [submodule "references/AIML-models/RETFound"]
 	path = references/AIML-models/RETFound
 	url = https://github.com/rmaphoh/RETFound
-[submodule "references/computer-vision/IMX362"]
-	path = references/computer-vision/IMX362
-	url = https://github.com/Re4son/gemini-kali-linux-kernel-3.18.git
