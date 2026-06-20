@@ -133,13 +133,21 @@ uv run python scripts/demos/grab_trigger_capture_analysis.py
 
 This runs the same robot-triggered capture as `grab_trigger_capture` but, per patient turn, grades every captured shot when you press `g` and shows a combined results panel (grade, label, confidence, per-class probabilities, disclaimer) beside the most-severe image in the popup — writing the same `<image>.dr.json` sidecars as `arm101-dr-grade`. If the slim weights are missing it still captures and pops up images, with the panel noting grading is unavailable. Pass `--no-grade` to run capture-only; `inline_grading` and `captures_per_patient` in `src/arm101_hand/data/fundus_analysis_config.yaml` set the defaults.
 
+Finally, the capture can fire **automatically** instead of on SPACE:
+
+```powershell
+uv run python scripts/demos/grab_auto_trigger_analysis.py
+```
+
+This is the analysis demo plus a computer-vision auto-trigger: the arm-mounted USB camera watches the Optomed Aurora's two on-screen alignment arcs, and when they turn **green** (correct working distance) and hold stable, the hand auto-presses the shutter — no keypress. Press `m` to arm AUTO (it starts in MANUAL, SPACE-only); each time you re-align to green it captures another shot of the same patient; `g` grades them all; `n` advances to the next patient. Detection is local HSV color masking on a fixed region of each arc — the regions, color bands, and timing live in the `auto_trigger` block of `src/arm101_hand/data/system_camera_config.yaml` and are tuned against your screen (design in [`docs/superpowers/specs/2026-06-19-arc-auto-trigger-design.md`](docs/superpowers/specs/2026-06-19-arc-auto-trigger-design.md)).
+
 ## Repo layout
 
 ```
 src/arm101_hand/        # device + application layer (subclass + console scripts + fundus_analysis DR grader)
 scripts/calibration/    # AmazingHand + SO-ARM101 calibration runners
 scripts/diagnostics/    # motors/ (scan / show_calib / find_port) + fundus_camera/ (aurora_probe / aurora_wiredump) + system_camera/ (usb_camera_probe / usb_camera_capture / usb_camera_roi_preview / usb_camera_focus_probe)
-scripts/demos/          # runnable demos (grab_sequence: staged grab; grab_toggle: + index-finger toggle; grab_trigger_capture: live system-cam window + Aurora shutter press + auto-pull; grab_trigger_capture_analysis: + inline DR grading + results panel)
+scripts/demos/          # runnable demos (grab_sequence: staged grab; grab_toggle: + index-finger toggle; grab_trigger_capture: live system-cam window + Aurora shutter press + auto-pull; grab_trigger_capture_analysis: + inline DR grading + results panel; grab_auto_trigger_analysis: + CV auto-trigger on the green alignment arcs)
 scripts/fundus_analysis/ # DR-grading ops: export_weights (slim weight export) + aptos_eval (validation)
 models/                 # git-ignored slim model weights exported from references/ checkpoints
 docs/BOM.md             # bill of materials, host PC spec
