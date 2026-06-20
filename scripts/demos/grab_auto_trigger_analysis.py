@@ -3,8 +3,9 @@
 This is the AUTO-trigger variant of ``grab_trigger_capture_analysis.py`` (which fires only on
 SPACE). It watches the Optomed Aurora's on-screen alignment arcs in the live USB preview: when
 they turn GREEN (correct working distance) and stay green, it auto-fires the SAME capture cycle
-SPACE would -- no keypress needed. The trigger starts in MANUAL (SPACE-only); 'm' toggles into
-AUTO (an explicit arm) and back. Each patient turn accumulates one or more captured fundus
+SPACE would -- no keypress needed -- then HOLDS (green is ignored) until you grade the shot
+with 'g' and press 'n' to advance to the next patient. The trigger starts in MANUAL (SPACE-only);
+'m' toggles into AUTO (an explicit arm) and back. Each patient turn accumulates one or more captured fundus
 images (each pops up RAW as it lands), and pressing 'g' grades every shot of the turn
 with the RETFound ViT-L/16 ``DRGrader``, writes a ``<stem>.dr.json`` sidecar per shot
 (identical to ``arm101-dr-grade``) to ``media_outputs/fundus_analysis/``, and shows ONE
@@ -40,8 +41,9 @@ PREREQUISITES (set on the camera; the API cannot):
 
 Controls (torque ON the whole time; focus the TERMINAL, not the preview window):
   m           toggle MANUAL <-> AUTO trigger mode (AUTO is the explicit arm; starts MANUAL)
-  SPACE       (manual override, any mode) fire one capture cycle
+  SPACE       (MANUAL only) fire one capture cycle -- ignored in AUTO (capture is automatic)
   g           analyze the current patient turn (grade every shot, show the combined panel)
+  n           next patient: re-arm AUTO to watch for green again (grade the held shot with 'g' first)
   r           start / stop recording the USB preview
   [ / ]       shrink / grow the press depth (applies to the NEXT press)
   q / Ctrl+C  stop and go to the exit prompt
@@ -424,7 +426,12 @@ def main() -> int:
                 if preview is not None:
                     preview.show_still(data)  # raw image while the turn is in progress
                 target = acfg.captures_per_patient
-                if len(turn_shots) >= target:
+                if mode == "AUTO":
+                    print(
+                        f"  shot {len(turn_shots)} captured (AUTO held) -- "
+                        "press 'g' to grade, then 'n' for the next patient."
+                    )
+                elif len(turn_shots) >= target:
                     print(
                         f"  shot {len(turn_shots)} captured (target {target} reached) -- "
                         "press 'g' to analyze, SPACE for another."
@@ -434,8 +441,11 @@ def main() -> int:
 
         mode = "MANUAL"
         state_auto = auto_trigger.arm()
+        armed = True  # AUTO fires only while armed; HELD (False) after a fire until 'n' (next patient)
         last_detect = 0.0
-        print("Trigger: m=auto/manual, SPACE=capture, g=analyze, r=record, [ / ]=depth, q=exit")
+        print(
+            "Trigger: m=auto/manual, SPACE=capture(MANUAL), g=analyze, n=next patient, r=record, [/]=depth, q=exit"
+        )
         _print_prereqs()
         print("  " + _status_line(state, out_base, side, others))
 
@@ -447,6 +457,7 @@ def main() -> int:
                     mode = "AUTO" if mode == "MANUAL" else "MANUAL"
                     if mode == "AUTO":
                         state_auto = auto_trigger.arm()
+                        armed = True
                     print(f"  mode -> {mode}")
                 elif key in ("r", "R"):
                     _toggle_recording(preview)
@@ -454,18 +465,40 @@ def main() -> int:
                     if not grading_enabled:
                         print("  grading disabled (capture-only) -- nothing to analyze.")
                     elif not turn_shots:
-                        print("  no shots captured yet -- press SPACE to capture first.")
+                        if mode == "AUTO":
+                            print("  no shots captured yet -- align the Aurora to green; it auto-captures.")
+                        else:
+                            print("  no shots captured yet -- press SPACE to capture first.")
                     else:
                         print(f"  analyzing {len(turn_shots)} shot(s) ...")
                         _analyze_turn(grader, turn_shots, analysis_output_dir, preview, grading_reason)
                         turn_shots = []
-                        print("  patient turn complete -- next SPACE starts a new patient.")
+                        print("  patient turn complete -- press 'n' for the next patient.")
+                elif key in ("n", "N"):  # advance to the next patient (re-arm AUTO)
+                    if turn_shots:
+                        print(
+                            f"  {len(turn_shots)} shot(s) not yet analyzed -- "
+                            "press 'g' to grade first, or 'q' to exit."
+                        )
+                    else:
+                        state_auto = auto_trigger.arm()
+                        armed = True
+                        if mode == "AUTO":
+                            print("  next patient -- AUTO re-armed, watching for green.")
+                        else:
+                            print("  next patient -- ready (press 'm' for AUTO).")
                 else:
                     action = key_to_action(key) if key else None
                     if action == "quit":
                         break
                     if action == "fire":
-                        _fire_capture_cycle()
+                        if mode == "AUTO":
+                            print(
+                                "  SPACE is disabled in AUTO (capture is automatic) -- "
+                                "press 'n' for the next patient, or 'm' for MANUAL."
+                            )
+                        else:
+                            _fire_capture_cycle()
                     elif action is not None:
                         state = apply_action(state, action)
                         base_now, side_now = read_finger(c, "index", index_block)
@@ -473,6 +506,7 @@ def main() -> int:
 
                 if (
                     mode == "AUTO"
+                    and armed
                     and preview is not None
                     and now - last_detect >= scfg.auto_trigger.detect_interval_s
                 ):
@@ -486,6 +520,10 @@ def main() -> int:
                         if fire:
                             print("  AUTO: arcs green + stable -> firing capture")
                             _fire_capture_cycle()
+                            armed = False  # HOLD: ignore green until the operator presses 'n'
+                            preview.set_status_text(
+                                "AUTO captured -- 'g' to grade, 'n' for next patient", (0, 255, 255)
+                            )
                 elif mode == "AUTO" and preview is None:
                     print("  AUTO unavailable: no USB preview window -- staying MANUAL.")
                     mode = "MANUAL"
