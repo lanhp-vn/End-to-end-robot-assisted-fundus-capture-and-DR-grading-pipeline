@@ -45,7 +45,7 @@ auto_trigger:
     - {h_lo: 40, s_lo: 40, v_lo: 60, h_hi: 90, s_hi: 255, v_hi: 255}
   coverage_threshold: 0.04         # fraction of an arc band that must match a color to count
   morph_kernel: 3                  # MORPH_OPEN kernel (px) to despeckle the mask
-  stable_seconds: 1.0              # green must hold this long before firing
+  stable_seconds: 2.0              # green must hold this long before firing
   cooldown_seconds: 3.0            # min gap after a fire
   detect_interval_s: 0.2           # how often to sample the ROI in auto mode
   require_clear_between: true      # re-arm only after the arcs LEAVE green (re-align per shot); false = burst while green

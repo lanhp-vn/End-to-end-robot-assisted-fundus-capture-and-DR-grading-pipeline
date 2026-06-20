@@ -112,7 +112,7 @@ def test_data_yaml_loads():
     at = cfg.auto_trigger
     assert at.left_arc.w == 70 and at.right_arc.w == 70
     assert len(at.red_bands) == 2 and len(at.green_bands) == 1
-    assert at.stable_seconds == 1.0
+    assert at.stable_seconds == 2.0  # bench-tuned in the data YAML (schema default stays 1.0)
 
 
 def test_auto_trigger_defaults():
