@@ -56,12 +56,15 @@ _MAX_INITIAL_WIN_H = 720
 
 
 def _apply_format(cap: cv2.VideoCapture, fourcc: str, width: int | None, height: int | None) -> None:
-    """Request ``fourcc`` then resolution on an open capture (no-op if it never opened).
+    """Request ``fourcc`` BRACKETING the resolution on an open capture (no-op if it never opened).
 
-    FOURCC is set BEFORE the frame size on purpose: UVC webcams expose their high-resolution modes
-    only once the compressed format (MJPG) is selected -- request width/height first and the driver
-    keeps you on a low-res uncompressed (YUY2) mode. ``width``/``height`` of ``None`` request the
-    driver's maximum via :data:`_MAX_DIM_REQUEST` (it clamps the oversized request down).
+    FOURCC is set BEFORE the frame size *and* re-asserted AFTER it. The first set exposes the
+    high-resolution modes (UVC cams only offer them once the compressed format is selected -- request
+    the size first and you stay on a low-res mode). But on this IFWATER IMX362 (dshow) the size-set
+    then silently reverts the format to uncompressed YUY2, which over USB 2.0 collapses the high-res
+    modes to ~2-5 fps (e.g. 2592x1944 dropped from ~15 fps MJPG to ~2 fps YUY2). Re-asserting FOURCC
+    after the size locks MJPG back without changing the negotiated resolution. ``width``/``height`` of
+    ``None`` request the driver's maximum via :data:`_MAX_DIM_REQUEST` (it clamps the oversized request).
     """
     if not cap.isOpened():
         return
@@ -69,6 +72,8 @@ def _apply_format(cap: cv2.VideoCapture, fourcc: str, width: int | None, height:
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc(*fourcc))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width or _MAX_DIM_REQUEST)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height or _MAX_DIM_REQUEST)
+    if fourcc:  # re-assert: the size-set above can revert the format to YUY2 on this cam
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc(*fourcc))
 
 
 def _apply_focus(cap: cv2.VideoCapture, autofocus: bool, focus: int | None) -> None:

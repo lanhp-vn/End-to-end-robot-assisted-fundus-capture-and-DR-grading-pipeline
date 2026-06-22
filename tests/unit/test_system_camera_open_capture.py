@@ -61,6 +61,24 @@ def test_open_capture_requests_mjpg_then_max(monkeypatch):
     assert _value_for(fake, cv2.CAP_PROP_FRAME_HEIGHT) == _MAX_DIM_REQUEST
 
 
+def test_open_capture_reasserts_mjpg_after_resolution(monkeypatch):
+    # This camera reverts the format to uncompressed YUY2 when the resolution is set AFTER MJPG, which
+    # collapses the high-res modes to ~2 fps over USB 2.0. So MJPG is set TWICE: once before the size
+    # (to expose the high-res mode) and once after (so the size-set can't silently revert to YUY2).
+    fake = _FakeCap()
+    monkeypatch.setattr(cv2, "VideoCapture", lambda *a, **k: fake)
+
+    open_capture(0, width=2592, height=1944)
+
+    props = _props(fake)
+    fourcc_at = [i for i, p in enumerate(props) if p == cv2.CAP_PROP_FOURCC]
+    assert len(fourcc_at) == 2  # bracketed: one before the size, one after
+    assert fourcc_at[0] < props.index(cv2.CAP_PROP_FRAME_WIDTH)
+    assert fourcc_at[1] > props.index(cv2.CAP_PROP_FRAME_HEIGHT)
+    mjpg = cv2.VideoWriter.fourcc(*"MJPG")
+    assert [v for p, v in fake.set_calls if p == cv2.CAP_PROP_FOURCC] == [mjpg, mjpg]
+
+
 def test_open_capture_explicit_resolution_and_format(monkeypatch):
     fake = _FakeCap()
     monkeypatch.setattr(cv2, "VideoCapture", lambda *a, **k: fake)
