@@ -40,10 +40,19 @@ def test_crop_shape_matches_for_frame():
     assert roi.crop(_frame(1280, 960)).shape == (420, 560, 3)
 
 
-def test_aurora_roi_downscales_at_2592x1944():
-    # The 2592x1944 stream (system_camera_config.yaml) makes the ROI crop LARGER than the 640x480
-    # reference, so the resize-to-reference is a DOWNSCALE -- real pixels, no upscale. This is the
-    # whole point of the 2K stream; it locks the for_frame numbers the config relies on.
+def test_aurora_roi_at_1600x1200():
+    # The operating stream is 1600x1200 (system_camera_config.yaml), chosen for ~44 fps over USB 2.0.
+    # At this size the ROI crop (~490x368) is SMALLER than the 640x480 reference, so resize-to-
+    # reference is a mild (~1.3x) UPSCALE -- a deliberate trade of the no-upscale goal for frame rate.
+    # Locks the for_frame numbers the config relies on.
+    x, y, w, h = AURORA_SCREEN_ROI.for_frame(1600, 1200)
+    assert (x, y, w, h) == (150, 188, 490, 368)
+    assert w < AURORA_SCREEN_ROI.ref_w and h < AURORA_SCREEN_ROI.ref_h  # mild upscale (fps trade)
+
+
+def test_aurora_roi_no_upscale_at_2592x1944():
+    # Reference point: 2592x1944 is the no-upscale alternative (crop LARGER than the 640x480 ref ->
+    # downscale). Kept so the trade-off the config comment describes stays test-documented.
     x, y, w, h = AURORA_SCREEN_ROI.for_frame(2592, 1944)
     assert (x, y, w, h) == (243, 304, 794, 595)
-    assert w >= AURORA_SCREEN_ROI.ref_w and h >= AURORA_SCREEN_ROI.ref_h  # no upscale in either axis
+    assert w >= AURORA_SCREEN_ROI.ref_w and h >= AURORA_SCREEN_ROI.ref_h

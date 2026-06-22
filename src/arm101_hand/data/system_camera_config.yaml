@@ -18,21 +18,23 @@ focus: 600
 record_dir: media_outputs/camera_recordings   # repo-relative; 'r' writes usb_cam_<timestamp>.avi here
 fps: null           # null -> camera-reported fps (fallback 20)
 # This cam = IFWATER IF-USB12MP02AF (IMX362, USB 2.0): 4000x3000 max still, MJPG-only for hi-res
-# (YUY2 is uncompressed + capped low). MJPG also lets the 5 MP stream run at a usable frame rate.
+# (YUY2 is uncompressed + capped low). _apply_format (preview.py) brackets the size with MJPG so the
+# driver can't silently fall back to YUY2 (which would crush USB-2.0 fps -- see system_camera memory).
 #
-# The LIVE stream (width/height) runs at 2592x1944 (5 MP, 4:3) -- used by the preview, recording, AND
-# arc detection everywhere. The fixed ROI is ~30.6% of the frame, so at this size it crops to ~794x595
-# REAL pixels and DOWNSCALES to the 640x480 ROI reference (roi.py): no upscale, real optical detail
-# for detection. The preview window, recording, and detection frame all stay 640x480 (the ROI
-# reference) regardless of stream size. Expect ~15 fps over USB 2.0 -- the Aurora screen is static, so
-# that is smooth enough. (If 2592x1944 is unsupported or too slow on the bench, fall back to 2048x1536
-# -- accepts a ~2% residual upscale.) usb_camera_capture still reopens the device at the STILL size
-# (4000x3000) for its 12 MP SPACE grab, then resumes the stream; the demos never save a USB-cam still.
-# (MSMF can't switch resolution on an open capture, so that grab reopens rather than switching it.)
-# Set any of these to null to request the driver's max instead (it clamps a large request down).
+# The LIVE stream (width/height) runs at 1600x1200 (UXGA, 4:3) -- used by the preview, recording, AND
+# arc detection everywhere. Chosen for FRAME RATE: on this cam 1600x1200 is the largest 4:3 MJPG mode
+# before a hard USB-2.0 bandwidth cliff (<=1600x1200 ~44 fps; 2048x1536+ drops to ~15 fps -- enumerate
+# with scripts/diagnostics/system_camera/usb_camera_modes.py). The fixed ROI is ~30.6% of the frame, so
+# at this size it crops to ~490x368 REAL pixels and UPSCALES ~1.3x to the 640x480 ROI reference (roi.py)
+# -- a deliberate trade of the no-upscale goal for ~3x the frame rate; still ~6x the detail of the old
+# 640x480 stream. The preview window, recording, and detection frame all stay 640x480 (the ROI ref).
+# For max detail instead (no upscale, ~794x595 crop) use 2592x1944 @ ~15 fps. usb_camera_capture still
+# reopens the device at the STILL size (4000x3000) for its 12 MP SPACE grab, then resumes the stream;
+# the demos never save a USB-cam still. (MSMF can't switch resolution on an open capture, so that grab
+# reopens rather than switching it.) Set any of these to null to request the driver's max instead.
 fourcc: MJPG
-width: 2592         # live stream @ 5 MP 4:3 -> ROI crop ~794x595 real px -> downscale to 640x480 ref
-height: 1944
+width: 1600         # live stream @ UXGA 4:3 -> ROI crop ~490x368 real px -> ~1.3x upscale to 640x480 ref
+height: 1200
 still_width: 4000   # full-res SPACE grab in usb_camera_capture (12 MP), then back to the stream res
 still_height: 3000
 # --- Automated trigger (grab_auto_trigger_analysis.py) -------------------------------------------

@@ -15,9 +15,9 @@ Two windows open (both letterboxed, never stretched on resize):
                             exactly what is being cropped against the whole scene.
 
 Press SPACE to save the framed shot: the ROI zoom (640x480) plus the native-resolution ROI crop
-taken straight from the live frame -- at the configured 2592x1944 stream that crop is ~794x595 real
-pixels, as sharp as the operating path gets, with no device reopen and no preview freeze. Both files
-share a timestamp; the ``<w>x<h>`` suffix tells them apart.
+taken straight from the live frame (the ROI region at the camera's configured stream resolution --
+e.g. ~490x368 at a 1600x1200 stream), as sharp as the operating path gets, with no device reopen and
+no preview freeze. Both files share a timestamp; the ``<w>x<h>`` suffix tells them apart.
 
 Single-threaded by design (like ``usb_camera_capture.py``): this tool reads + shows frames itself
 and polls the TERMINAL for keys via ``msvcrt.kbhit`` -- it can't block on ``getwch`` because the
@@ -251,7 +251,7 @@ def main() -> int:
                     saved += 1
                 # Native-res ROI crop straight from the live frame: the stream is already 5 MP, so
                 # this is as sharp as the operating path gets -- no device reopen, no preview freeze.
-                if _write_image(out_dir, ts, _ROI.crop(frame)):  # ~794x595 at a 2592x1944 stream
+                if _write_image(out_dir, ts, _ROI.crop(frame)):  # native ROI region at the stream res
                     saved += 1
     except KeyboardInterrupt:
         print("\n^C")

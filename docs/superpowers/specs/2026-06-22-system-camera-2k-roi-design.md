@@ -4,6 +4,8 @@
 **Status:** Design — approved for planning
 **Scope:** `src/arm101_hand/system_camera/` + its config + one diagnostic. Camera-only; no arm/hand behavior.
 
+> **Update (2026-06-22, post-bench):** the implemented stream resolution is **1600×1200 (UXGA), not 2592×1944.** Bench enumeration (`usb_camera_modes.py`) showed two things: (1) the camera was silently falling back to uncompressed YUY2, fixed by bracketing the resolution with MJPG in `_apply_format`; and (2) even on MJPG there's a hard USB-2.0 cliff — ≤1600×1200 sustains ~44 fps, but 2048×1536+ drops to ~15 fps. 2592×1944 (this spec's "no upscale" target) ran at only ~15 fps and felt laggy, so the operator chose 1600×1200 for ~44 fps, accepting a mild ~1.3× ROI upscale (crop ~490×368 → 640×480 ref). The no-upscale analysis below still holds for 2592×1944; the live config + `docs/BOM.md` are the source of truth for the actual value.
+
 ## 1. Problem
 
 The arm-mounted USB observation camera (IFWATER IF-USB12MP02AF, IMX362, USB 2.0) streams at **640×480**. The fixed ROI that zooms onto the Optomed Aurora's screen (`AURORA_SCREEN_ROI`) is ~30.6% of the frame, so it crops only **196×147 real pixels**, then **upscales ~10×** to the 640×480 reference (`preview.py` `_run`). Arc detection, the preview, and the recording therefore run on interpolated pixels rather than real optical detail.
