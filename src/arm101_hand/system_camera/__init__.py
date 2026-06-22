@@ -14,6 +14,7 @@ from .preview import (
     imshow_fit,
     open_capture,
     read_settled_frame,
+    resolution_mismatch_warning,
 )
 from .roi import AURORA_SCREEN_ROI, Roi
 
@@ -33,6 +34,7 @@ __all__ = [
     "imshow_fit",
     "open_capture",
     "read_settled_frame",
+    "resolution_mismatch_warning",
     "sharpness",
     "update",
 ]

@@ -1,6 +1,6 @@
 import numpy as np
 
-from arm101_hand.system_camera.preview import _fit_within, _letterbox
+from arm101_hand.system_camera.preview import _fit_within, _letterbox, resolution_mismatch_warning
 
 
 def _white(w: int, h: int) -> np.ndarray:
@@ -64,3 +64,19 @@ def test_fit_within_never_upscales():
 def test_fit_within_handles_zero():
     # Degenerate size (camera not ready) returns unchanged, no divide-by-zero.
     assert _fit_within(0, 0, 960, 720) == (0, 0)
+
+
+def test_resolution_mismatch_none_when_equal():
+    assert resolution_mismatch_warning(2592, 1944, 2592, 1944) is None
+
+
+def test_resolution_mismatch_warns_when_clamped():
+    msg = resolution_mismatch_warning(2592, 1944, 1920, 1080)
+    assert msg is not None
+    assert "2592x1944" in msg and "1920x1080" in msg
+
+
+def test_resolution_mismatch_none_when_request_unspecified():
+    # width/height = None means "give me the driver max" -> nothing to compare against.
+    assert resolution_mismatch_warning(None, None, 1920, 1080) is None
+    assert resolution_mismatch_warning(2592, None, 2592, 1944) is None

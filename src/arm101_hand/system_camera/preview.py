@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import math
+import sys
 import threading
 from pathlib import Path
 from typing import Literal
@@ -209,6 +210,27 @@ def grab_full_res_frame(
         focus=focus,
     )
     return frame, stream_cap
+
+
+def resolution_mismatch_warning(
+    requested_w: int | None, requested_h: int | None, actual_w: int, actual_h: int
+) -> str | None:
+    """Return a warning string if the driver negotiated a different mode than requested, else None.
+
+    A UVC driver clamps an unsupported resolution request to its nearest mode -- which can change
+    the aspect ratio and shift where the Aurora screen sits in the frame, breaking the fixed ROI.
+    ``None`` for a requested dimension means "the driver's max" (nothing to compare). Pure -- the
+    caller decides where to print it.
+    """
+    if requested_w is None or requested_h is None:
+        return None
+    if (actual_w, actual_h) == (requested_w, requested_h):
+        return None
+    return (
+        f"WARNING: system camera requested {requested_w}x{requested_h} but the driver negotiated "
+        f"{actual_w}x{actual_h} -- ROI framing assumes the requested aspect; verify with "
+        "usb_camera_roi_preview.py."
+    )
 
 
 def _fit_within(w: int, h: int, max_w: int, max_h: int) -> tuple[int, int]:
@@ -396,6 +418,9 @@ class WebcamPreview:
         self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.src_fps = float(cap.get(cv2.CAP_PROP_FPS))
         self.ok = True
+        warn = resolution_mismatch_warning(self._width, self._height, self.width, self.height)
+        if warn:
+            print(warn, file=sys.stderr)
         # WINDOW_NORMAL: resizable. We keep the aspect ratio ourselves via imshow_fit (letterbox) --
         # WINDOW_KEEPRATIO is Qt-only and a no-op on this wheel's Win32 backend, so imshow would
         # otherwise stretch the frame on resize. resizeWindow sets a sane initial size = the
