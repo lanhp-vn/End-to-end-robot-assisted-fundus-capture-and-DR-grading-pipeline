@@ -187,9 +187,16 @@ def imshow_fit(window_title: str, frame: np.ndarray) -> None:
     and is a silent no-op on the Win32 backend the ``opencv-python`` Windows wheel ships -- there
     ``imshow`` stretches the image to fill a resized window. We read the window's image rect and
     pad to it ourselves, so the picture never distorts however the window is dragged. If the rect
-    is not ready yet (just-created window), the raw frame is shown and the next frame letterboxes.
+    is not ready yet (just-created window) or the window does not exist at all, the raw frame is
+    shown (which creates the window) and the next frame letterboxes.
     """
-    _, _, win_w, win_h = cv2.getWindowImageRect(window_title)
+    try:
+        _, _, win_w, win_h = cv2.getWindowImageRect(window_title)
+    except cv2.error:
+        # On the Win32 backend getWindowImageRect raises a NULL-window error if the window was
+        # never created (vs returning zeros for a created-but-unsized one). Fall back to plain
+        # imshow, which creates the window; the next loop iteration letterboxes normally.
+        win_w = win_h = 0
     if win_w <= 0 or win_h <= 0:
         cv2.imshow(window_title, frame)  # window not sized yet -- self-corrects next loop
         return

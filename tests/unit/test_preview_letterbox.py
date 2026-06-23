@@ -1,6 +1,12 @@
+import cv2
 import numpy as np
 
-from arm101_hand.system_camera.preview import _fit_within, _letterbox, resolution_mismatch_warning
+from arm101_hand.system_camera.preview import (
+    _fit_within,
+    _letterbox,
+    imshow_fit,
+    resolution_mismatch_warning,
+)
 
 
 def _white(w: int, h: int) -> np.ndarray:
@@ -80,3 +86,19 @@ def test_resolution_mismatch_none_when_request_unspecified():
     # width/height = None means "give me the driver max" -> nothing to compare against.
     assert resolution_mismatch_warning(None, None, 1920, 1080) is None
     assert resolution_mismatch_warning(2592, None, 2592, 1944) is None
+
+
+def test_imshow_fit_survives_missing_window(monkeypatch):
+    # getWindowImageRect THROWS on a never-created window (Win32) -- it doesn't just return zeros.
+    # imshow_fit must fall back to a plain imshow (which creates the window) instead of crashing.
+    def _raise(_title):
+        raise cv2.error("NULL window")
+
+    shown: dict[str, object] = {}
+    monkeypatch.setattr(cv2, "getWindowImageRect", _raise)
+    monkeypatch.setattr(cv2, "imshow", lambda title, frame: shown.update(title=title, shape=frame.shape))
+
+    imshow_fit("never-created", _white(640, 480))  # must NOT raise
+
+    assert shown["title"] == "never-created"
+    assert shown["shape"] == (480, 640, 3)  # raw frame shown (not letterboxed to a window size)

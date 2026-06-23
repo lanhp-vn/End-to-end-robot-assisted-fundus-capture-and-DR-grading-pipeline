@@ -46,6 +46,15 @@ from arm101_hand.system_camera.calibration import (  # noqa: E402
 _CONFIG_PATH = _REPO_ROOT / "src" / "arm101_hand" / "data" / "system_camera_config.yaml"
 _FONT = cv2.FONT_HERSHEY_SIMPLEX
 _REF_W, _REF_H = 640, 480
+_MAX_WIN_W, _MAX_WIN_H = 1100, 800  # initial window cap so large frames fit the screen
+
+
+def _open_window(title: str, frame_w: int, frame_h: int) -> None:
+    """Create a resizable window sized to fit the screen (never upscales). MUST precede imshow_fit:
+    on the Win32 backend getWindowImageRect raises a NULL-window error for a never-created window."""
+    cv2.namedWindow(title, cv2.WINDOW_NORMAL)
+    scale = min(_MAX_WIN_W / frame_w, _MAX_WIN_H / frame_h, 1.0)
+    cv2.resizeWindow(title, max(1, round(frame_w * scale)), max(1, round(frame_h * scale)))
 
 
 def _crop_to_ref(frame: np.ndarray, roi: Roi) -> np.ndarray:
@@ -55,12 +64,16 @@ def _crop_to_ref(frame: np.ndarray, roi: Roi) -> np.ndarray:
 
 def _capture_frame(cap, title: str, overlay: Roi | None) -> np.ndarray | None:
     """Stream until SPACE (return the frame) or q/ESC (return None). Draws ``overlay`` if given."""
+    opened = False
     while True:
         ok, frame = cap.read()
         if not ok or frame is None:
             if (cv2.waitKey(30) & 0xFF) in (ord("q"), 27):
                 return None
             continue
+        if not opened:  # create the window once we know the frame size (imshow_fit needs it to exist)
+            _open_window(title, frame.shape[1], frame.shape[0])
+            opened = True
         disp = frame.copy()
         if overlay is not None:
             x, y, w, h = overlay.for_frame(frame.shape[1], frame.shape[0])
@@ -89,6 +102,7 @@ def _pick_roi(white: np.ndarray) -> Roi | None:
         cands.append(to_roi_candidate((max(0, bx - m), max(0, by - m), bw + 2 * m, bh + 2 * m), fw, fh))
     title = "Calib 1/3: pick ROI  [1/2/3 select | m manual | r recapture | q quit]"
     colors = [(0, 255, 0), (0, 200, 255), (255, 180, 0)]
+    _open_window(title, fw, fh)
     while True:
         disp = white.copy()
         for i, (x, y, w, h) in enumerate(cands[:3]):
@@ -132,6 +146,7 @@ def _confirm(
     title = "Calib confirm  [y write | e re-tune | r redo | q quit]"
     la = roi_from_region(trial.left_arc)
     ra = roi_from_region(trial.right_arc)
+    _open_window(title, 2 * _REF_W, _REF_H)  # the confirm composite is two ROI panels side by side
     while True:
         panels = []
         for label, frame, bands, tint in (
