@@ -15,7 +15,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from arm101_hand.config.system_camera_config import HsvBand  # noqa: F401  # used by Task 5 helpers
+from arm101_hand.config.system_camera_config import HsvBand, RoiBox
 
 _FONT = cv2.FONT_HERSHEY_SIMPLEX
 
@@ -80,3 +80,96 @@ def to_roi_candidate(
     nw = max(1, min(nw, frame_w - nx))
     nh = max(1, min(nh, frame_h - ny))
     return nx, ny, nw, nh
+
+
+# Broad colour priors (the schema defaults) used to FIND candidate pixels before percentile
+# sampling tightens the band. Red wraps hue 0/180 -> two prior bands.
+_RED_PRIOR: list[HsvBand] = [
+    HsvBand(h_lo=0, s_lo=80, v_lo=80, h_hi=10, s_hi=255, v_hi=255),
+    HsvBand(h_lo=170, s_lo=80, v_lo=80, h_hi=180, s_hi=255, v_hi=255),
+]
+_GREEN_PRIOR: list[HsvBand] = [HsvBand(h_lo=35, s_lo=40, v_lo=50, h_hi=95, s_hi=255, v_hi=255)]
+
+
+def _prior_mask(hsv: np.ndarray, bands: list[HsvBand]) -> np.ndarray:
+    """OR the inRange masks for every prior band, then MORPH_OPEN(3) to despeckle."""
+    mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+    for b in bands:
+        lo = np.array([b.h_lo, b.s_lo, b.v_lo], dtype=np.uint8)
+        hi = np.array([b.h_hi, b.s_hi, b.v_hi], dtype=np.uint8)
+        mask = cv2.bitwise_or(mask, cv2.inRange(hsv, lo, hi))
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    return cv2.morphologyEx(mask, cv2.MORPH_OPEN, k)
+
+
+def _bbox_of_nonzero(half: np.ndarray, pad: int, full_w: int, full_h: int, x_off: int) -> RoiBox:
+    ys, xs = np.nonzero(half)
+    if xs.size == 0:
+        raise ValueError("no matching pixels in this half of the ROI")
+    x0, x1 = int(xs.min()) + x_off, int(xs.max()) + x_off
+    y0, y1 = int(ys.min()), int(ys.max())
+    x = max(0, x0 - pad)
+    y = max(0, y0 - pad)
+    w = min(full_w - x, (x1 - x0) + 1 + 2 * pad)
+    h = min(full_h - y, (y1 - y0) + 1 + 2 * pad)
+    return RoiBox(x=x, y=y, w=w, h=h, ref_w=full_w, ref_h=full_h)
+
+
+def detect_arc_regions(
+    roi_ref_bgr: np.ndarray, *, red_prior: list[HsvBand] | None = None, pad: int = 4
+) -> tuple[RoiBox, RoiBox]:
+    """``(left_arc, right_arc)`` regions found from red pixels in the left/right halves of the ROI.
+
+    ``roi_ref_bgr`` is the chosen ROI crop resized to the detection reference. Raises ``ValueError``
+    if either half has no red pixels (caller offers redo / manual selectROI)."""
+    prior = red_prior if red_prior is not None else _RED_PRIOR
+    hsv = cv2.cvtColor(roi_ref_bgr, cv2.COLOR_BGR2HSV)
+    mask = _prior_mask(hsv, prior)
+    h, w = mask.shape
+    mid = w // 2
+    left = _bbox_of_nonzero(mask[:, :mid], pad, w, h, x_off=0)
+    right = _bbox_of_nonzero(mask[:, mid:], pad, w, h, x_off=mid)
+    return left, right
+
+
+def sample_hsv_band(
+    region_bgr: np.ndarray, color: str, *, lo_pct: float = 5, hi_pct: float = 95
+) -> list[HsvBand]:
+    """Bracket the matched pixels' HSV percentiles into 1 band (green) or up to 2 (red hue-wrap).
+
+    ``color`` is ``"red"`` or ``"green"``. Raises ``ValueError`` if no pixels match the prior."""
+    hsv = cv2.cvtColor(region_bgr, cv2.COLOR_BGR2HSV)
+    prior = _RED_PRIOR if color == "red" else _GREEN_PRIOR
+    pts = hsv[_prior_mask(hsv, prior) > 0]
+    if pts.size == 0:
+        raise ValueError(f"no {color} pixels to sample in this region")
+    s_lo = int(np.percentile(pts[:, 1], lo_pct))
+    v_lo = int(np.percentile(pts[:, 2], lo_pct))
+    hue = pts[:, 0]
+    if color == "green":
+        h_lo = int(np.percentile(hue, lo_pct))
+        h_hi = int(np.percentile(hue, hi_pct))
+        return [HsvBand(h_lo=h_lo, s_lo=s_lo, v_lo=v_lo, h_hi=h_hi, s_hi=255, v_hi=255)]
+    bands: list[HsvBand] = []
+    near_zero = hue[hue <= 90]
+    near_180 = hue[hue > 90]
+    if near_zero.size:
+        bands.append(
+            HsvBand(
+                h_lo=0, s_lo=s_lo, v_lo=v_lo, h_hi=int(np.percentile(near_zero, hi_pct)), s_hi=255, v_hi=255
+            )
+        )
+    if near_180.size:
+        bands.append(
+            HsvBand(
+                h_lo=int(np.percentile(near_180, lo_pct)), s_lo=s_lo, v_lo=v_lo, h_hi=180, s_hi=255, v_hi=255
+            )
+        )
+    return bands
+
+
+def suggest_coverage_threshold(
+    green_cov_on_green: float, green_cov_on_red: float, *, floor: float = 0.02
+) -> float:
+    """Midpoint between the green-frame (high) and red-frame (low) green coverage, floored."""
+    return round(max((green_cov_on_green + green_cov_on_red) / 2.0, floor), 4)
