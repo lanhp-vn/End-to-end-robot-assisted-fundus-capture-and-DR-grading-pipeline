@@ -106,6 +106,7 @@ uv run python scripts/diagnostics/fundus_camera/aurora_probe.py        # read-on
 uv run python scripts/diagnostics/system_camera/usb_camera_probe.py    # system-cam smoke test: live window + 'r' record (no motors/Aurora)
 uv run python scripts/diagnostics/system_camera/usb_camera_roi_preview.py  # preview the fixed deskewed 5:3 ROI zoom of the Aurora screen (no motors/Aurora)
 uv run python scripts/diagnostics/system_camera/usb_camera_focus_probe.py  # sweep + fine-tune the manual focus value (needs --backend dshow; no motors/Aurora)
+uv run python scripts/diagnostics/system_camera/usb_camera_arc_debug.py  # arc-detection debug: stages the arm+hand grab, draws the arc boxes on the deskewed ROI; SPACE saves failing RED/clear cases to media_outputs/arc_debug/ (motors; no Aurora)
 uv run python scripts/demos/grab_trigger_capture.py                    # live ROI-zoomed system-cam window; SPACE presses the shutter, image lands in media_outputs/fundus_images/ and pops up until the next capture
 ```
 
@@ -153,7 +154,7 @@ This is the analysis demo plus a computer-vision auto-trigger: the arm-mounted U
 ```
 src/arm101_hand/        # device + application layer (subclass + console scripts + fundus_analysis DR grader)
 scripts/calibration/    # AmazingHand + SO-ARM101 calibration runners + system_camera/ view calibration (calibrate_view)
-scripts/diagnostics/    # motors/ (scan / show_calib / find_port) + fundus_camera/ (aurora_probe / aurora_wiredump) + system_camera/ (usb_camera_probe / usb_camera_capture / usb_camera_roi_preview / usb_camera_focus_probe)
+scripts/diagnostics/    # motors/ (scan / show_calib / find_port) + fundus_camera/ (aurora_probe / aurora_wiredump) + system_camera/ (usb_camera_probe / usb_camera_capture / usb_camera_roi_preview / usb_camera_focus_probe / usb_camera_arc_debug)
 scripts/demos/          # runnable demos (grab_sequence: staged grab; grab_toggle: + index-finger toggle; grab_trigger_capture: live system-cam window + Aurora shutter press + auto-pull; grab_trigger_capture_analysis: + inline DR grading + results panel; grab_auto_trigger_analysis: + CV auto-trigger on the green alignment arcs)
 scripts/fundus_analysis/ # DR-grading ops: export_weights (slim weight export) + aptos_eval (validation)
 models/                 # git-ignored slim model weights exported from references/ checkpoints
