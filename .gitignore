@@ -38,3 +38,6 @@ media_outputs/
 
 # Slim model weights exported from references/ checkpoints (large, regenerable)
 models/
+
+# Safety backups written by the config writers (e.g. calibrate_view.py -> *.yaml.bak before a write)
+*.bak
