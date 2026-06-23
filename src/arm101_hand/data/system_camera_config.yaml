@@ -16,7 +16,7 @@ window_title: "Arm cam (Optomed view)"
 autofocus: false
 focus: 600
 record_dir: media_outputs/camera_recordings   # repo-relative; 'r' writes usb_cam_<timestamp>.avi here
-fps: null           # null -> camera-reported fps (fallback 20)
+fps:                # null -> camera-reported fps (fallback 20)
 # This cam = IFWATER IF-USB12MP02AF (IMX362, USB 2.0): 4000x3000 sensor max, MJPG-only for hi-res
 # (YUY2 is uncompressed + capped low). _apply_format (preview.py) brackets the size with MJPG so the
 # driver can't silently fall back to YUY2 (which would crush USB-2.0 fps -- see system_camera memory).
@@ -38,18 +38,18 @@ height: 1200
 # Re-derived by scripts/calibration/system_camera/calibrate_view.py; ref_w/ref_h = the resolution it
 # was calibrated at, so the runtime rescale is identity. Default below = the legacy AURORA_SCREEN_ROI
 # (640x480 ref). Run the calibration after any resolution OR lighting change.
-screen_roi: {x: 60, y: 75, w: 196, h: 147, ref_w: 640, ref_h: 480, angle: 0}
+screen_roi: {x: 102, y: 89, w: 202, h: 97, ref_w: 800, ref_h: 480, angle: 
+    -2.0454084873199463}
 # --- Automated trigger (grab_auto_trigger_analysis.py) -------------------------------------------
 # Red-only: each arc is RED (>= coverage_threshold) or not; a capture fires after BOTH arcs go RED
 # (misaligned) then BOTH go not-red (aligned), held stable_seconds. Regions/bands are STARTING
 # ESTIMATES -- re-derive with scripts/calibration/system_camera/calibrate_view.py.
 auto_trigger:
-  left_arc:  {x: 110, y: 130, w: 70, h: 230, ref_w: 800, ref_h: 480}
-  right_arc: {x: 620, y: 130, w: 70, h: 230, ref_w: 800, ref_h: 480}
+  left_arc: {x: 144, y: 82, w: 92, h: 324, ref_w: 800, ref_h: 480, angle: 0.0}
+  right_arc: {x: 586, y: 82, w: 92, h: 324, ref_w: 800, ref_h: 480, angle: 0.0}
   red_bands:                       # red wraps hue 0/180 -> two bands OR'd (pale arcs -> low S/V floors)
-    - {h_lo: 0,   s_lo: 35, v_lo: 50, h_hi: 12,  s_hi: 255, v_hi: 255}
-    - {h_lo: 158, s_lo: 35, v_lo: 50, h_hi: 180, s_hi: 255, v_hi: 255}
-  coverage_threshold: 0.04         # an arc counts as RED at >= this fraction
+  - {h_lo: 158, s_lo: 51, v_lo: 170, h_hi: 180, s_hi: 255, v_hi: 255}
+  coverage_threshold: 0.02         # an arc counts as RED at >= this fraction
   morph_kernel: 3                  # MORPH_OPEN kernel (px) to despeckle the mask
   stable_seconds: 1.0              # both arcs must hold not-red this long before firing
   cooldown_seconds: 3.0            # min gap after a fire
