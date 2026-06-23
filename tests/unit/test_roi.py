@@ -56,3 +56,12 @@ def test_aurora_roi_no_upscale_at_2592x1944():
     x, y, w, h = AURORA_SCREEN_ROI.for_frame(2592, 1944)
     assert (x, y, w, h) == (243, 304, 794, 595)
     assert w >= AURORA_SCREEN_ROI.ref_w and h >= AURORA_SCREEN_ROI.ref_h
+
+
+def test_roi_from_region_builds_roi():
+    from arm101_hand.config.system_camera_config import RoiBox
+    from arm101_hand.system_camera import roi_from_region
+
+    r = roi_from_region(RoiBox(x=10, y=20, w=30, h=40, ref_w=1600, ref_h=1200))
+    assert (r.x, r.y, r.w, r.h, r.ref_w, r.ref_h) == (10, 20, 30, 40, 1600, 1200)
+    assert isinstance(r, Roi)

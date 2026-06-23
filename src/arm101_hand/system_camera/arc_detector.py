@@ -16,7 +16,7 @@ import numpy as np
 
 from arm101_hand.config.system_camera_config import ArcRegion, AutoTriggerConfig, HsvBand
 
-from .roi import Roi
+from .roi import Roi, roi_from_region
 
 
 @dataclass(frozen=True)
@@ -33,7 +33,7 @@ class AlignmentState:
 
 
 def _region_to_roi(region: ArcRegion) -> Roi:
-    return Roi(x=region.x, y=region.y, w=region.w, h=region.h, ref_w=region.ref_w, ref_h=region.ref_h)
+    return roi_from_region(region)
 
 
 def _band_mask(hsv: np.ndarray, bands: list[HsvBand]) -> np.ndarray:

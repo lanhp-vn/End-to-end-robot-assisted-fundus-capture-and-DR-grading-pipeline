@@ -14,6 +14,7 @@ Pure geometry + numpy slicing; no cv2. Shared by ``scripts/diagnostics/system_ca
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 import numpy as np
 
@@ -48,6 +49,22 @@ class Roi:
         fh, fw = frame.shape[:2]
         x, y, w, h = self.for_frame(fw, fh)
         return frame[y : y + h, x : x + w]
+
+
+class _RegionLike(Protocol):
+    """Structural type for a config RoiBox/ArcRegion (avoids importing the pydantic model here)."""
+
+    x: int
+    y: int
+    w: int
+    h: int
+    ref_w: int
+    ref_h: int
+
+
+def roi_from_region(region: _RegionLike) -> Roi:
+    """Build a :class:`Roi` from a config ``RoiBox``/``ArcRegion`` (or any x/y/w/h/ref_w/ref_h obj)."""
+    return Roi(x=region.x, y=region.y, w=region.w, h=region.h, ref_w=region.ref_w, ref_h=region.ref_h)
 
 
 # Canonical ROI for the arm-mounted USB observation camera: a 4:3 crop (uniform zoom, no

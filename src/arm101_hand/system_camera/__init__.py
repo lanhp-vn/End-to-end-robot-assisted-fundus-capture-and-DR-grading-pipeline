@@ -16,7 +16,7 @@ from .preview import (
     read_settled_frame,
     resolution_mismatch_warning,
 )
-from .roi import AURORA_SCREEN_ROI, Roi
+from .roi import AURORA_SCREEN_ROI, Roi, roi_from_region
 
 __all__ = [
     "AURORA_SCREEN_ROI",
@@ -35,6 +35,7 @@ __all__ = [
     "open_capture",
     "read_settled_frame",
     "resolution_mismatch_warning",
+    "roi_from_region",
     "sharpness",
     "update",
 ]
