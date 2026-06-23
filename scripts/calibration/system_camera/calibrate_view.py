@@ -10,8 +10,10 @@ Flow:
   2. Capture the RED arcs (ROI box overlaid) -> auto-detect left/right arc regions + red band.
   3. Capture the GREEN arcs -> green band; reuse the arc regions.
   4. CONFIRM screen: ROI crops with the arc boxes + red/green masks tinted, labelled by the REAL
-     arc_detector.detect(); 'y' writes, 'e' re-tune (selectROI / trackbars), 'r' redo, 'q' quit.
-Clones usb_camera_capture.py's live-window + SPACE loop. Plain opencv-python only (no contrib).
+     arc_detector.detect(); 'y' writes, 'e' re-tune (selectROI), 'r' redo, 'q' quit.
+Like usb_camera_capture.py, ACTION KEYS are read from the TERMINAL (a cv2 window often has no
+keyboard focus when launched from a console); the window only displays. The 'm'/'e' manual drags
+use cv2.selectROI, which you interact with IN the window. Plain opencv-python only (no contrib).
 
 Usage:
   uv run python scripts/calibration/system_camera/calibrate_view.py [--camera N] [--backend auto|dshow]
@@ -21,6 +23,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import msvcrt
 import sys
 from pathlib import Path
 
@@ -57,18 +60,43 @@ def _open_window(title: str, frame_w: int, frame_h: int) -> None:
     cv2.resizeWindow(title, max(1, round(frame_w * scale)), max(1, round(frame_h * scale)))
 
 
+def _poll_key() -> str:
+    """Non-blocking single keypress from the TERMINAL ('' if none waiting).
+
+    The cv2 window needs ``waitKey`` pumped every loop to stay responsive, so action keys are read
+    from the CONSOLE instead (via msvcrt) -- this works regardless of which window has OS focus, so
+    the operator presses keys in the same terminal they launched from (a cv2 window often does NOT
+    get keyboard focus when launched from a console). Mirrors usb_camera_capture.py. Ctrl+C raises
+    KeyboardInterrupt; arrow / function-key prefixes are swallowed.
+    """
+    if not msvcrt.kbhit():
+        return ""
+    ch = msvcrt.getwch()
+    if ch in ("\x00", "\xe0"):  # arrow / function-key prefix -> consume the 2nd byte, ignore
+        msvcrt.getwch()
+        return ""
+    if ch == "\x03":  # Ctrl+C
+        raise KeyboardInterrupt
+    return ch
+
+
 def _crop_to_ref(frame: np.ndarray, roi: Roi) -> np.ndarray:
     """Crop ``frame`` to ``roi`` and resize to the 640x480 detection reference."""
     return cv2.resize(roi.crop(frame), (_REF_W, _REF_H), interpolation=cv2.INTER_AREA)
 
 
 def _capture_frame(cap, title: str, overlay: Roi | None) -> np.ndarray | None:
-    """Stream until SPACE (return the frame) or q/ESC (return None). Draws ``overlay`` if given."""
+    """Stream until SPACE (return the frame) or q/ESC (return None). Draws ``overlay`` if given.
+
+    Keys are read from the TERMINAL (see :func:`_poll_key`) while ``waitKey`` only pumps the window,
+    so the operator presses SPACE/q in the console regardless of which window has OS focus."""
+    print(f"\n{title}\n  Focus THIS terminal: SPACE = capture this frame, q = quit.")
     opened = False
     while True:
         ok, frame = cap.read()
         if not ok or frame is None:
-            if (cv2.waitKey(30) & 0xFF) in (ord("q"), 27):
+            cv2.waitKey(30)  # keep the window pumped during camera warm-up / hiccups
+            if _poll_key() in ("q", "Q", "\x1b"):
                 return None
             continue
         if not opened:  # create the window once we know the frame size (imshow_fit needs it to exist)
@@ -80,10 +108,11 @@ def _capture_frame(cap, title: str, overlay: Roi | None) -> np.ndarray | None:
             cv2.rectangle(disp, (x, y), (x + w, y + h), (0, 255, 0), 2)
         cv2.putText(disp, title, (12, 28), _FONT, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
         imshow_fit(title, disp)
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord(" "):
+        cv2.waitKey(1)  # render only; action keys come from the terminal
+        key = _poll_key()
+        if key == " ":
             return frame
-        if key in (ord("q"), 27):
+        if key in ("q", "Q", "\x1b"):
             return None
 
 
@@ -100,8 +129,13 @@ def _pick_roi(white: np.ndarray) -> Roi | None:
         bx, by, bw, bh = cands[0]
         m = int(0.06 * len(cands) * bw)
         cands.append(to_roi_candidate((max(0, bx - m), max(0, by - m), bw + 2 * m, bh + 2 * m), fw, fh))
-    title = "Calib 1/3: pick ROI  [1/2/3 select | m manual | r recapture | q quit]"
+    title = "Calib 1/3: pick ROI (press keys in the TERMINAL)"
     colors = [(0, 255, 0), (0, 200, 255), (255, 180, 0)]
+    print(
+        "\nPick the screen ROI -- focus THIS terminal:\n"
+        "  1 / 2 / 3 = select that numbered candidate box   m = drag one manually (in the window)\n"
+        "  r = recapture   q = quit"
+    )
     _open_window(title, fw, fh)
     while True:
         disp = white.copy()
@@ -109,23 +143,24 @@ def _pick_roi(white: np.ndarray) -> Roi | None:
             cv2.rectangle(disp, (x, y), (x + w, y + h), colors[i], 2)
             cv2.putText(disp, str(i + 1), (x + 6, y + 26), _FONT, 0.9, colors[i], 2, cv2.LINE_AA)
         imshow_fit(title, disp)
-        key = cv2.waitKey(20) & 0xFF
-        if key in (ord("1"), ord("2"), ord("3")):
-            idx = key - ord("1")
+        cv2.waitKey(20)  # render only; action keys come from the terminal
+        key = _poll_key()
+        if key in ("1", "2", "3"):
+            idx = int(key) - 1
             if idx < len(cands[:3]):
                 x, y, w, h = cands[idx]
                 cv2.destroyWindow(title)
                 return Roi(x=x, y=y, w=w, h=h, ref_w=fw, ref_h=fh)
-        if key == ord("m"):
+        elif key in ("m", "M"):
+            print("  Drag a box in the window, then ENTER/SPACE to accept (c to cancel).")
             r = cv2.selectROI(title, white, showCrosshair=True, fromCenter=False)
-            cv2.destroyWindow("ROI selector")
             if r[2] > 0 and r[3] > 0:
                 cv2.destroyWindow(title)
                 return Roi(x=int(r[0]), y=int(r[1]), w=int(r[2]), h=int(r[3]), ref_w=fw, ref_h=fh)
-        if key == ord("r"):
+        elif key in ("r", "R"):
             cv2.destroyWindow(title)
             return None
-        if key in (ord("q"), 27):
+        elif key in ("q", "Q", "\x1b"):
             cv2.destroyWindow(title)
             raise KeyboardInterrupt
 
@@ -143,9 +178,13 @@ def _confirm(
 ) -> str:
     """Show the two ROI crops with arc boxes + tinted masks + real-detector labels. Returns the
     pressed action key: 'y' (accept), 'e' (edit), 'r' (redo), 'q' (quit)."""
-    title = "Calib confirm  [y write | e re-tune | r redo | q quit]"
+    title = "Calib confirm (press keys in the TERMINAL)"
     la = roi_from_region(trial.left_arc)
     ra = roi_from_region(trial.right_arc)
+    print(
+        "\nConfirm calibration -- focus THIS terminal:\n"
+        "  y = write config   e = re-tune arc boxes   r = redo   q = quit (no write)"
+    )
     _open_window(title, 2 * _REF_W, _REF_H)  # the confirm composite is two ROI panels side by side
     while True:
         panels = []
@@ -172,10 +211,11 @@ def _confirm(
             )
             panels.append(panel)
         imshow_fit(title, np.hstack(panels))
-        key = cv2.waitKey(20) & 0xFF
-        if key in (ord("y"), ord("e"), ord("r"), ord("q"), 27):
+        cv2.waitKey(20)  # render only; action keys come from the terminal
+        key = _poll_key()
+        if key in ("y", "Y", "e", "E", "r", "R", "q", "Q", "\x1b"):
             cv2.destroyWindow(title)
-            return "q" if key == 27 else chr(key)
+            return "q" if key in ("q", "Q", "\x1b") else key.lower()
 
 
 def _retune(red_ref: np.ndarray, trial: AutoTriggerConfig) -> AutoTriggerConfig:
