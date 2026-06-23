@@ -162,15 +162,17 @@ def deskew_crop(frame: np.ndarray, region: RoiBox, *, out: tuple[int, int] = (80
 def fit_camera_circle(bright_ref_bgr: np.ndarray) -> tuple[float, float, float]:
     """Centre + radius of the bright central disc in a deskewed ``out``-sized aligned frame.
 
-    Thresholds the bright disc, takes the largest blob, and fits a circle via the contour's area
-    (radius = sqrt(area/pi)) about its centroid -- tighter than minEnclosingCircle, which the glare
-    streak inflates."""
+    Splits the bright disc from the dark screen bezel with **Otsu** (the histogram is bimodal: dark
+    plastic surround vs bright disc), takes the largest blob, and fits a circle via the contour's
+    area (radius = sqrt(area/pi)) about its centroid -- tighter than minEnclosingCircle, which the
+    glare streak inflates. A fixed/percentile cut was tried first but FRAGMENTS a non-uniformly-lit
+    disc (the real Aurora disc has a bright lobe + a dimmer side), keeping only the bright part and
+    mis-centring the fit; Otsu adapts to the disc-vs-bezel split and recovers the whole disc. A
+    MORPH_CLOSE bridges the within-disc gradient dips / glare gaps into one solid blob."""
     g = cv2.cvtColor(bright_ref_bgr, cv2.COLOR_BGR2GRAY)
-    # Cap below 255: THRESH_BINARY keeps src > thresh, so a percentile of 255 (disc much brighter than
-    # the surround) would otherwise threshold to an empty mask.
-    thr = min(int(np.percentile(g, 80)), 254)
-    _, m = cv2.threshold(g, thr, 255, cv2.THRESH_BINARY)
+    _, m = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     m = cv2.morphologyEx(m, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)))
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15)))
     contours, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         raise ValueError("no bright disc found for the camera circle")
@@ -187,15 +189,21 @@ def arc_bands_from_circle(
     cx: float, cy: float, r: float, *, ref_w: int = 800, ref_h: int = 480, pad: int = 4
 ) -> tuple[RoiBox, RoiBox]:
     """Two mirror-symmetric bands on the circle's left/right edges (outer ~35% of the radius,
-    middle 60% vertically) -- excludes the top corners (battery) and the top/bottom of the disc."""
+    middle 60% vertically) -- excludes the top corners (battery) and the top/bottom of the disc.
+
+    Mirrored about the CIRCLE centre ``cx`` (so each band sits on the disc's own left/right edge),
+    NOT about the frame centre: the deskewed disc is not necessarily centred in the crop, and a
+    frame-centre mirror misplaces the right band when it is off-centre (bench bug: a disc at cx=511
+    put both bands near the frame centre, missing both arcs)."""
     bw = max(1, int(round(0.35 * r)))
     y = max(0, int(round(cy - 0.6 * r)) - pad)
     h = min(ref_h - y, int(round(1.2 * r)) + 2 * pad)
-    lx = max(0, int(round(cx - r)) - pad)
-    # enforce exact mirror symmetry about the frame centre using the left band
-    rx = ref_w - (lx + bw)
+    lx = int(round(cx - r)) - pad
+    rx = int(round(2 * cx - lx - bw))  # mirror the left band about cx
+    lx = max(0, min(ref_w - bw, lx))
+    rx = max(0, min(ref_w - bw, rx))
     left = RoiBox(x=lx, y=y, w=bw, h=h, ref_w=ref_w, ref_h=ref_h)
-    right = RoiBox(x=max(0, rx), y=y, w=bw, h=h, ref_w=ref_w, ref_h=ref_h)
+    right = RoiBox(x=rx, y=y, w=bw, h=h, ref_w=ref_w, ref_h=ref_h)
     return left, right
 
 

@@ -50,11 +50,36 @@ def test_fit_camera_circle_centres_on_disc():
     assert abs(cx - 400) <= 15 and abs(cy - 240) <= 15 and abs(r - 180) <= 25
 
 
+def test_fit_camera_circle_handles_nonuniform_disc():
+    # A LARGE disc (fills ~half the frame, like the real Aurora) that is BRIGHT on the right half and
+    # DIM on the left -- both halves clearly above the dark bezel. Otsu splits bezel-from-disc and
+    # recovers the WHOLE disc; a high-percentile threshold keeps only the bright half and mis-centres
+    # it (the bench bug: percentile-80 fit cx=511 r=152 for a disc truly centred ~400 r~260). This is
+    # the regression guard against the percentile approach.
+    yy, xx = np.ogrid[:480, :800]
+    disc = (xx - 400) ** 2 + (yy - 240) ** 2 <= 230**2
+    gray = np.broadcast_to(np.where(xx < 400, 110, 230).astype(np.uint8), (480, 800)).copy()
+    gray[~disc] = 0
+    img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+    cx, cy, r = fit_camera_circle(img)
+    assert abs(cx - 400) <= 25 and abs(cy - 240) <= 25 and abs(r - 230) <= 35
+
+
 def test_arc_bands_from_circle_are_symmetric():
     left, right = arc_bands_from_circle(400, 240, 200, ref_w=800, ref_h=480)
     assert left.x < 400 <= right.x
     assert (left.w, left.h) == (right.w, right.h)
     assert abs(right.x - (800 - (left.x + left.w))) <= 1  # mirror across centre
+
+
+def test_arc_bands_mirror_about_circle_centre():
+    # When the disc is NOT frame-centred, the bands must mirror about the CIRCLE centre cx (sitting on
+    # the disc's own L/R edges), NOT about the frame centre. Bench bug: a circle fit at cx=511 produced
+    # two bands clustered near the frame centre, missing both red arcs entirely.
+    left, right = arc_bands_from_circle(300, 240, 150, ref_w=800, ref_h=480)
+    assert (left.w, left.h) == (right.w, right.h)
+    assert left.x < 300 < right.x  # bands straddle the circle centre
+    assert abs((left.x + (right.x + right.w)) - 2 * 300) <= 2  # outer edges symmetric about cx=300
 
 
 def test_sample_red_band_brackets_and_wraps():
