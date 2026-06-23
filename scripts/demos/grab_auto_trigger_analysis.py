@@ -1,10 +1,10 @@
 """Auto/manual arc-triggered Aurora capture WITH inline diabetic-retinopathy grading.
 
 This is the AUTO-trigger variant of ``grab_trigger_capture_analysis.py`` (which fires only on
-SPACE). It watches the Optomed Aurora's on-screen alignment arcs in the live USB preview: when
-they turn GREEN (correct working distance) and stay green, it auto-fires the SAME capture cycle
-SPACE would -- no keypress needed -- and captures AGAIN each time you re-align to green (the arcs
-must leave green and come back between shots). Press 'g' to grade ALL of the patient's shots, then
+SPACE). It watches the Optomed Aurora's on-screen alignment arcs in the live USB preview: a
+capture auto-fires once BOTH arcs go RED (misaligned) and then clear as you align, held steady --
+no keypress needed -- and it captures AGAIN on the next red->clear gate (the arcs must go red then
+clear again between shots). Press 'g' to grade ALL of the patient's shots, then
 'n' to advance to the next patient (AUTO holds after 'g' until 'n'). The trigger starts in MANUAL
 (SPACE-only); 'm' toggles into AUTO (an explicit arm) and back. Each patient turn accumulates one or more captured fundus
 images (each pops up RAW as it lands), and pressing 'g' grades every shot of the turn
@@ -433,7 +433,7 @@ def main() -> int:
                 if mode == "AUTO":
                     print(
                         f"  shot {len(turn_shots)} captured (AUTO) -- "
-                        "re-align to green for another, or 'g' to grade this patient."
+                        "re-align (arcs go red then clear) for another, or 'g' to grade this patient."
                     )
                 elif len(turn_shots) >= target:
                     print(
@@ -470,14 +470,18 @@ def main() -> int:
                         print("  grading disabled (capture-only) -- nothing to analyze.")
                     elif not turn_shots:
                         if mode == "AUTO":
-                            print("  no shots captured yet -- align the Aurora to green; it auto-captures.")
+                            print(
+                                "  no shots captured yet -- align the Aurora (red arcs -> clear); it auto-captures."
+                            )
                         else:
                             print("  no shots captured yet -- press SPACE to capture first.")
                     else:
                         print(f"  analyzing {len(turn_shots)} shot(s) ...")
                         _analyze_turn(grader, turn_shots, analysis_output_dir, preview, grading_reason)
                         turn_shots = []
-                        armed = False  # HOLD after grading: ignore green until 'n' (next patient)
+                        armed = (
+                            False  # HOLD after grading: ignore the red->clear gate until 'n' (next patient)
+                        )
                         print("  patient turn complete -- press 'n' for the next patient.")
                         if mode == "AUTO" and preview is not None:
                             preview.set_status_text("graded -- press 'n' for next patient", (0, 255, 255))
@@ -494,7 +498,7 @@ def main() -> int:
                         state_auto = auto_trigger.arm()
                         armed = True
                         if mode == "AUTO":
-                            print("  next patient -- AUTO re-armed, watching for green.")
+                            print("  next patient -- AUTO re-armed, watching for the red->clear gate.")
                         else:
                             print("  next patient -- ready (press 'm' for AUTO).")
                 else:
@@ -528,7 +532,7 @@ def main() -> int:
                         text, color = _overlay(mode, alignment, state_auto.phase)
                         preview.set_status_text(text, color)
                         if fire:
-                            print("  AUTO: arcs green + stable -> firing capture")
+                            print("  AUTO: arcs cleared (red -> not-red) + stable -> firing capture")
                             _fire_capture_cycle()
                 elif mode == "AUTO" and preview is None:
                     print("  AUTO unavailable: no USB preview window -- staying MANUAL.")
