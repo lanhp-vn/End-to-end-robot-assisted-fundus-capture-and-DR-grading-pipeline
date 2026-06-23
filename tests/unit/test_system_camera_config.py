@@ -24,7 +24,7 @@ def test_resolution_fourcc_defaults():
     assert cfg.width is None
     assert cfg.height is None
     assert cfg.fourcc == "MJPG"
-    assert cfg.schema_version == 6
+    assert cfg.schema_version == 7
 
 
 def test_focus_defaults():
@@ -100,7 +100,7 @@ def test_data_yaml_loads():
     assert cfg.focus is not None and cfg.focus >= 0
     at = cfg.auto_trigger
     assert at.left_arc.w > 0 and at.right_arc.w > 0  # arc bands present with positive geometry
-    assert len(at.red_bands) == 2 and len(at.green_bands) == 1  # red wraps hue 0/180 -> two bands
+    assert len(at.red_bands) >= 1  # red is the only colour classified (red wraps hue 0/180)
     assert at.stable_seconds > 0  # bench-tuned timing -- sanity only, not an exact value
 
 
@@ -112,11 +112,8 @@ def test_auto_trigger_defaults():
     assert at.cooldown_seconds >= 0
     assert at.detect_interval_s > 0
     assert 0.0 <= at.coverage_threshold <= 1.0
-    assert at.require_clear_between is True
-    assert at.require_no_red is False
     assert len(at.red_bands) == 2  # red wraps hue 0/180
-    assert len(at.green_bands) == 1
-    assert (at.left_arc.ref_w, at.left_arc.ref_h) == (640, 480)  # ROI reference frame (structural)
+    assert (at.left_arc.ref_w, at.left_arc.ref_h) == (800, 480)  # 5:3 detection reference (structural)
 
 
 def test_auto_trigger_coverage_threshold_bounds():
@@ -150,10 +147,6 @@ def test_screen_roi_round_trips_at_calibration_resolution():
     assert (sr.x, sr.y, sr.w, sr.h, sr.ref_w, sr.ref_h) == (150, 188, 490, 368, 1600, 1200)
 
 
-def test_schema_default_version_is_6():
-    assert SystemCameraConfig().schema_version == 6
-
-
 def test_data_yaml_has_screen_roi():
     # screen_roi is a TUNABLE -- calibrate_view.py re-derives it (geometry + ref resolution both
     # change), so assert presence + positive geometry + a positive reference frame, NOT exact values
@@ -164,9 +157,34 @@ def test_data_yaml_has_screen_roi():
 
 
 def test_auto_trigger_rejects_empty_bands():
-    # >=1 band each: an empty list is a degenerate config (nothing to classify against). The
-    # calibration writer must never persist it -- guarded by min_length=1 on both fields.
+    # >=1 band: an empty list is a degenerate config (nothing to classify against). The calibration
+    # writer must never persist it -- guarded by min_length=1 on red_bands (red is the only colour).
     with pytest.raises(ValidationError):
         SystemCameraConfig.model_validate({"auto_trigger": {"red_bands": []}})
-    with pytest.raises(ValidationError):
-        SystemCameraConfig.model_validate({"auto_trigger": {"green_bands": []}})
+
+
+def test_roibox_angle_default_and_round_trip():
+    from arm101_hand.config.system_camera_config import RoiBox
+
+    assert RoiBox(x=1, y=2, w=3, h=4).angle == 0.0
+    assert RoiBox(x=1, y=2, w=3, h=4, angle=-0.9).angle == -0.9
+
+
+def test_schema_default_version_is_7():
+    assert SystemCameraConfig().schema_version == 7
+
+
+def test_auto_trigger_is_red_only():
+    at = SystemCameraConfig().auto_trigger
+    assert len(at.red_bands) >= 1
+    assert (at.left_arc.ref_w, at.left_arc.ref_h) == (800, 480)
+    assert (at.right_arc.ref_w, at.right_arc.ref_h) == (800, 480)
+    assert not hasattr(at, "green_bands")
+    assert not hasattr(at, "require_no_red")
+    assert not hasattr(at, "require_clear_between")
+
+
+def test_auto_trigger_rejects_removed_keys():
+    for bad in ("green_bands", "require_no_red", "require_clear_between"):
+        with pytest.raises(ValidationError):
+            SystemCameraConfig.model_validate({"auto_trigger": {bad: [] if bad == "green_bands" else True}})

@@ -39,42 +39,38 @@ class RoiBox(BaseModel):
     h: int = Field(ge=1)
     ref_w: int = Field(default=640, ge=1)
     ref_h: int = Field(default=480, ge=1)
+    angle: float = Field(default=0.0, description="deskew rotation in degrees; 0 = axis-aligned crop")
 
 
 ArcRegion = RoiBox  # back-compat alias: existing imports/configs keep working
 
 
 class AutoTriggerConfig(BaseModel):
-    """Arc-based auto-trigger detection + lifecycle tuning (grab_auto_trigger_analysis demo)."""
+    """Red-only arc auto-trigger: each arc is RED (>= coverage_threshold) or not. ready/fire is
+    gated by a red -> not-red transition (see arm101_hand.system_camera.auto_trigger)."""
 
     model_config = ConfigDict(extra="forbid")
-    left_arc: RoiBox = Field(default_factory=lambda: RoiBox(x=60, y=110, w=70, h=190))
-    right_arc: RoiBox = Field(default_factory=lambda: RoiBox(x=420, y=110, w=70, h=190))
+    left_arc: RoiBox = Field(default_factory=lambda: RoiBox(x=110, y=130, w=70, h=230, ref_w=800, ref_h=480))
+    right_arc: RoiBox = Field(default_factory=lambda: RoiBox(x=620, y=130, w=70, h=230, ref_w=800, ref_h=480))
     red_bands: list[HsvBand] = Field(
-        min_length=1,  # >=1 band required: classification needs a colour to match (no degenerate config)
+        min_length=1,  # >=1 band: red is the only colour classified (no degenerate empty config)
         default_factory=lambda: [
-            HsvBand(h_lo=0, s_lo=80, v_lo=80, h_hi=10, s_hi=255, v_hi=255),
-            HsvBand(h_lo=170, s_lo=80, v_lo=80, h_hi=180, s_hi=255, v_hi=255),
+            HsvBand(h_lo=0, s_lo=35, v_lo=50, h_hi=12, s_hi=255, v_hi=255),
+            HsvBand(h_lo=158, s_lo=35, v_lo=50, h_hi=180, s_hi=255, v_hi=255),
         ],
     )
-    green_bands: list[HsvBand] = Field(
-        min_length=1,  # >=1 band required (see red_bands)
-        default_factory=lambda: [HsvBand(h_lo=40, s_lo=40, v_lo=60, h_hi=90, s_hi=255, v_hi=255)],
-    )
-    coverage_threshold: float = Field(default=0.04, ge=0.0, le=1.0)
+    coverage_threshold: float = Field(default=0.04, ge=0.0, le=1.0, description="arc is RED at >= this")
     morph_kernel: int = Field(default=3, ge=1)
     stable_seconds: float = Field(default=1.0, gt=0.0)
     cooldown_seconds: float = Field(default=3.0, ge=0.0)
     detect_interval_s: float = Field(default=0.2, gt=0.0)
-    require_clear_between: bool = True
-    require_no_red: bool = False
 
 
 class SystemCameraConfig(BaseModel):
     """Arm-mounted USB observation camera: live preview window (cv2) + record toggle."""
 
     model_config = ConfigDict(extra="forbid")
-    schema_version: int = 6
+    schema_version: int = 7
     enabled: bool = Field(default=True, description="open the preview window when the demo runs")
     camera_index: int = Field(default=0, ge=0, description="USB camera index (the arm-mounted cam)")
     backend: Literal["auto", "dshow"] = Field(

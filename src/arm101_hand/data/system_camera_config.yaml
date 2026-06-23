@@ -2,7 +2,7 @@
 # system_camera_config.yaml -- arm-mounted USB OBSERVATION camera (films the Optomed Aurora's
 # screen). Live cv2 preview window + 'r' record. Distinct from the Aurora fundus camera
 # (see fundus_config.yaml). Hand-editable; never written by runtime code (IL-5).
-schema_version: 6
+schema_version: 7
 enabled: true
 camera_index: 1     # the arm cam on this PC (index 0 is the built-in webcam)
 backend: dshow      # REQUIRED for manual focus: only DSHOW drives this cam's VCM (MSMF accepts the
@@ -38,23 +38,19 @@ height: 1200
 # Re-derived by scripts/calibration/system_camera/calibrate_view.py; ref_w/ref_h = the resolution it
 # was calibrated at, so the runtime rescale is identity. Default below = the legacy AURORA_SCREEN_ROI
 # (640x480 ref). Run the calibration after any resolution OR lighting change.
-screen_roi: {x: 60, y: 75, w: 196, h: 147, ref_w: 640, ref_h: 480}
+screen_roi: {x: 60, y: 75, w: 196, h: 147, ref_w: 640, ref_h: 480, angle: 0}
 # --- Automated trigger (grab_auto_trigger_analysis.py) -------------------------------------------
-# Detect the Aurora's two on-screen alignment ARCS in the ROI; when they turn GREEN (aligned),
-# auto-fire the capture cycle. HSV masking per arc-band (OpenCV H 0-180, S/V 0-255). The regions +
-# HSV bands below are STARTING ESTIMATES -- tune them against the saved red/green ROI frames.
+# Red-only: each arc is RED (>= coverage_threshold) or not; a capture fires after BOTH arcs go RED
+# (misaligned) then BOTH go not-red (aligned), held stable_seconds. Regions/bands are STARTING
+# ESTIMATES -- re-derive with scripts/calibration/system_camera/calibrate_view.py.
 auto_trigger:
-  left_arc:  {x: 60,  y: 110, w: 70, h: 190, ref_w: 640, ref_h: 480}   # left arc band in the ROI
-  right_arc: {x: 420, y: 110, w: 70, h: 190, ref_w: 640, ref_h: 480}   # right arc band in the ROI
-  red_bands:                       # red wraps hue 0/180 -> two bands OR'd
-    - {h_lo: 0,   s_lo: 80, v_lo: 80, h_hi: 10,  s_hi: 255, v_hi: 255}
-    - {h_lo: 170, s_lo: 80, v_lo: 80, h_hi: 180, s_hi: 255, v_hi: 255}
-  green_bands:                     # single green band; keep h_hi <= ~90 so blue UI icons don't leak
-    - {h_lo: 40, s_lo: 40, v_lo: 60, h_hi: 90, s_hi: 255, v_hi: 255}
-  coverage_threshold: 0.04         # fraction of an arc band that must match a color to count
+  left_arc:  {x: 110, y: 130, w: 70, h: 230, ref_w: 800, ref_h: 480}
+  right_arc: {x: 620, y: 130, w: 70, h: 230, ref_w: 800, ref_h: 480}
+  red_bands:                       # red wraps hue 0/180 -> two bands OR'd (pale arcs -> low S/V floors)
+    - {h_lo: 0,   s_lo: 35, v_lo: 50, h_hi: 12,  s_hi: 255, v_hi: 255}
+    - {h_lo: 158, s_lo: 35, v_lo: 50, h_hi: 180, s_hi: 255, v_hi: 255}
+  coverage_threshold: 0.04         # an arc counts as RED at >= this fraction
   morph_kernel: 3                  # MORPH_OPEN kernel (px) to despeckle the mask
-  stable_seconds: 1.0              # green must hold this long before firing
+  stable_seconds: 1.0              # both arcs must hold not-red this long before firing
   cooldown_seconds: 3.0            # min gap after a fire
   detect_interval_s: 0.2           # how often to sample the ROI in auto mode
-  require_clear_between: true      # re-arm only after the arcs LEAVE green (re-align per shot); false = burst while green
-  require_no_red: false            # if true, "ready" also requires NO band is red (tighter)
