@@ -26,6 +26,8 @@ from ruamel.yaml.comments import CommentedMap
 
 from arm101_hand.config.system_camera_config import HsvBand, RoiBox, SystemCameraConfig
 
+from .roi import roi_from_region
+
 # Screen detection tuning. The Aurora screen is a backlit LCD (near-saturated white) sitting as an
 # island inside the frame; walls / daylight / doorway are bright too but run into the frame border.
 _SCREEN_ASPECT_LO, _SCREEN_ASPECT_HI = 1.2, 2.0  # landscape ~16:10..16:9
@@ -64,22 +66,37 @@ def _screen_likeness(bbox: tuple[int, int, int, int], area: float, frame_w: int,
     return fill * aspect_score * size * interior
 
 
-def detect_screen_rect(white_bgr: np.ndarray, *, top_n: int = 3) -> list[tuple[int, int, int, int]]:
-    """Ranked candidate ``(x, y, w, h)`` bounding boxes of the backlit Aurora screen, best first.
+_Rect = tuple[tuple[float, float], tuple[float, float], float]
 
-    Sweeps several HIGH brightness thresholds (between Otsu and 255): the backlit LCD saturates near
-    white while painted walls / daylight are dimmer, so a high cut isolates the screen instead of
-    fusing it into the bright room (plain Otsu lumps screen + walls + doorway into one blob). Each
-    cut's external contours are scored by :func:`_screen_likeness` (fill x aspect x size x interior);
-    candidates overlapping across cuts are de-duped (IoU >= 0.5, highest score wins). Returns up to
-    ``top_n`` boxes with a positive score.
-    """
+
+def _norm_rect(rect: _Rect) -> _Rect:
+    """Normalise a ``minAreaRect`` to width >= height and angle in (-45, 45].
+
+    OpenCV 4.13's ``minAreaRect`` returns the angle in the post-4.5 (0, 90] convention. Swapping the
+    sides when ``w < h`` (and folding the angle by 90 deg) recovers the small physical tilt of a
+    landscape screen instead of an arbitrary +/-90 deg rotation."""
+    (cx, cy), (w, h), angle = rect
+    if w < h:
+        w, h = h, w
+        angle += 90.0
+    if angle > 45.0:
+        angle -= 90.0
+    elif angle < -45.0:
+        angle += 90.0
+    return (cx, cy), (w, h), angle
+
+
+def detect_screen_rects(white_bgr: np.ndarray, *, top_n: int = 3) -> list[_Rect]:
+    """Top-``top_n`` interior bright rotated rects ``((cx,cy),(w,h),angle)``, best first.
+
+    Same high-threshold + interior + screen-likeness ranking as before, but returns the rotated
+    ``minAreaRect`` (so the slight screen tilt is recovered) instead of an axis-aligned bbox."""
     gray = cv2.cvtColor(white_bgr, cv2.COLOR_BGR2GRAY)
     fh, fw = gray.shape
     otsu, _ = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
     min_area = _SCREEN_MIN_AREA_FRAC * fw * fh
-    scored: list[tuple[float, tuple[int, int, int, int]]] = []
+    scored: list[tuple[float, _Rect]] = []
     for frac in _SCREEN_THRESH_FRACS:
         thr = int(otsu + (255 - otsu) * frac)
         _, mask = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY)
@@ -90,41 +107,95 @@ def detect_screen_rect(white_bgr: np.ndarray, *, top_n: int = 3) -> list[tuple[i
             if area < min_area:
                 continue
             bbox = cv2.boundingRect(c)
-            score = _screen_likeness(bbox, area, fw, fh)
-            if score > 0.0:
-                scored.append((score, bbox))
+            s = _screen_likeness(bbox, area, fw, fh)
+            if s > 0.0:
+                scored.append((s, _norm_rect(cv2.minAreaRect(c))))
     scored.sort(key=lambda t: t[0], reverse=True)
-    kept: list[tuple[int, int, int, int]] = []
-    for _, bbox in scored:
-        if all(_bbox_iou(bbox, kb) < 0.5 for kb in kept):
-            kept.append(bbox)
-        if len(kept) >= top_n:
+    out: list[_Rect] = []
+    seen: list[tuple[int, int, int, int]] = []
+    for _, rect in scored:
+        bbox = (
+            int(rect[0][0] - rect[1][0] / 2),
+            int(rect[0][1] - rect[1][1] / 2),
+            int(rect[1][0]),
+            int(rect[1][1]),
+        )
+        if all(_bbox_iou(bbox, b) < 0.5 for b in seen):
+            seen.append(bbox)
+            out.append(rect)
+        if len(out) >= top_n:
             break
-    return kept
+    return out
 
 
-def to_roi_candidate(
-    bbox: tuple[int, int, int, int], frame_w: int, frame_h: int, *, target_aspect: float = 4 / 3
-) -> tuple[int, int, int, int]:
-    """Expand ``bbox`` about its centre to ``target_aspect`` (never shrinks -> no content lost),
-    then clamp inside the frame. Distortion-free because the crop is later resized to a same-aspect
-    reference."""
-    x, y, w, h = bbox
-    cx, cy = x + w / 2.0, y + h / 2.0
-    fw, fh = float(w), float(h)
-    if fw / fh < target_aspect:
-        fw = target_aspect * fh
+def screen_roi_from_rect(
+    rect: _Rect, frame_w: int, frame_h: int, *, ref_w: int = 800, ref_h: int = 480
+) -> RoiBox:
+    """Normalise a rotated screen rect to 5:3 and store it at the ``ref_w x ref_h`` detection ref
+    (so ``Roi.crop`` -> resize lands a 5:3 deskewed image). Carries the deskew ``angle``."""
+    (cx, cy), (w, h), angle = rect
+    target = 5 / 3
+    if w / h < target:  # widen the short side to 5:3 (never shrink -> no content lost)
+        w = target * h
     else:
-        fh = fw / target_aspect
-    nx = int(round(cx - fw / 2.0))
-    ny = int(round(cy - fh / 2.0))
-    nw = int(round(fw))
-    nh = int(round(fh))
-    nx = max(0, min(nx, frame_w - 1))
-    ny = max(0, min(ny, frame_h - 1))
-    nw = max(1, min(nw, frame_w - nx))
-    nh = max(1, min(nh, frame_h - ny))
-    return nx, ny, nw, nh
+        h = w / target
+    sx, sy = ref_w / frame_w, ref_h / frame_h
+    bx = int(round((cx - w / 2) * sx))
+    by = int(round((cy - h / 2) * sy))
+    return RoiBox(
+        x=max(0, bx),
+        y=max(0, by),
+        w=max(1, int(round(w * sx))),
+        h=max(1, int(round(h * sy))),
+        ref_w=ref_w,
+        ref_h=ref_h,
+        angle=float(angle),
+    )
+
+
+def deskew_crop(frame: np.ndarray, region: RoiBox, *, out: tuple[int, int] = (800, 480)) -> np.ndarray:
+    """Deskewed 5:3 crop of ``frame`` for ``region`` (screen_roi), resized to ``out``."""
+    return cv2.resize(roi_from_region(region).crop(frame), out, interpolation=cv2.INTER_AREA)
+
+
+def fit_camera_circle(bright_ref_bgr: np.ndarray) -> tuple[float, float, float]:
+    """Centre + radius of the bright central disc in a deskewed ``out``-sized aligned frame.
+
+    Thresholds the bright disc, takes the largest blob, and fits a circle via the contour's area
+    (radius = sqrt(area/pi)) about its centroid -- tighter than minEnclosingCircle, which the glare
+    streak inflates."""
+    g = cv2.cvtColor(bright_ref_bgr, cv2.COLOR_BGR2GRAY)
+    # Cap below 255: THRESH_BINARY keeps src > thresh, so a percentile of 255 (disc much brighter than
+    # the surround) would otherwise threshold to an empty mask.
+    thr = min(int(np.percentile(g, 80)), 254)
+    _, m = cv2.threshold(g, thr, 255, cv2.THRESH_BINARY)
+    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)))
+    contours, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        raise ValueError("no bright disc found for the camera circle")
+    disc = max(contours, key=cv2.contourArea)
+    mo = cv2.moments(disc)
+    area = cv2.contourArea(disc)
+    cx = mo["m10"] / mo["m00"] if mo["m00"] else bright_ref_bgr.shape[1] / 2
+    cy = mo["m01"] / mo["m00"] if mo["m00"] else bright_ref_bgr.shape[0] / 2
+    r = float(np.sqrt(area / np.pi))
+    return float(cx), float(cy), r
+
+
+def arc_bands_from_circle(
+    cx: float, cy: float, r: float, *, ref_w: int = 800, ref_h: int = 480, pad: int = 4
+) -> tuple[RoiBox, RoiBox]:
+    """Two mirror-symmetric bands on the circle's left/right edges (outer ~35% of the radius,
+    middle 60% vertically) -- excludes the top corners (battery) and the top/bottom of the disc."""
+    bw = max(1, int(round(0.35 * r)))
+    y = max(0, int(round(cy - 0.6 * r)) - pad)
+    h = min(ref_h - y, int(round(1.2 * r)) + 2 * pad)
+    lx = max(0, int(round(cx - r)) - pad)
+    # enforce exact mirror symmetry about the frame centre using the left band
+    rx = ref_w - (lx + bw)
+    left = RoiBox(x=lx, y=y, w=bw, h=h, ref_w=ref_w, ref_h=ref_h)
+    right = RoiBox(x=max(0, rx), y=y, w=bw, h=h, ref_w=ref_w, ref_h=ref_h)
+    return left, right
 
 
 # Broad colour priors used to FIND candidate arc pixels before percentile sampling tightens the
@@ -147,53 +218,6 @@ def _prior_mask(hsv: np.ndarray, bands: list[HsvBand]) -> np.ndarray:
         mask = cv2.bitwise_or(mask, cv2.inRange(hsv, lo, hi))
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     return cv2.morphologyEx(mask, cv2.MORPH_OPEN, k)
-
-
-def _half_bbox(half: np.ndarray, pad: int, full_w: int, full_h: int, x_off: int) -> RoiBox | None:
-    """Padded bounding box of the nonzero pixels in one half-mask, or None if the half is empty."""
-    ys, xs = np.nonzero(half)
-    if xs.size == 0:
-        return None
-    x0, x1 = int(xs.min()) + x_off, int(xs.max()) + x_off
-    y0, y1 = int(ys.min()), int(ys.max())
-    x = max(0, x0 - pad)
-    y = max(0, y0 - pad)
-    w = min(full_w - x, (x1 - x0) + 1 + 2 * pad)
-    h = min(full_h - y, (y1 - y0) + 1 + 2 * pad)
-    return RoiBox(x=x, y=y, w=w, h=h, ref_w=full_w, ref_h=full_h)
-
-
-def _mirror_bbox(box: RoiBox, full_w: int) -> RoiBox:
-    """Reflect a box across the ROI's vertical centre (the two arcs are left/right symmetric)."""
-    return RoiBox(
-        x=max(0, full_w - (box.x + box.w)), y=box.y, w=box.w, h=box.h, ref_w=box.ref_w, ref_h=box.ref_h
-    )
-
-
-def detect_arc_regions(
-    roi_ref_bgr: np.ndarray, *, red_prior: list[HsvBand] | None = None, pad: int = 4
-) -> tuple[RoiBox, RoiBox]:
-    """``(left_arc, right_arc)`` regions from red pixels in the left/right halves of the ROI.
-
-    ``roi_ref_bgr`` is the chosen ROI crop resized to the detection reference. The two alignment arcs
-    are left/right symmetric, so if only ONE half has red -- common on real captures where one arc is
-    faint or off-screen -- the populated half is MIRRORED across the centre to fill the other. Raises
-    ``ValueError`` only if NEITHER half has any red pixel (wrong frame, or arcs outside the ROI)."""
-    prior = red_prior if red_prior is not None else _RED_PRIOR
-    hsv = cv2.cvtColor(roi_ref_bgr, cv2.COLOR_BGR2HSV)
-    mask = _prior_mask(hsv, prior)
-    h, w = mask.shape
-    mid = w // 2
-    left = _half_bbox(mask[:, :mid], pad, w, h, x_off=0)
-    right = _half_bbox(mask[:, mid:], pad, w, h, x_off=mid)
-    if left is None and right is None:
-        raise ValueError("no red arc pixels found in either half of the ROI")
-    if left is None:
-        assert right is not None
-        left = _mirror_bbox(right, w)
-    elif right is None:
-        right = _mirror_bbox(left, w)
-    return left, right
 
 
 def sample_hsv_band(

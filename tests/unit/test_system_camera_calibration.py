@@ -8,81 +8,53 @@ from pydantic import ValidationError
 from arm101_hand.config import load_system_camera_config
 from arm101_hand.config.system_camera_config import HsvBand, RoiBox
 from arm101_hand.system_camera.calibration import (
-    detect_arc_regions,
-    detect_screen_rect,
+    arc_bands_from_circle,
+    detect_screen_rects,
+    fit_camera_circle,
     sample_hsv_band,
+    screen_roi_from_rect,
     suggest_coverage_threshold,
-    to_roi_candidate,
     write_calibration_values,
 )
 
 _DATA = Path(__file__).resolve().parents[2] / "src" / "arm101_hand" / "data" / "system_camera_config.yaml"
 
 
-def test_detect_screen_rect_ranks_screen_above_distractor():
-    img = np.zeros((480, 640, 3), dtype=np.uint8)
-    cv2.rectangle(img, (100, 80), (340, 260), (255, 255, 255), -1)  # the screen (240x180)
-    cv2.rectangle(img, (500, 400), (560, 440), (255, 255, 255), -1)  # small bright distractor
-    rects = detect_screen_rect(img)
+def test_detect_screen_rects_finds_tilted_interior_rect():
+    img = np.zeros((480, 800, 3), dtype=np.uint8)
+    box = cv2.boxPoints(((400, 240), (360, 220), 6.0)).astype(np.int32)  # 5:3-ish, tilted 6deg, interior
+    cv2.fillPoly(img, [box], (255, 255, 255))
+    rects = detect_screen_rects(img, top_n=3)
     assert len(rects) >= 1
-    x, y, w, h = rects[0]
-    assert 90 <= x <= 110 and 70 <= y <= 90  # the screen, not the distractor
-    assert w > h  # landscape
+    (cx, cy), (w, h), angle = rects[0]
+    assert 360 <= cx <= 440 and 200 <= cy <= 280
+    assert abs(abs(angle) - 6.0) < 2.0  # recovered the tilt
 
 
-def test_detect_screen_rect_returns_at_most_top_n():
-    img = np.zeros((480, 640, 3), dtype=np.uint8)
-    for i in range(5):
-        cv2.rectangle(img, (10 + i * 110, 10), (90 + i * 110, 120), (255, 255, 255), -1)
-    assert len(detect_screen_rect(img, top_n=3)) <= 3
+def test_screen_roi_from_rect_is_5_3_at_800x480_ref_with_angle():
+    rect = ((800.0, 600.0), (400.0, 240.0), -1.0)  # in a 1600x1200 frame
+    sr = screen_roi_from_rect(rect, 1600, 1200)
+    assert (sr.ref_w, sr.ref_h) == (800, 480)
+    assert sr.angle == -1.0
+    # the stored box, scaled back to the frame, keeps ~5:3
+    from arm101_hand.system_camera import roi_from_region
+
+    x, y, w, h = roi_from_region(sr).for_frame(1600, 1200)
+    assert abs((w / h) - 5 / 3) < 0.1
 
 
-def test_detect_screen_rect_prefers_bright_interior_over_dim_border_region():
-    # The real-frame failure mode: a dim-but-large bright region flooding in from the border (sunlit
-    # walls / a daylit doorway) competes with the backlit screen -- which is smaller, near-saturated,
-    # and INTERIOR. The high-threshold sweep + interior scoring must pick the screen, not the slab.
-    img = np.zeros((480, 640, 3), dtype=np.uint8)
-    cv2.rectangle(img, (0, 0), (380, 479), (170, 170, 170), -1)  # dim wall slab, touches the border
-    cv2.rectangle(img, (180, 150), (440, 330), (255, 255, 255), -1)  # backlit screen, interior island
-    x, y, w, h = detect_screen_rect(img)[0]
-    assert 160 <= x <= 200 and 130 <= y <= 170  # the interior screen, not the (0,0) border slab
+def test_fit_camera_circle_centres_on_disc():
+    img = np.zeros((480, 800, 3), dtype=np.uint8)
+    cv2.circle(img, (400, 240), 180, (255, 255, 255), -1)
+    cx, cy, r = fit_camera_circle(img)
+    assert abs(cx - 400) <= 15 and abs(cy - 240) <= 15 and abs(r - 180) <= 25
 
 
-def test_to_roi_candidate_normalizes_to_4_3_within_bounds():
-    x, y, w, h = to_roi_candidate((100, 100, 200, 100), 640, 480)  # 2:1 -> expand height
-    assert abs((w / h) - 4 / 3) < 0.05
-    assert x >= 0 and y >= 0 and x + w <= 640 and y + h <= 480
-
-
-def _red() -> tuple[int, int, int]:
-    return (0, 0, 255)  # BGR red -> HSV hue 0
-
-
-def test_detect_arc_regions_finds_left_and_right():
-    roi = np.zeros((480, 640, 3), dtype=np.uint8)
-    roi[200:280, 40:100] = _red()  # left arc
-    roi[200:280, 540:600] = _red()  # right arc
-    left, right = detect_arc_regions(roi)
-    # Tight ranges: left bbox tracks cols 40-100 (pad 4), right tracks cols 540-600 (x_off 320).
-    assert 30 <= left.x <= 60 and left.x + left.w <= 120
-    assert 520 <= right.x <= 560 and right.x + right.w <= 620
-    assert left.w >= 1 and right.h >= 1
-
-
-def test_detect_arc_regions_mirrors_when_one_half_is_empty():
-    # Real captures often show only ONE arc strongly (the other faint / off-screen). The arcs are
-    # left/right symmetric, so the populated half is mirrored to fill the empty one (no crash).
-    roi = np.zeros((480, 640, 3), dtype=np.uint8)
-    roi[200:280, 40:100] = _red()  # only the LEFT half has red
-    left, right = detect_arc_regions(roi)
-    assert left.x < 320 <= right.x  # right was mirrored into the right half
-    assert abs(right.x - (640 - (left.x + left.w))) <= 1  # reflected across the vertical centre
-
-
-def test_detect_arc_regions_raises_when_both_halves_empty():
-    roi = np.zeros((480, 640, 3), dtype=np.uint8)  # no red anywhere
-    with pytest.raises(ValueError):
-        detect_arc_regions(roi)
+def test_arc_bands_from_circle_are_symmetric():
+    left, right = arc_bands_from_circle(400, 240, 200, ref_w=800, ref_h=480)
+    assert left.x < 400 <= right.x
+    assert (left.w, left.h) == (right.w, right.h)
+    assert abs(right.x - (800 - (left.x + left.w))) <= 1  # mirror across centre
 
 
 def test_sample_hsv_band_green_brackets_the_hue():
