@@ -26,8 +26,11 @@ class HsvBand(BaseModel):
     v_hi: int = Field(ge=0, le=255)
 
 
-class ArcRegion(BaseModel):
-    """A pixel rectangle measured against a reference frame size (mirrors system_camera.Roi)."""
+class RoiBox(BaseModel):
+    """A pixel rectangle measured against a reference frame size (mirrors system_camera.Roi).
+
+    Used for the screen ROI (``SystemCameraConfig.screen_roi``) and the auto-trigger arc regions.
+    """
 
     model_config = ConfigDict(extra="forbid")
     x: int = Field(ge=0)
@@ -38,12 +41,15 @@ class ArcRegion(BaseModel):
     ref_h: int = Field(default=480, ge=1)
 
 
+ArcRegion = RoiBox  # back-compat alias: existing imports/configs keep working
+
+
 class AutoTriggerConfig(BaseModel):
     """Arc-based auto-trigger detection + lifecycle tuning (grab_auto_trigger_analysis demo)."""
 
     model_config = ConfigDict(extra="forbid")
-    left_arc: ArcRegion = Field(default_factory=lambda: ArcRegion(x=60, y=110, w=70, h=190))
-    right_arc: ArcRegion = Field(default_factory=lambda: ArcRegion(x=420, y=110, w=70, h=190))
+    left_arc: RoiBox = Field(default_factory=lambda: RoiBox(x=60, y=110, w=70, h=190))
+    right_arc: RoiBox = Field(default_factory=lambda: RoiBox(x=420, y=110, w=70, h=190))
     red_bands: list[HsvBand] = Field(
         default_factory=lambda: [
             HsvBand(h_lo=0, s_lo=80, v_lo=80, h_hi=10, s_hi=255, v_hi=255),
@@ -66,7 +72,7 @@ class SystemCameraConfig(BaseModel):
     """Arm-mounted USB observation camera: live preview window (cv2) + record toggle."""
 
     model_config = ConfigDict(extra="forbid")
-    schema_version: int = 5
+    schema_version: int = 6
     enabled: bool = Field(default=True, description="open the preview window when the demo runs")
     camera_index: int = Field(default=0, ge=0, description="USB camera index (the arm-mounted cam)")
     backend: Literal["auto", "dshow"] = Field(
@@ -82,6 +88,13 @@ class SystemCameraConfig(BaseModel):
         ge=0,
         description="manual lens position (UVC VCM range ~0..1023); null = don't touch the focus "
         "position. Found with usb_camera_focus_probe.py; needs autofocus=false + backend=dshow",
+    )
+    screen_roi: RoiBox = Field(
+        default_factory=lambda: RoiBox(x=60, y=75, w=196, h=147),
+        description="ROI that zooms preview/recording/detection onto just the Aurora screen. "
+        "ref_w/ref_h = the resolution it was calibrated at (runtime rescale is then identity). "
+        "Re-derived by scripts/calibration/system_camera/calibrate_view.py. Default = legacy "
+        "AURORA_SCREEN_ROI",
     )
     auto_trigger: AutoTriggerConfig = Field(default_factory=AutoTriggerConfig)
     window_title: str = Field(default="Arm cam (Optomed view)", description="preview window title")

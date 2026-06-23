@@ -27,7 +27,7 @@ def test_resolution_fourcc_defaults():
     assert cfg.still_width is None
     assert cfg.still_height is None
     assert cfg.fourcc == "MJPG"
-    assert cfg.schema_version == 5
+    assert cfg.schema_version == 6
 
 
 def test_focus_defaults():
@@ -137,3 +137,35 @@ def test_auto_trigger_coverage_threshold_bounds():
 def test_auto_trigger_extra_keys_forbidden():
     with pytest.raises(ValidationError):
         SystemCameraConfig.model_validate({"auto_trigger": {"bogus": 1}})
+
+
+def test_arcregion_is_roibox_alias():
+    from arm101_hand.config.system_camera_config import ArcRegion, RoiBox
+
+    assert ArcRegion is RoiBox
+
+
+def test_screen_roi_default_matches_legacy_constant():
+    cfg = SystemCameraConfig()
+    sr = cfg.screen_roi
+    assert (sr.x, sr.y, sr.w, sr.h) == (60, 75, 196, 147)
+    assert (sr.ref_w, sr.ref_h) == (640, 480)
+
+
+def test_screen_roi_round_trips_at_calibration_resolution():
+    cfg = SystemCameraConfig.model_validate(
+        {"screen_roi": {"x": 150, "y": 188, "w": 490, "h": 368, "ref_w": 1600, "ref_h": 1200}}
+    )
+    sr = cfg.screen_roi
+    assert (sr.x, sr.y, sr.w, sr.h, sr.ref_w, sr.ref_h) == (150, 188, 490, 368, 1600, 1200)
+
+
+def test_schema_default_version_is_6():
+    assert SystemCameraConfig().schema_version == 6
+
+
+def test_data_yaml_has_screen_roi():
+    cfg = load_system_camera_config(_DATA)
+    sr = cfg.screen_roi
+    assert (sr.x, sr.y, sr.w, sr.h) == (60, 75, 196, 147)
+    assert (sr.ref_w, sr.ref_h) == (640, 480)
