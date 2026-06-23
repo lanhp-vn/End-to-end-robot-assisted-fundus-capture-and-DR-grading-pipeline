@@ -37,6 +37,17 @@ def test_detect_screen_rect_returns_at_most_top_n():
     assert len(detect_screen_rect(img, top_n=3)) <= 3
 
 
+def test_detect_screen_rect_prefers_bright_interior_over_dim_border_region():
+    # The real-frame failure mode: a dim-but-large bright region flooding in from the border (sunlit
+    # walls / a daylit doorway) competes with the backlit screen -- which is smaller, near-saturated,
+    # and INTERIOR. The high-threshold sweep + interior scoring must pick the screen, not the slab.
+    img = np.zeros((480, 640, 3), dtype=np.uint8)
+    cv2.rectangle(img, (0, 0), (380, 479), (170, 170, 170), -1)  # dim wall slab, touches the border
+    cv2.rectangle(img, (180, 150), (440, 330), (255, 255, 255), -1)  # backlit screen, interior island
+    x, y, w, h = detect_screen_rect(img)[0]
+    assert 160 <= x <= 200 and 130 <= y <= 170  # the interior screen, not the (0,0) border slab
+
+
 def test_to_roi_candidate_normalizes_to_4_3_within_bounds():
     x, y, w, h = to_roi_candidate((100, 100, 200, 100), 640, 480)  # 2:1 -> expand height
     assert abs((w / h) - 4 / 3) < 0.05

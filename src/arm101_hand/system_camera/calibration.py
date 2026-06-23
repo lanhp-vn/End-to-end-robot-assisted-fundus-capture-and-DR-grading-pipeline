@@ -6,8 +6,11 @@ from three sample frames (white startup screen, red arcs, green arcs). Pure nump
 Synthetic-numpy unit-testable, mirroring ``arc_detector.py``. The interactive capture/confirm
 shell lives in ``scripts/calibration/system_camera/calibrate_view.py``.
 
-Rectangle detection adapts references/computer-vision/opencv/samples/python/squares.py
-(threshold -> findContours -> approxPolyDP -> area/convexity filter). Plain opencv-python only.
+Screen detection sweeps several HIGH brightness thresholds (the backlit Aurora LCD is near-
+saturated white, unlike painted walls / daylight) and ranks INTERIOR rectangles by
+fill x aspect x size x not-touching-the-border -- the screen is the only large bright rectangle
+that does not run into the frame edge. Plain opencv-python only (no contrib); patterns adapted
+from the OpenCV samples, never imported from references/.
 """
 
 from __future__ import annotations
@@ -23,45 +26,81 @@ from ruamel.yaml.comments import CommentedMap
 
 from arm101_hand.config.system_camera_config import HsvBand, RoiBox, SystemCameraConfig
 
-_FONT = cv2.FONT_HERSHEY_SIMPLEX
+# Screen detection tuning. The Aurora screen is a backlit LCD (near-saturated white) sitting as an
+# island inside the frame; walls / daylight / doorway are bright too but run into the frame border.
+_SCREEN_ASPECT_LO, _SCREEN_ASPECT_HI = 1.2, 2.0  # landscape ~16:10..16:9
+_SCREEN_MIN_AREA_FRAC = 0.01  # ignore blobs smaller than 1% of the frame
+_SCREEN_BORDER_FRAC = 0.01  # within 1% of an edge counts as "touching the border"
+_SCREEN_TARGET_AREA_FRAC = 0.04  # size score saturates around 4% of the frame
+_SCREEN_THRESH_FRACS = (0.4, 0.6, 0.8)  # high cuts between Otsu and 255 to isolate the backlit LCD
 
 
-def _screen_likeness(contour: np.ndarray, frame_area: int) -> float:
-    """Score a bright blob on how screen-like it is: solid, rectangular, sizeable, landscape."""
-    area = cv2.contourArea(contour)
-    if area <= 0:
-        return 0.0
-    x, y, w, h = cv2.boundingRect(contour)
+def _bbox_iou(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
+    """Intersection-over-union of two ``(x, y, w, h)`` boxes (to de-dupe candidates across cuts)."""
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    ix0, iy0 = max(ax, bx), max(ay, by)
+    ix1, iy1 = min(ax + aw, bx + bw), min(ay + ah, by + bh)
+    iw, ih = max(0, ix1 - ix0), max(0, iy1 - iy0)
+    inter = iw * ih
+    union = aw * ah + bw * bh - inter
+    return inter / union if union else 0.0
+
+
+def _screen_likeness(bbox: tuple[int, int, int, int], area: float, frame_w: int, frame_h: int) -> float:
+    """Score a bright blob on how screen-like it is: solid (high fill), landscape aspect, sizeable,
+    and INTERIOR -- not touching the frame border (walls / daylight do; the screen does not)."""
+    x, y, w, h = bbox
     rect_area = w * h
-    fill = area / rect_area if rect_area else 0.0
-    peri = cv2.arcLength(contour, True)
-    approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
-    corner = 1.0 if len(approx) == 4 else 0.6 if len(approx) <= 6 else 0.25
-    size = min(area / frame_area / 0.10, 1.0)  # rewards >= ~10% of the frame
+    if rect_area <= 0:
+        return 0.0
+    fill = area / rect_area
     aspect = w / h if h else 0.0
-    aspect_score = 1.0 if 1.0 <= aspect <= 2.2 else 0.3  # the Aurora screen is landscape-ish
-    return fill * corner * size * aspect_score
+    aspect_score = 1.0 if _SCREEN_ASPECT_LO <= aspect <= _SCREEN_ASPECT_HI else 0.25
+    size = min(area / (frame_w * frame_h) / _SCREEN_TARGET_AREA_FRAC, 1.0)
+    margin = max(2, int(_SCREEN_BORDER_FRAC * min(frame_w, frame_h)))
+    touches = x <= margin or y <= margin or x + w >= frame_w - margin or y + h >= frame_h - margin
+    interior = 0.1 if touches else 1.0
+    return fill * aspect_score * size * interior
 
 
 def detect_screen_rect(white_bgr: np.ndarray, *, top_n: int = 3) -> list[tuple[int, int, int, int]]:
-    """Ranked candidate ``(x, y, w, h)`` bounding boxes of the bright screen, best first.
+    """Ranked candidate ``(x, y, w, h)`` bounding boxes of the backlit Aurora screen, best first.
 
-    Otsu-thresholds the frame, closes gaps (logo/knob/text), finds external contours, and ranks
-    them by :func:`_screen_likeness`. Returns up to ``top_n`` boxes with a positive score.
+    Sweeps several HIGH brightness thresholds (between Otsu and 255): the backlit LCD saturates near
+    white while painted walls / daylight are dimmer, so a high cut isolates the screen instead of
+    fusing it into the bright room (plain Otsu lumps screen + walls + doorway into one blob). Each
+    cut's external contours are scored by :func:`_screen_likeness` (fill x aspect x size x interior);
+    candidates overlapping across cuts are de-duped (IoU >= 0.5, highest score wins). Returns up to
+    ``top_n`` boxes with a positive score.
     """
     gray = cv2.cvtColor(white_bgr, cv2.COLOR_BGR2GRAY)
-    _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    k = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k)
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    fh, fw = white_bgr.shape[:2]
-    frame_area = fw * fh
-    scored = sorted(
-        ((_screen_likeness(c, frame_area), cv2.boundingRect(c)) for c in contours),
-        key=lambda t: t[0],
-        reverse=True,
-    )
-    return [bbox for score, bbox in scored if score > 0.0][:top_n]
+    fh, fw = gray.shape
+    otsu, _ = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    min_area = _SCREEN_MIN_AREA_FRAC * fw * fh
+    scored: list[tuple[float, tuple[int, int, int, int]]] = []
+    for frac in _SCREEN_THRESH_FRACS:
+        thr = int(otsu + (255 - otsu) * frac)
+        _, mask = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for c in contours:
+            area = cv2.contourArea(c)
+            if area < min_area:
+                continue
+            bbox = cv2.boundingRect(c)
+            score = _screen_likeness(bbox, area, fw, fh)
+            if score > 0.0:
+                scored.append((score, bbox))
+    scored.sort(key=lambda t: t[0], reverse=True)
+    kept: list[tuple[int, int, int, int]] = []
+    for _, bbox in scored:
+        if all(_bbox_iou(bbox, kb) < 0.5 for kb in kept):
+            kept.append(bbox)
+        if len(kept) >= top_n:
+            break
+    return kept
 
 
 def to_roi_candidate(
