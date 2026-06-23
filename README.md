@@ -104,16 +104,16 @@ Two cameras are involved: the **Optomed Aurora** *fundus* camera (captures patie
 ```powershell
 uv run python scripts/diagnostics/fundus_camera/aurora_probe.py        # read-only Aurora reachability + status + filelist
 uv run python scripts/diagnostics/system_camera/usb_camera_probe.py    # system-cam smoke test: live window + 'r' record (no motors/Aurora)
-uv run python scripts/diagnostics/system_camera/usb_camera_roi_preview.py  # preview the fixed ROI zoom of the Aurora screen (no motors/Aurora)
+uv run python scripts/diagnostics/system_camera/usb_camera_roi_preview.py  # preview the fixed deskewed 5:3 ROI zoom of the Aurora screen (no motors/Aurora)
 uv run python scripts/diagnostics/system_camera/usb_camera_focus_probe.py  # sweep + fine-tune the manual focus value (needs --backend dshow; no motors/Aurora)
 uv run python scripts/demos/grab_trigger_capture.py                    # live ROI-zoomed system-cam window; SPACE presses the shutter, image lands in media_outputs/fundus_images/ and pops up until the next capture
 ```
 
-When the system camera's **resolution or lighting** changes, re-derive its view calibration — the Aurora **screen ROI**, the two alignment-**arc regions**, and the red/green **HSV color bands** — with an interactive guided capture (white startup screen → red arcs → green arcs → confirm → write). It writes `src/arm101_hand/data/system_camera_config.yaml` (keeping a `.bak`); see [`scripts/calibration/system_camera/README.md`](scripts/calibration/system_camera/README.md):
+When the system camera's **resolution or lighting** changes, re-derive its view calibration — the Aurora **screen ROI** (a deskewed 5:3 crop carrying a rotation angle), the two symmetric alignment-**arc bands**, and the **red HSV color band** — with an interactive guided capture from **3 frames** (white startup screen → red arcs → bright/aligned screen → confirm → write). The bright frame fits the camera circle and places mirror-symmetric arc bands on its edges; detection is red-only (an arc is RED or not). It writes `src/arm101_hand/data/system_camera_config.yaml` (keeping a `.bak`); see [`scripts/calibration/system_camera/README.md`](scripts/calibration/system_camera/README.md):
 
 ```powershell
 uv run python scripts/calibration/system_camera/calibrate_view.py                       # live guided capture
-uv run python scripts/calibration/system_camera/calibrate_view.py --from-files WHITE RED GREEN  # re-detect on saved frames
+uv run python scripts/calibration/system_camera/calibrate_view.py --from-files WHITE RED BRIGHT  # re-detect on saved frames
 ```
 
 Camera prerequisites (the API cannot set these — do it on the device): **Still imaging** mode, **Quick imaging ON**, and **Optomed Client closed** (the Pictor API allows a single client connection — `aurora_probe` counts too, so if you just ran it, give the camera a few seconds to free the slot before launching the demo). The system-cam preview uses the full `opencv-python` wheel, and locks the camera to a fixed manual focus (`autofocus: false` / `focus: 600` in `system_camera_config.yaml`) so the Aurora screen stays sharp instead of autofocus hunting — this requires `backend: dshow` (only DSHOW drives this camera's focus motor); the value was found with `usb_camera_focus_probe.py`. Pulled fundus images + their JSON sidecars and any system-cam recordings save under `media_outputs/` (git-ignored — never commit medical images).
@@ -146,7 +146,7 @@ Finally, the capture can fire **automatically** instead of on SPACE:
 uv run python scripts/demos/grab_auto_trigger_analysis.py
 ```
 
-This is the analysis demo plus a computer-vision auto-trigger: the arm-mounted USB camera watches the Optomed Aurora's two on-screen alignment arcs, and when they turn **green** (correct working distance) and hold stable, the hand auto-presses the shutter — no keypress. Press `m` to arm AUTO (it starts in MANUAL, SPACE-only); each time you re-align to green it captures another shot of the same patient; `g` grades them all; `n` advances to the next patient. Detection is local HSV color masking on a fixed region of each arc — the regions, color bands, and timing live in the `auto_trigger` block of `src/arm101_hand/data/system_camera_config.yaml` and are tuned against your screen (design in [`docs/superpowers/specs/2026-06-19-arc-auto-trigger-design.md`](docs/superpowers/specs/2026-06-19-arc-auto-trigger-design.md)).
+This is the analysis demo plus a computer-vision auto-trigger: the arm-mounted USB camera watches the Optomed Aurora's two on-screen alignment arcs (which are **red** when misaligned), and the hand auto-presses the shutter — no keypress — after both arcs go red (misaligned) and then go **not-red** (aligned) and hold stable. Press `m` to arm AUTO (it starts in MANUAL, SPACE-only); each shot re-requires a fresh red → not-red transition, so re-aligning captures another shot of the same patient; `g` grades them all; `n` advances to the next patient. Detection is local, red-only HSV color masking on a fixed deskewed region of each arc — the arc bands, red color band, threshold, and timing live in the `auto_trigger` block of `src/arm101_hand/data/system_camera_config.yaml` and are tuned against your screen with `calibrate_view.py` (design in [`docs/superpowers/specs/2026-06-23-system-camera-deskew-circle-redgate-design.md`](docs/superpowers/specs/2026-06-23-system-camera-deskew-circle-redgate-design.md)).
 
 ## Repo layout
 

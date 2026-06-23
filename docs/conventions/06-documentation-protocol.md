@@ -179,6 +179,8 @@ Every normative fact, procedure, spec, or reusable table lives in **one** Markdo
 | Arc auto-trigger implementation plan (TDD task breakdown) | `docs/superpowers/plans/2026-06-19-arc-auto-trigger.md` |
 | System-camera view calibration design (screen ROI + arc regions + HSV bands re-derived from 3 captures) | `docs/superpowers/specs/2026-06-22-system-camera-view-calibration-design.md` |
 | System-camera view calibration implementation plan (TDD task breakdown) | `docs/superpowers/plans/2026-06-22-system-camera-view-calibration.md` |
+| System-camera deskew + circle-based red-gate detection design (deskewed 5:3 800×480 ROI with rotation angle; red-only arc classification; red→not-red gated auto-trigger; circle-based symmetric arc bands; 3-capture white/red/bright calibration) — **supersedes the arc geometry/logic of the 2026-06-22 view-calibration entry above** | `docs/superpowers/specs/2026-06-23-system-camera-deskew-circle-redgate-design.md` |
+| System-camera deskew + circle-based red-gate detection implementation plan (TDD task breakdown) | `docs/superpowers/plans/2026-06-23-system-camera-deskew-circle-redgate.md` |
 
 ### 10.2 When you add a new topic
 
