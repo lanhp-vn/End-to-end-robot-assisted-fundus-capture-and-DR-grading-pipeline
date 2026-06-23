@@ -1,23 +1,30 @@
 """Interactive view-calibration for the arm-mounted USB observation camera.
 
-Re-derives the Aurora SCREEN ROI, the two alignment-ARC regions, and the RED/GREEN HSV bands,
-then writes them into src/arm101_hand/data/system_camera_config.yaml. Run after any RESOLUTION
-or LIGHTING change (the fixed-fraction ROI + colour bands drift otherwise).
+Re-derives the Aurora SCREEN ROI (a deskewed 5:3 / 800x480 crop carrying a rotation angle), the two
+symmetric alignment-ARC bands on the camera circle, the RED HSV band(s), and the coverage threshold,
+then writes them into src/arm101_hand/data/system_camera_config.yaml. Run after any RESOLUTION or
+LIGHTING change (the fixed-fraction ROI + colour bands drift otherwise).
+
+Detection is RED-ONLY: each arc is RED (misaligned) or not-red (aligned); no green is sampled (the
+bright/aligned screen reads greenish overall, so green coverage is unreliable).
 
 Flow:
-  1. Capture (or --from-files) the WHITE startup screen -> pick 1 of up to 3 ROI candidates
-     (keys 1/2/3), or 'm' to drag one manually (cv2.selectROI), or 'r' to recapture.
-  2. Capture the RED arcs (ROI box overlaid) -> auto-detect left/right arc regions + red band.
-  3. Capture the GREEN arcs -> green band; reuse the arc regions.
-  4. CONFIRM screen: ROI crops with the arc boxes + red/green masks tinted, labelled by the REAL
-     arc_detector.detect(); 'y' writes, 'e' re-tune (selectROI), 'r' redo, 'q' quit.
+  1. WHITE startup screen -> pick 1 of up to 3 deskewed 5:3 ROI candidates (keys 1/2/3), or 'm' to
+     drag one manually (cv2.selectROI, angle 0), or 'r' to recapture. The chosen ROI is a RoiBox at
+     the 800x480 detection reference with a deskew angle.
+  2. RED arcs -> deskew-crop the ROI -> sample the RED band from a misaligned arc.
+  3. BRIGHT / aligned screen -> deskew-crop -> fit the camera circle -> derive symmetric arc bands +
+     validate the bands read not-red on the bright frame; pick the coverage threshold.
+  4. CONFIRM screen: two deskewed panels labelled by the REAL arc_detector.detect():
+     RED panel (expect both arcs RED) + BRIGHT panel (expect both clear, fitted circle drawn).
+     'y' writes, 'e' re-tune arc boxes (selectROI), 'r' redo, 'q' quit.
 Like usb_camera_capture.py, ACTION KEYS are read from the TERMINAL (a cv2 window often has no
 keyboard focus when launched from a console); the window only displays. The 'm'/'e' manual drags
 use cv2.selectROI, which you interact with IN the window. Plain opencv-python only (no contrib).
 
 Usage:
   uv run python scripts/calibration/system_camera/calibrate_view.py [--camera N] [--backend auto|dshow]
-  uv run python scripts/calibration/system_camera/calibrate_view.py --from-files WHITE RED GREEN
+  uv run python scripts/calibration/system_camera/calibrate_view.py --from-files WHITE RED BRIGHT
 """
 
 from __future__ import annotations
@@ -34,21 +41,28 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
 from arm101_hand.config import load_system_camera_config  # noqa: E402
-from arm101_hand.config.system_camera_config import AutoTriggerConfig, RoiBox  # noqa: E402
-from arm101_hand.system_camera import Roi, detect, imshow_fit, open_capture, roi_from_region  # noqa: E402
-from arm101_hand.system_camera.arc_detector import _band_mask, classify_band  # noqa: E402
+from arm101_hand.config.system_camera_config import AutoTriggerConfig, HsvBand, RoiBox  # noqa: E402
+from arm101_hand.system_camera import (  # noqa: E402
+    imshow_fit,
+    open_capture,
+    roi_from_region,
+)
+from arm101_hand.system_camera.arc_detector import _band_mask, detect, red_coverage  # noqa: E402
 from arm101_hand.system_camera.calibration import (  # noqa: E402
-    detect_arc_regions,
-    detect_screen_rect,
-    sample_hsv_band,
+    arc_bands_from_circle,
+    deskew_crop,
+    detect_screen_rects,
+    fit_camera_circle,
+    sample_red_band,
+    screen_roi_from_rect,
     suggest_coverage_threshold,
-    to_roi_candidate,
     write_calibration_values,
 )
 
 _CONFIG_PATH = _REPO_ROOT / "src" / "arm101_hand" / "data" / "system_camera_config.yaml"
 _FONT = cv2.FONT_HERSHEY_SIMPLEX
-_REF_W, _REF_H = 640, 480
+_DETECT = (800, 480)  # the deskewed 5:3 detection reference (ref_w x ref_h)
+_REF_W, _REF_H = _DETECT
 _MAX_WIN_W, _MAX_WIN_H = 1100, 800  # initial window cap so large frames fit the screen
 
 
@@ -80,18 +94,14 @@ def _poll_key() -> str:
     return ch
 
 
-def _crop_to_ref(frame: np.ndarray, roi: Roi) -> np.ndarray:
-    """Crop ``frame`` to ``roi`` and resize to the 640x480 detection reference."""
-    return cv2.resize(roi.crop(frame), (_REF_W, _REF_H), interpolation=cv2.INTER_AREA)
-
-
-def _capture_frame(cap, title: str, overlay: Roi | None) -> np.ndarray | None:
+def _capture_frame(cap, title: str, overlay: RoiBox | None) -> np.ndarray | None:
     """Stream until SPACE (return the frame) or q/ESC (return None). Draws ``overlay`` if given.
 
     Keys are read from the TERMINAL (see :func:`_poll_key`) while ``waitKey`` only pumps the window,
     so the operator presses SPACE/q in the console regardless of which window has OS focus."""
     print(f"\n{title}\n  Focus THIS terminal: SPACE = capture this frame, q = quit.")
     opened = False
+    overlay_roi = roi_from_region(overlay) if overlay is not None else None
     while True:
         ok, frame = cap.read()
         if not ok or frame is None:
@@ -103,8 +113,8 @@ def _capture_frame(cap, title: str, overlay: Roi | None) -> np.ndarray | None:
             _open_window(title, frame.shape[1], frame.shape[0])
             opened = True
         disp = frame.copy()
-        if overlay is not None:
-            x, y, w, h = overlay.for_frame(frame.shape[1], frame.shape[0])
+        if overlay_roi is not None:
+            x, y, w, h = overlay_roi.for_frame(frame.shape[1], frame.shape[0])
             cv2.rectangle(disp, (x, y), (x + w, y + h), (0, 255, 0), 2)
         cv2.putText(disp, title, (12, 28), _FONT, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
         imshow_fit(title, disp)
@@ -116,19 +126,17 @@ def _capture_frame(cap, title: str, overlay: Roi | None) -> np.ndarray | None:
             return None
 
 
-def _pick_roi(white: np.ndarray) -> Roi | None:
-    """Show up to 3 ROI candidates; return the chosen Roi, or None to recapture."""
+def _pick_roi(white: np.ndarray) -> RoiBox | None:
+    """Show up to 3 deskewed 5:3 ROI candidates; return the chosen RoiBox, or None to recapture.
+
+    Candidates come from detect_screen_rects -> screen_roi_from_rect (each a RoiBox at the 800x480
+    detection reference carrying a deskew angle). Each candidate's rotated box is drawn on the white
+    frame so the operator sees the tilt. 'm' drags an axis-aligned box manually (angle 0)."""
     fh, fw = white.shape[:2]
-    rects = detect_screen_rect(white, top_n=3)
-    cands = [to_roi_candidate(b, fw, fh) for b in rects]
-    # If detection found <3 distinct screens, pad with framing variants of the best (or the whole
-    # frame if nothing was detected) so the operator always has options.
-    if not cands:
-        cands = [(0, 0, fw, fh)]
-    while len(cands) < 3:
-        bx, by, bw, bh = cands[0]
-        m = int(0.06 * len(cands) * bw)
-        cands.append(to_roi_candidate((max(0, bx - m), max(0, by - m), bw + 2 * m, bh + 2 * m), fw, fh))
+    rects = detect_screen_rects(white, top_n=3)
+    cands = [screen_roi_from_rect(r, fw, fh) for r in rects]
+    if not cands:  # nothing detected -> offer the whole frame so the operator always has an option
+        cands = [screen_roi_from_rect(((fw / 2, fh / 2), (float(fw), float(fh)), 0.0), fw, fh)]
     title = "Calib 1/3: pick ROI (press keys in the TERMINAL)"
     colors = [(0, 255, 0), (0, 200, 255), (255, 180, 0)]
     print(
@@ -139,8 +147,11 @@ def _pick_roi(white: np.ndarray) -> Roi | None:
     _open_window(title, fw, fh)
     while True:
         disp = white.copy()
-        for i, (x, y, w, h) in enumerate(cands[:3]):
-            cv2.rectangle(disp, (x, y), (x + w, y + h), colors[i], 2)
+        for i, box in enumerate(cands[:3]):
+            x, y, w, h = roi_from_region(box).for_frame(fw, fh)
+            cx, cy = x + w / 2.0, y + h / 2.0
+            pts = cv2.boxPoints(((cx, cy), (float(w), float(h)), -box.angle)).astype(np.int32)
+            cv2.polylines(disp, [pts], True, colors[i], 2)
             cv2.putText(disp, str(i + 1), (x + 6, y + 26), _FONT, 0.9, colors[i], 2, cv2.LINE_AA)
         imshow_fit(title, disp)
         cv2.waitKey(20)  # render only; action keys come from the terminal
@@ -148,15 +159,16 @@ def _pick_roi(white: np.ndarray) -> Roi | None:
         if key in ("1", "2", "3"):
             idx = int(key) - 1
             if idx < len(cands[:3]):
-                x, y, w, h = cands[idx]
                 cv2.destroyWindow(title)
-                return Roi(x=x, y=y, w=w, h=h, ref_w=fw, ref_h=fh)
+                return cands[idx]
         elif key in ("m", "M"):
             print("  Drag a box in the window, then ENTER/SPACE to accept (c to cancel).")
             r = cv2.selectROI(title, white, showCrosshair=True, fromCenter=False)
             if r[2] > 0 and r[3] > 0:
                 cv2.destroyWindow(title)
-                return Roi(x=int(r[0]), y=int(r[1]), w=int(r[2]), h=int(r[3]), ref_w=fw, ref_h=fh)
+                # manual drag is axis-aligned -> store at the detection ref with angle 0
+                rect = ((r[0] + r[2] / 2.0, r[1] + r[3] / 2.0), (float(r[2]), float(r[3])), 0.0)
+                return screen_roi_from_rect(rect, fw, fh)
         elif key in ("r", "R"):
             cv2.destroyWindow(title)
             return None
@@ -173,35 +185,39 @@ def _tint_mask(crop: np.ndarray, mask: np.ndarray, color: tuple[int, int, int]) 
 
 def _confirm(
     red_ref: np.ndarray,
-    green_ref: np.ndarray,
+    bright_ref: np.ndarray,
+    circle: tuple[float, float, float],
     trial: AutoTriggerConfig,
 ) -> str:
-    """Show the two ROI crops with arc boxes + tinted masks + real-detector labels. Returns the
-    pressed action key: 'y' (accept), 'e' (edit), 'r' (redo), 'q' (quit)."""
+    """Show the two deskewed panels with arc boxes + tinted RED masks + real-detector labels (red-
+    only). RED panel expects both arcs RED; BRIGHT panel expects both clear (+ the fitted circle).
+    Returns the pressed action key: 'y' (accept), 'e' (edit), 'r' (redo), 'q' (quit)."""
     title = "Calib confirm (press keys in the TERMINAL)"
     la = roi_from_region(trial.left_arc)
     ra = roi_from_region(trial.right_arc)
+    cx, cy, r = circle
     print(
         "\nConfirm calibration -- focus THIS terminal:\n"
         "  y = write config   e = re-tune arc boxes   r = redo   q = quit (no write)"
     )
-    _open_window(title, 2 * _REF_W, _REF_H)  # the confirm composite is two ROI panels side by side
+    _open_window(title, 2 * _REF_W, _REF_H)  # the confirm composite is two deskewed panels side by side
     while True:
         panels = []
-        for label, frame, bands, tint in (
-            ("RED frame", red_ref, trial.red_bands, (0, 0, 255)),
-            ("GREEN frame", green_ref, trial.green_bands, (0, 255, 0)),
-        ):
+        for label, frame, draw_circle in (("RED frame", red_ref, False), ("BRIGHT frame", bright_ref, True)):
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-            mask = _band_mask(hsv, bands)
-            panel = _tint_mask(frame, mask, tint)
+            mask = _band_mask(hsv, trial.red_bands)
+            panel = _tint_mask(frame, mask, (0, 0, 255))
+            if draw_circle:
+                cv2.circle(panel, (int(round(cx)), int(round(cy))), int(round(r)), (255, 0, 255), 1)
             for arc in (la, ra):
-                x, y, w, h = arc.for_frame(_REF_W, _REF_H)
-                cv2.rectangle(panel, (x, y), (x + w, y + h), (255, 255, 0), 1)
+                ax, ay, aw, ah = arc.for_frame(_REF_W, _REF_H)
+                cv2.rectangle(panel, (ax, ay), (ax + aw, ay + ah), (255, 255, 0), 1)
             state = detect(frame, trial)
+            ls = "RED" if state.left_red else "clear"
+            rs = "RED" if state.right_red else "clear"
             cv2.putText(
                 panel,
-                f"{label}: L={state.left} R={state.right} ready={state.ready}",
+                f"{label}: L={ls} R={rs}",
                 (8, 24),
                 _FONT,
                 0.55,
@@ -210,7 +226,20 @@ def _confirm(
                 cv2.LINE_AA,
             )
             panels.append(panel)
-        imshow_fit(title, np.hstack(panels))
+        gate = detect(red_ref, trial).both_red
+        release = detect(bright_ref, trial).both_clear
+        composite = np.hstack(panels)
+        cv2.putText(
+            composite,
+            f"gate both RED: {gate} | release both clear: {release}",
+            (8, _REF_H - 12),
+            _FONT,
+            0.6,
+            (0, 255, 0) if (gate and release) else (0, 0, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        imshow_fit(title, composite)
         cv2.waitKey(20)  # render only; action keys come from the terminal
         key = _poll_key()
         if key in ("y", "Y", "e", "E", "r", "R", "q", "Q", "\x1b"):
@@ -219,10 +248,8 @@ def _confirm(
 
 
 def _retune(red_ref: np.ndarray, trial: AutoTriggerConfig) -> AutoTriggerConfig:
-    """Trackbar HSV tuning for green + red on the red/green crops (adapted from threshold_inRange.py).
-    Drag selectROI to re-set an arc box. Returns an updated AutoTriggerConfig. ESC accepts."""
-    # Minimal: re-run selectROI for both arcs on the red crop; keep bands. (Full trackbar tuning is
-    # a bench enhancement; the auto bands + this geometry override cover the common failure.)
+    """Drag selectROI to re-set each arc band on the deskewed RED crop. Returns an updated
+    AutoTriggerConfig (geometry override; the sampled red bands + threshold are kept)."""
     win = "Re-tune: drag LEFT arc, then RIGHT arc (ESC to keep current)"
     lr = cv2.selectROI(win, red_ref, showCrosshair=True, fromCenter=False)
     rr = cv2.selectROI(win, red_ref, showCrosshair=True, fromCenter=False)
@@ -249,6 +276,28 @@ def _load_frames_from_files(paths: list[str]) -> tuple[np.ndarray, np.ndarray, n
     return imgs[0], imgs[1], imgs[2]
 
 
+def _derive_bands_and_threshold(
+    red_ref: np.ndarray, bright_ref: np.ndarray, left_arc: RoiBox, right_arc: RoiBox
+) -> tuple[list[HsvBand], float, AutoTriggerConfig]:
+    """Sample the RED band(s) off a misaligned arc and pick a two-pass coverage threshold."""
+    try:
+        red_bands = sample_red_band(roi_from_region(left_arc).crop(red_ref))
+    except ValueError:
+        red_bands = sample_red_band(roi_from_region(right_arc).crop(red_ref))
+    trial = AutoTriggerConfig(left_arc=left_arc, right_arc=right_arc, red_bands=red_bands)
+
+    def _cov(ref: np.ndarray, cfg: AutoTriggerConfig) -> float:
+        hsv = cv2.cvtColor(roi_from_region(left_arc).crop(ref), cv2.COLOR_BGR2HSV)
+        return red_coverage(hsv, cfg)
+
+    threshold = suggest_coverage_threshold(_cov(red_ref, trial), _cov(bright_ref, trial))
+    trial = trial.model_copy(update={"coverage_threshold": threshold})
+    # second pass: the sampled bands now drive the threshold (coverages recomputed under `trial`)
+    threshold = suggest_coverage_threshold(_cov(red_ref, trial), _cov(bright_ref, trial))
+    trial = trial.model_copy(update={"coverage_threshold": threshold})
+    return red_bands, threshold, trial
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--camera", type=int, default=None, help="USB camera index (default: config)")
@@ -258,9 +307,9 @@ def main() -> int:
     ap.add_argument(
         "--from-files",
         nargs=3,
-        metavar=("WHITE", "RED", "GREEN"),
+        metavar=("WHITE", "RED", "BRIGHT"),
         default=None,
-        help="skip live capture; run detection on three saved frames",
+        help="skip live capture; run detection on three saved frames (white / red / bright-aligned)",
     )
     args = ap.parse_args()
 
@@ -268,7 +317,7 @@ def main() -> int:
     cap = None
     try:
         if args.from_files:
-            white, red, green = _load_frames_from_files(args.from_files)
+            white, red, bright = _load_frames_from_files(args.from_files)
             if (white.shape[1], white.shape[0]) != (
                 cfg.width or white.shape[1],
                 cfg.height or white.shape[0],
@@ -278,10 +327,10 @@ def main() -> int:
                     f"{cfg.width}x{cfg.height}; calibrating for a different resolution.",
                     file=sys.stderr,
                 )
-            roi = None
-            while roi is None:
-                roi = _pick_roi(white)
-                if roi is None:
+            screen_roi = None
+            while screen_roi is None:
+                screen_roi = _pick_roi(white)
+                if screen_roi is None:
                     print("Recapture not available with --from-files; pick a candidate or 'm'.")
         else:
             index = args.camera if args.camera is not None else cfg.camera_index
@@ -302,55 +351,48 @@ def main() -> int:
                     file=sys.stderr,
                 )
                 return 1
-            roi = None
-            while roi is None:
+            screen_roi = None
+            while screen_roi is None:
                 white = _capture_frame(cap, "Calib 1/3: frame the WHITE startup screen, SPACE", None)
                 if white is None:
                     return 1
-                roi = _pick_roi(white)
-            red = _capture_frame(cap, "Calib 2/3: show RED arcs, SPACE", roi)
+                screen_roi = _pick_roi(white)
+            red = _capture_frame(cap, "Calib 2/3: show RED arcs, SPACE", screen_roi)
             if red is None:
                 return 1
-            green = _capture_frame(cap, "Calib 3/3: show GREEN arcs, SPACE", roi)
-            if green is None:
+            bright = _capture_frame(cap, "Calib 3/3: show the BRIGHT aligned screen, SPACE", screen_roi)
+            if bright is None:
                 return 1
 
-        red_ref = _crop_to_ref(red, roi)
-        green_ref = _crop_to_ref(green, roi)
+        red_ref = deskew_crop(red, screen_roi, out=_DETECT)
+        bright_ref = deskew_crop(bright, screen_roi, out=_DETECT)
         try:
-            left_arc, right_arc = detect_arc_regions(red_ref)
-            red_bands = sample_hsv_band(_region_crop(red_ref, left_arc), "red") or sample_hsv_band(
-                _region_crop(red_ref, right_arc), "red"
-            )
-            green_bands = sample_hsv_band(_region_crop(green_ref, left_arc), "green") or sample_hsv_band(
-                _region_crop(green_ref, right_arc), "green"
-            )
+            cx, cy, r = fit_camera_circle(bright_ref)
         except ValueError as e:
             print(
-                f"ERROR: auto-detection failed ({e}). Re-run and frame the arcs inside the ROI.",
+                f"WARNING: circle fit failed ({e}); falling back to fixed symmetric bands.",
+                file=sys.stderr,
+            )
+            cx, cy, r = _DETECT[0] * 0.5, _DETECT[1] * 0.5, _DETECT[1] * 0.42
+        left_arc, right_arc = arc_bands_from_circle(cx, cy, r)
+        try:
+            _, _, trial = _derive_bands_and_threshold(red_ref, bright_ref, left_arc, right_arc)
+        except ValueError as e:
+            print(
+                f"ERROR: red sampling failed ({e}). Re-run and show clearly RED, misaligned arcs.",
                 file=sys.stderr,
             )
             return 1
 
-        trial = AutoTriggerConfig(
-            left_arc=left_arc, right_arc=right_arc, red_bands=red_bands, green_bands=green_bands
-        )
-        gcov_g = classify_band(_to_hsv_region(green_ref, left_arc), trial)[1]
-        gcov_r = classify_band(_to_hsv_region(red_ref, left_arc), trial)[1]
-        threshold = suggest_coverage_threshold(gcov_g, gcov_r)
-        trial = trial.model_copy(update={"coverage_threshold": threshold})
-
         while True:
-            action = _confirm(red_ref, green_ref, trial)
+            action = _confirm(red_ref, bright_ref, (cx, cy, r), trial)
             if action == "y":
-                screen_roi = RoiBox(x=roi.x, y=roi.y, w=roi.w, h=roi.h, ref_w=roi.ref_w, ref_h=roi.ref_h)
                 write_calibration_values(
                     _CONFIG_PATH,
                     screen_roi=screen_roi,
                     left_arc=trial.left_arc,
                     right_arc=trial.right_arc,
                     red_bands=trial.red_bands,
-                    green_bands=trial.green_bands,
                     coverage_threshold=trial.coverage_threshold,
                 )
                 print(f"Wrote calibration to {_CONFIG_PATH} (backup: {_CONFIG_PATH.name}.bak).")
@@ -369,14 +411,6 @@ def main() -> int:
         if cap is not None:
             cap.release()
         cv2.destroyAllWindows()
-
-
-def _region_crop(ref_bgr: np.ndarray, region: RoiBox) -> np.ndarray:
-    return roi_from_region(region).crop(ref_bgr)
-
-
-def _to_hsv_region(ref_bgr: np.ndarray, region: RoiBox) -> np.ndarray:
-    return cv2.cvtColor(_region_crop(ref_bgr, region), cv2.COLOR_BGR2HSV)
 
 
 if __name__ == "__main__":
