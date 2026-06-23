@@ -69,9 +69,18 @@ def test_detect_arc_regions_finds_left_and_right():
     assert left.w >= 1 and right.h >= 1
 
 
-def test_detect_arc_regions_raises_when_a_half_is_empty():
+def test_detect_arc_regions_mirrors_when_one_half_is_empty():
+    # Real captures often show only ONE arc strongly (the other faint / off-screen). The arcs are
+    # left/right symmetric, so the populated half is mirrored to fill the empty one (no crash).
     roi = np.zeros((480, 640, 3), dtype=np.uint8)
-    roi[200:280, 40:100] = _red()  # only the left half has red
+    roi[200:280, 40:100] = _red()  # only the LEFT half has red
+    left, right = detect_arc_regions(roi)
+    assert left.x < 320 <= right.x  # right was mirrored into the right half
+    assert abs(right.x - (640 - (left.x + left.w))) <= 1  # reflected across the vertical centre
+
+
+def test_detect_arc_regions_raises_when_both_halves_empty():
+    roi = np.zeros((480, 640, 3), dtype=np.uint8)  # no red anywhere
     with pytest.raises(ValueError):
         detect_arc_regions(roi)
 

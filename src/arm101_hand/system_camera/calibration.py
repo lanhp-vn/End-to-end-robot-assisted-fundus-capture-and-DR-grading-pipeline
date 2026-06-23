@@ -127,13 +127,15 @@ def to_roi_candidate(
     return nx, ny, nw, nh
 
 
-# Broad colour priors (the schema defaults) used to FIND candidate pixels before percentile
-# sampling tightens the band. Red wraps hue 0/180 -> two prior bands.
+# Broad colour priors used to FIND candidate arc pixels before percentile sampling tightens the
+# band. Deliberately GENEROUS on saturation/value: the Aurora alignment arcs are PALE (low-S) and
+# bright, sitting over a tinted near-white disc -- bench captures measured red arcs at S~50 V~227
+# hue~170 and green arcs at S~37 V~255 hue~90, so tight S/V floors miss them. Red wraps hue 0/180.
 _RED_PRIOR: list[HsvBand] = [
-    HsvBand(h_lo=0, s_lo=80, v_lo=80, h_hi=10, s_hi=255, v_hi=255),
-    HsvBand(h_lo=170, s_lo=80, v_lo=80, h_hi=180, s_hi=255, v_hi=255),
+    HsvBand(h_lo=0, s_lo=35, v_lo=50, h_hi=12, s_hi=255, v_hi=255),
+    HsvBand(h_lo=158, s_lo=35, v_lo=50, h_hi=180, s_hi=255, v_hi=255),
 ]
-_GREEN_PRIOR: list[HsvBand] = [HsvBand(h_lo=35, s_lo=40, v_lo=50, h_hi=95, s_hi=255, v_hi=255)]
+_GREEN_PRIOR: list[HsvBand] = [HsvBand(h_lo=45, s_lo=35, v_lo=60, h_hi=100, s_hi=255, v_hi=255)]
 
 
 def _prior_mask(hsv: np.ndarray, bands: list[HsvBand]) -> np.ndarray:
@@ -147,10 +149,11 @@ def _prior_mask(hsv: np.ndarray, bands: list[HsvBand]) -> np.ndarray:
     return cv2.morphologyEx(mask, cv2.MORPH_OPEN, k)
 
 
-def _bbox_of_nonzero(half: np.ndarray, pad: int, full_w: int, full_h: int, x_off: int) -> RoiBox:
+def _half_bbox(half: np.ndarray, pad: int, full_w: int, full_h: int, x_off: int) -> RoiBox | None:
+    """Padded bounding box of the nonzero pixels in one half-mask, or None if the half is empty."""
     ys, xs = np.nonzero(half)
     if xs.size == 0:
-        raise ValueError("no matching pixels in this half of the ROI")
+        return None
     x0, x1 = int(xs.min()) + x_off, int(xs.max()) + x_off
     y0, y1 = int(ys.min()), int(ys.max())
     x = max(0, x0 - pad)
@@ -160,20 +163,36 @@ def _bbox_of_nonzero(half: np.ndarray, pad: int, full_w: int, full_h: int, x_off
     return RoiBox(x=x, y=y, w=w, h=h, ref_w=full_w, ref_h=full_h)
 
 
+def _mirror_bbox(box: RoiBox, full_w: int) -> RoiBox:
+    """Reflect a box across the ROI's vertical centre (the two arcs are left/right symmetric)."""
+    return RoiBox(
+        x=max(0, full_w - (box.x + box.w)), y=box.y, w=box.w, h=box.h, ref_w=box.ref_w, ref_h=box.ref_h
+    )
+
+
 def detect_arc_regions(
     roi_ref_bgr: np.ndarray, *, red_prior: list[HsvBand] | None = None, pad: int = 4
 ) -> tuple[RoiBox, RoiBox]:
-    """``(left_arc, right_arc)`` regions found from red pixels in the left/right halves of the ROI.
+    """``(left_arc, right_arc)`` regions from red pixels in the left/right halves of the ROI.
 
-    ``roi_ref_bgr`` is the chosen ROI crop resized to the detection reference. Raises ``ValueError``
-    if either half has no red pixels (caller offers redo / manual selectROI)."""
+    ``roi_ref_bgr`` is the chosen ROI crop resized to the detection reference. The two alignment arcs
+    are left/right symmetric, so if only ONE half has red -- common on real captures where one arc is
+    faint or off-screen -- the populated half is MIRRORED across the centre to fill the other. Raises
+    ``ValueError`` only if NEITHER half has any red pixel (wrong frame, or arcs outside the ROI)."""
     prior = red_prior if red_prior is not None else _RED_PRIOR
     hsv = cv2.cvtColor(roi_ref_bgr, cv2.COLOR_BGR2HSV)
     mask = _prior_mask(hsv, prior)
     h, w = mask.shape
     mid = w // 2
-    left = _bbox_of_nonzero(mask[:, :mid], pad, w, h, x_off=0)
-    right = _bbox_of_nonzero(mask[:, mid:], pad, w, h, x_off=mid)
+    left = _half_bbox(mask[:, :mid], pad, w, h, x_off=0)
+    right = _half_bbox(mask[:, mid:], pad, w, h, x_off=mid)
+    if left is None and right is None:
+        raise ValueError("no red arc pixels found in either half of the ROI")
+    if left is None:
+        assert right is not None
+        left = _mirror_bbox(right, w)
+    elif right is None:
+        right = _mirror_bbox(left, w)
     return left, right
 
 
