@@ -76,3 +76,31 @@ def test_screen_roi_builds_roi_from_data_config():
     data = Path(__file__).resolve().parents[2] / "src" / "arm101_hand" / "data" / "system_camera_config.yaml"
     r = roi_from_region(load_system_camera_config(data).screen_roi)
     assert isinstance(r, Roi) and r.w >= 1 and r.h >= 1
+
+
+def test_roi_angle_zero_crop_is_plain_slice():
+    roi = Roi(10, 20, 30, 40, ref_w=640, ref_h=480)  # angle defaults 0
+    frame = _frame(640, 480)
+    assert roi.crop(frame).shape == (40, 30, 3)
+
+
+def test_roi_deskew_uprights_a_tilted_rect():
+    import cv2
+
+    # a white rect tilted +10deg on black; cropping with angle=+10 should deskew it upright so the
+    # crop is (almost) all white (the rect fills the crop after rotation).
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    box = cv2.boxPoints(((320, 240), (200, 120), 10.0)).astype(np.int32)
+    cv2.fillPoly(frame, [box], (255, 255, 255))
+    roi = Roi(x=220, y=180, w=200, h=120, ref_w=640, ref_h=480, angle=10.0)
+    crop = roi.crop(frame)
+    white_frac = (crop.reshape(-1, 3).min(axis=1) > 200).mean()
+    assert white_frac > 0.9  # deskewed crop is essentially the upright white rect
+
+
+def test_roi_from_region_carries_angle():
+    from arm101_hand.config.system_camera_config import RoiBox
+    from arm101_hand.system_camera import roi_from_region
+
+    r = roi_from_region(RoiBox(x=1, y=2, w=3, h=4, ref_w=800, ref_h=480, angle=-0.9))
+    assert r.angle == -0.9 and (r.ref_w, r.ref_h) == (800, 480)

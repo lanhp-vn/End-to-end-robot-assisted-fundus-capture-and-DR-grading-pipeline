@@ -34,6 +34,7 @@ class Roi:
     h: int
     ref_w: int = 640
     ref_h: int = 480
+    angle: float = 0.0  # deskew rotation in degrees; 0 = plain axis-aligned slice (fast path)
 
     def for_frame(self, frame_w: int, frame_h: int) -> tuple[int, int, int, int]:
         """Return ``(x, y, w, h)`` rescaled to ``frame_w x frame_h`` and clamped inside it."""
@@ -45,10 +46,24 @@ class Roi:
         return x, y, w, h
 
     def crop(self, frame: np.ndarray) -> np.ndarray:
-        """Return the ROI sub-image of ``frame`` (a view, rescaled + clamped to the frame)."""
+        """ROI sub-image of ``frame`` (rescaled + clamped). If ``angle`` != 0, the region is rotated
+        by ``angle`` about the box centre first (deskew), so a slightly-tilted screen comes out
+        upright. ``angle`` == 0 takes a plain-slice fast path (unchanged behaviour/perf)."""
+        import cv2  # local import: roi.py stays cv2-free on the angle==0 path
+
         fh, fw = frame.shape[:2]
         x, y, w, h = self.for_frame(fw, fh)
-        return frame[y : y + h, x : x + w]
+        if self.angle == 0.0:
+            return frame[y : y + h, x : x + w]
+        cx, cy = x + w / 2.0, y + h / 2.0
+        pad = int(round(0.2 * max(w, h))) + 2  # cover the rotated corners
+        px0, py0 = max(0, x - pad), max(0, y - pad)
+        px1, py1 = min(fw, x + w + pad), min(fh, y + h + pad)
+        region = frame[py0:py1, px0:px1]
+        m = cv2.getRotationMatrix2D((cx - px0, cy - py0), self.angle, 1.0)
+        rot = cv2.warpAffine(region, m, (region.shape[1], region.shape[0]))
+        rx, ry = int(round(cx - px0 - w / 2.0)), int(round(cy - py0 - h / 2.0))
+        return rot[max(0, ry) : ry + h, max(0, rx) : rx + w]
 
 
 class _RegionLike(Protocol):
@@ -60,11 +75,20 @@ class _RegionLike(Protocol):
     h: int
     ref_w: int
     ref_h: int
+    angle: float
 
 
 def roi_from_region(region: _RegionLike) -> Roi:
-    """Build a :class:`Roi` from a config ``RoiBox``/``ArcRegion`` (or any x/y/w/h/ref_w/ref_h obj)."""
-    return Roi(x=region.x, y=region.y, w=region.w, h=region.h, ref_w=region.ref_w, ref_h=region.ref_h)
+    """Build a :class:`Roi` from a config ``RoiBox`` (carries the deskew ``angle``)."""
+    return Roi(
+        x=region.x,
+        y=region.y,
+        w=region.w,
+        h=region.h,
+        ref_w=region.ref_w,
+        ref_h=region.ref_h,
+        angle=region.angle,
+    )
 
 
 # Canonical ROI for the arm-mounted USB observation camera: a 4:3 crop (uniform zoom, no
