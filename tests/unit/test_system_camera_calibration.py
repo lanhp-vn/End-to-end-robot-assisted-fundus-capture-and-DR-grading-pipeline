@@ -52,7 +52,9 @@ def test_detect_arc_regions_finds_left_and_right():
     roi[200:280, 40:100] = _red()  # left arc
     roi[200:280, 540:600] = _red()  # right arc
     left, right = detect_arc_regions(roi)
-    assert left.x < 320 <= right.x
+    # Tight ranges: left bbox tracks cols 40-100 (pad 4), right tracks cols 540-600 (x_off 320).
+    assert 30 <= left.x <= 60 and left.x + left.w <= 120
+    assert 520 <= right.x <= 560 and right.x + right.w <= 620
     assert left.w >= 1 and right.h >= 1
 
 
@@ -78,10 +80,15 @@ def test_sample_hsv_band_red_splits_on_hue_wrap():
     region = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
     bands = sample_hsv_band(region, "red")
     assert len(bands) == 2
+    # The two bands must actually bracket the 0/180 hue wrap: one anchored at 0, one at 180.
+    assert any(b.h_lo == 0 for b in bands)
+    assert any(b.h_hi == 180 for b in bands)
 
 
 def test_suggest_coverage_threshold_midpoint_and_floor():
     assert suggest_coverage_threshold(0.20, 0.0) == 0.10
+    # Non-zero "off" coverage: catches a max()-instead-of-midpoint regression (0.15, not 0.20/0.10).
+    assert suggest_coverage_threshold(0.20, 0.10) == 0.15
     assert suggest_coverage_threshold(0.02, 0.0) == 0.02  # midpoint 0.01 floored to 0.02
 
 
@@ -120,8 +127,8 @@ def test_write_calibration_rejects_invalid_without_writing(tmp_path):
             screen_roi=RoiBox(x=0, y=0, w=1, h=1),
             left_arc=RoiBox(x=0, y=0, w=1, h=1),
             right_arc=RoiBox(x=0, y=0, w=1, h=1),
-            red_bands=[],  # empty -> invalid (auto-trigger needs >=1 red band for classification)
-            green_bands=[],  # empty -> invalid
-            coverage_threshold=5.0,  # out of [0,1] -> pydantic ValidationError
+            red_bands=[],  # empty -> rejected by the min_length=1 guard (a degenerate config)
+            green_bands=[],  # empty -> rejected too
+            coverage_threshold=0.5,  # VALID: empty bands are the sole cause of rejection here
         )
     assert dst.read_text(encoding="utf-8") == before  # original untouched on failure

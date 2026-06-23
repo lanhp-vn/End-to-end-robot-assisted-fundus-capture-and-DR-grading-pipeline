@@ -51,13 +51,15 @@ class AutoTriggerConfig(BaseModel):
     left_arc: RoiBox = Field(default_factory=lambda: RoiBox(x=60, y=110, w=70, h=190))
     right_arc: RoiBox = Field(default_factory=lambda: RoiBox(x=420, y=110, w=70, h=190))
     red_bands: list[HsvBand] = Field(
+        min_length=1,  # >=1 band required: classification needs a colour to match (no degenerate config)
         default_factory=lambda: [
             HsvBand(h_lo=0, s_lo=80, v_lo=80, h_hi=10, s_hi=255, v_hi=255),
             HsvBand(h_lo=170, s_lo=80, v_lo=80, h_hi=180, s_hi=255, v_hi=255),
-        ]
+        ],
     )
     green_bands: list[HsvBand] = Field(
-        default_factory=lambda: [HsvBand(h_lo=40, s_lo=40, v_lo=60, h_hi=90, s_hi=255, v_hi=255)]
+        min_length=1,  # >=1 band required (see red_bands)
+        default_factory=lambda: [HsvBand(h_lo=40, s_lo=40, v_lo=60, h_hi=90, s_hi=255, v_hi=255)],
     )
     coverage_threshold: float = Field(default=0.04, ge=0.0, le=1.0)
     morph_kernel: int = Field(default=3, ge=1)

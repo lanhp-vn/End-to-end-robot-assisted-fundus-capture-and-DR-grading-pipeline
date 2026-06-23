@@ -169,3 +169,12 @@ def test_data_yaml_has_screen_roi():
     sr = cfg.screen_roi
     assert (sr.x, sr.y, sr.w, sr.h) == (60, 75, 196, 147)
     assert (sr.ref_w, sr.ref_h) == (640, 480)
+
+
+def test_auto_trigger_rejects_empty_bands():
+    # >=1 band each: an empty list is a degenerate config (nothing to classify against). The
+    # calibration writer must never persist it -- guarded by min_length=1 on both fields.
+    with pytest.raises(ValidationError):
+        SystemCameraConfig.model_validate({"auto_trigger": {"red_bands": []}})
+    with pytest.raises(ValidationError):
+        SystemCameraConfig.model_validate({"auto_trigger": {"green_bands": []}})
