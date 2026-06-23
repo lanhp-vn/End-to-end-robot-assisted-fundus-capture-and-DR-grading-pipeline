@@ -65,3 +65,14 @@ def test_roi_from_region_builds_roi():
     r = roi_from_region(RoiBox(x=10, y=20, w=30, h=40, ref_w=1600, ref_h=1200))
     assert (r.x, r.y, r.w, r.h, r.ref_w, r.ref_h) == (10, 20, 30, 40, 1600, 1200)
     assert isinstance(r, Roi)
+
+
+def test_screen_roi_builds_roi_from_data_config():
+    from pathlib import Path
+
+    from arm101_hand.config import load_system_camera_config
+    from arm101_hand.system_camera import roi_from_region
+
+    data = Path(__file__).resolve().parents[2] / "src" / "arm101_hand" / "data" / "system_camera_config.yaml"
+    r = roi_from_region(load_system_camera_config(data).screen_roi)
+    assert isinstance(r, Roi) and r.w >= 1 and r.h >= 1
