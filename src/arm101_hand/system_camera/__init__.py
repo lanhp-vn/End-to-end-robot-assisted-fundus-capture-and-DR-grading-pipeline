@@ -5,7 +5,7 @@ preview window with a record toggle. Distinct from the Aurora *fundus* camera (p
 retinal images) in ``arm101_hand.fundus_camera``.
 """
 
-from .arc_detector import AlignmentState, classify_band, detect
+from .arc_detector import AlignmentState, detect
 from .auto_trigger import AutoTriggerState, arm, update
 from .focus import best_sample, focus_reached_baseline, focus_steps, sharpness
 from .preview import (
@@ -24,7 +24,6 @@ __all__ = [
     "WebcamPreview",
     "arm",
     "best_sample",
-    "classify_band",
     "detect",
     "focus_reached_baseline",
     "focus_steps",

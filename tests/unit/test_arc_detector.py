@@ -1,68 +1,36 @@
 import numpy as np
 
-from arm101_hand.config.system_camera_config import AutoTriggerConfig
-from arm101_hand.system_camera.arc_detector import detect
+from arm101_hand.config.system_camera_config import AutoTriggerConfig, RoiBox
+from arm101_hand.system_camera.arc_detector import AlignmentState, detect
 
-_GREEN = (0, 255, 0)  # BGR
 _RED = (0, 0, 255)
-_WHITE = (255, 255, 255)
 
 
-def _frame(left_bgr=None, right_bgr=None, *, fill=1.0):
-    """640x480 black frame; fill the configured arc bands with the given BGR colour.
-    ``fill`` is the fraction of each band's height to paint (from the top)."""
-    cfg = AutoTriggerConfig()
-    frame = np.zeros((480, 640, 3), dtype=np.uint8)
-    for region, color in ((cfg.left_arc, left_bgr), (cfg.right_arc, right_bgr)):
-        if color is None:
-            continue
-        rows = max(1, int(region.h * fill))
-        frame[region.y : region.y + rows, region.x : region.x + region.w] = color
-    return cfg, frame
+def _cfg() -> AutoTriggerConfig:
+    # arcs at the left/right thirds of an 800x480 reference frame
+    return AutoTriggerConfig(
+        left_arc=RoiBox(x=40, y=160, w=120, h=160, ref_w=800, ref_h=480),
+        right_arc=RoiBox(x=640, y=160, w=120, h=160, ref_w=800, ref_h=480),
+        coverage_threshold=0.2,
+    )
 
 
-def test_both_green_ready():
-    cfg, frame = _frame(_GREEN, _GREEN)
-    st = detect(frame, cfg)
-    assert st.left == "GREEN" and st.right == "GREEN"
-    assert st.ready is True
+def test_alignmentstate_properties():
+    assert AlignmentState(True, True, 0.5, 0.5).both_red is True
+    assert AlignmentState(False, False, 0.0, 0.0).both_clear is True
+    assert AlignmentState(True, False, 0.5, 0.0).both_red is False
+    assert AlignmentState(True, False, 0.5, 0.0).both_clear is False
 
 
-def test_both_red_not_ready():
-    cfg, frame = _frame(_RED, _RED)
-    st = detect(frame, cfg)
-    assert st.left == "RED" and st.right == "RED"
-    assert st.ready is False
+def test_detect_both_red():
+    frame = np.zeros((480, 800, 3), dtype=np.uint8)
+    frame[160:320, 40:160] = _RED
+    frame[160:320, 640:760] = _RED
+    s = detect(frame, _cfg())
+    assert s.both_red is True
 
 
-def test_either_green_is_ready():
-    cfg, frame = _frame(_RED, _GREEN)
-    st = detect(frame, cfg)
-    assert st.left == "RED" and st.right == "GREEN"
-    assert st.ready is True  # either-arc-green rule
-
-
-def test_require_no_red_blocks_mixed():
-    cfg, frame = _frame(_RED, _GREEN)
-    cfg = cfg.model_copy(update={"require_no_red": True})
-    st = detect(frame, cfg)
-    assert st.ready is False
-
-
-def test_white_glare_is_none():
-    cfg, frame = _frame(_WHITE, _WHITE)
-    st = detect(frame, cfg)
-    assert st.left == "NONE" and st.right == "NONE"
-    assert st.ready is False
-
-
-def test_below_coverage_threshold_is_none():
-    cfg, frame = _frame(_GREEN, None, fill=0.02)  # ~2% < 4% threshold
-    st = detect(frame, cfg)
-    assert st.left == "NONE"
-
-
-def test_above_coverage_threshold_is_green():
-    cfg, frame = _frame(_GREEN, None, fill=0.07)  # ~7% > 4% threshold
-    st = detect(frame, cfg)
-    assert st.left == "GREEN"
+def test_detect_both_clear_on_blank():
+    frame = np.zeros((480, 800, 3), dtype=np.uint8)  # nothing red
+    s = detect(frame, _cfg())
+    assert s.both_clear is True
