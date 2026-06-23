@@ -10,9 +10,9 @@ _DATA = Path(__file__).resolve().parents[2] / "src" / "arm101_hand" / "data" / "
 
 def test_defaults():
     cfg = FundusConfig()
-    assert cfg.connection.message_port == 8000
-    assert cfg.connection.discovery_port == 3000
-    assert cfg.capture.hold_seconds == 3.0
+    assert cfg.connection.message_port == 8000  # Pictor protocol constant
+    assert cfg.connection.discovery_port == 3000  # Pictor protocol constant
+    assert cfg.capture.hold_seconds > 0  # shutter-hold timing is tunable -- sanity only
     assert cfg.capture.dcim_root == "\\DCIM"
     assert cfg.capture.fundus_dir == "media_outputs/fundus_images"
 

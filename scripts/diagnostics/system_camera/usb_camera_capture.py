@@ -1,22 +1,18 @@
 """Capture a still from the arm-mounted USB observation camera (read-only diagnostic).
 
 Opens a live cv2 preview of the USB camera that films the Optomed Aurora's screen so you can
-frame the shot. The preview streams at a smooth low resolution. Each SPACE saves TWO paired images
-(shared timestamp): the live low-res frame at that instant, then -- after reopening the device at
-the full still resolution -- a full-quality grab (12 MP on the IFWATER cam), before the smooth
-stream resumes. So framing stays smooth while you keep both a smooth-res and a full-res shot. (MSMF
-cannot switch resolution on an open capture, so the grab reopens rather than switches in place;
-see ``grab_full_res_frame``.) All resolutions come from ``system_camera_config.yaml``. NOT the
-Aurora *fundus* camera (patient retinal images -- that is ``arm101_hand.fundus_camera``); this is
-the host webcam in ``arm101_hand.system_camera``.
+frame the shot. Each SPACE saves the current live frame at the camera's configured stream
+resolution (``width``x``height`` from ``system_camera_config.yaml`` -- 1600x1200 on the IFWATER
+cam) to ``--out-dir``. The preview keeps streaming the whole time; there is no full-resolution
+reopen. NOT the Aurora *fundus* camera (patient retinal images -- that is
+``arm101_hand.fundus_camera``); this is the host webcam in ``arm101_hand.system_camera``.
 
 Single-threaded by design: unlike ``usb_camera_probe.py`` (which exercises the daemon-threaded
 ``WebcamPreview``), this tool reads + shows frames itself. Keys are read from the TERMINAL via a
 non-blocking ``msvcrt.kbhit()`` poll -- we can't block on ``getwch`` like the probe does, because
 the cv2 window needs ``waitKey`` pumped every loop or it freezes. It shares with the device layer:
-``open_capture`` (dshow-quirk handling + stream format), ``grab_full_res_frame`` (the SPACE
-full-res grab via device reopen), and ``imshow_fit`` (manual letterbox -- KEEPRATIO is Qt-only, a
-no-op on the Win32 backend; see ``preview.py``).
+``open_capture`` (dshow-quirk handling + stream format) and ``imshow_fit`` (manual letterbox --
+KEEPRATIO is Qt-only, a no-op on the Win32 backend; see ``preview.py``).
 
 The full ``opencv-python`` wheel is required for the window (lerobot's ``opencv-python-headless``
 has no HighGUI); ``pyproject.toml`` drops the headless pin so the full build is the sole ``cv2``.
@@ -26,9 +22,7 @@ Usage:
                                                           [--out-dir DIR]
 
 Keys (focus the TERMINAL, not the window):
-  SPACE   save TWO paired images to --out-dir: the live frame usb_cam_<ts>_<w>x<h>.jpg
-          + a full-resolution grab usb_cam_<ts>_<w>x<h>.jpg (same <ts>)
-          (preview freezes ~1-2 s while the device reopens at full res, then resumes)
+  SPACE   save the current live frame to --out-dir as usb_cam_<ts>_<w>x<h>.jpg
   q/ESC   quit (Ctrl+C also works)
 """
 
@@ -47,7 +41,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
 from arm101_hand.config import load_system_camera_config  # noqa: E402
-from arm101_hand.system_camera import grab_full_res_frame, imshow_fit, open_capture  # noqa: E402
+from arm101_hand.system_camera import imshow_fit, open_capture  # noqa: E402
 
 _CONFIG_PATH = _REPO_ROOT / "src" / "arm101_hand" / "data" / "system_camera_config.yaml"
 _FONT = cv2.FONT_HERSHEY_SIMPLEX
@@ -75,9 +69,8 @@ def _poll_key() -> str:
 
 
 def _write_image(out_dir: Path, ts: str, img) -> bool:
-    """Write ``img`` to ``out_dir`` as ``usb_cam_<ts>_<w>x<h>.jpg`` and report it. The shared ``ts``
-    pairs the two files SPACE saves (the live frame + the full-res grab); the ``<w>x<h>`` suffix
-    tells them apart. Returns True on success."""
+    """Write ``img`` to ``out_dir`` as ``usb_cam_<ts>_<w>x<h>.jpg`` and report it. The ``<w>x<h>``
+    suffix records the capture resolution. Returns True on success."""
     h, w = img.shape[:2]
     path = out_dir / f"usb_cam_{ts}_{w}x{h}.jpg"
     if cv2.imwrite(str(path), img):
@@ -114,9 +107,8 @@ def main() -> int:
     out_dir = Path(args.out_dir)
     title = f"USB cam {camera_index} (capture)"
 
-    # Stream at the smooth preview resolution (cfg.width/height); each SPACE momentarily switches
-    # this same capture up to the full still size (cfg.still_width/height) for one grab. Focus is
-    # locked per cfg.autofocus/cfg.focus (DSHOW-only) so the Aurora screen stays sharp.
+    # Stream at the configured resolution (cfg.width/height); each SPACE saves that live frame as-is.
+    # Focus is locked per cfg.autofocus/cfg.focus (DSHOW-only) so the Aurora screen stays sharp.
     print(f"Opening USB camera index {camera_index} ({backend}) ...")
     cap = open_capture(
         camera_index,
@@ -140,12 +132,8 @@ def main() -> int:
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     src_fps = cap.get(cv2.CAP_PROP_FPS)
-    still_desc = (
-        f"{cfg.still_width}x{cfg.still_height}" if cfg.still_width and cfg.still_height else "camera max"
-    )
     print(
-        f"Streaming {width}x{height} @ {src_fps:.0f} fps (smooth preview); "
-        f"SPACE grabs a full-res still ({still_desc}).\n"
+        f"Streaming {width}x{height} @ {src_fps:.0f} fps; SPACE saves the current frame.\n"
         "Keys (focus THIS terminal): SPACE = capture, q/ESC = quit."
     )
 
@@ -204,41 +192,11 @@ def main() -> int:
             key = _poll_key()
             if key in ("q", "Q", "\x1b"):  # q / ESC
                 break
-            if key == " ":  # SPACE -> save the live frame NOW + a full-res grab (preview freezes ~1-2s)
+            if key == " ":  # SPACE -> save the current live frame at the stream resolution
                 out_dir.mkdir(parents=True, exist_ok=True)
-                ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # shared stem pairs both files
-                if _write_image(out_dir, ts, frame):  # the live 640x480 stream frame at SPACE time
+                ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+                if _write_image(out_dir, ts, frame):
                     saved += 1
-                print("  capturing full-res still (reopening at full res; hold steady) ...")
-                still, cap = grab_full_res_frame(
-                    cap,
-                    camera_index,
-                    backend,
-                    fourcc=cfg.fourcc,
-                    still_width=cfg.still_width,
-                    still_height=cfg.still_height,
-                    stream_width=cfg.width,
-                    stream_height=cfg.height,
-                    autofocus=cfg.autofocus,
-                    focus=cfg.focus,
-                )
-                if still is not None:
-                    if _write_image(out_dir, ts, still):
-                        saved += 1
-                    h, w = still.shape[:2]
-                    if cfg.still_width and w < cfg.still_width:
-                        print(
-                            f"  NOTE: grabbed {w}x{h}, below the requested {cfg.still_width}x"
-                            f"{cfg.still_height} -- raise warmup_frames in grab_full_res_frame "
-                            "if this persists.",
-                            file=sys.stderr,
-                        )
-                else:
-                    print("  WARNING: full-res grab returned no frame.", file=sys.stderr)
-                if not cap.isOpened():
-                    print("  ERROR: camera did not reopen after the grab -- stopping.", file=sys.stderr)
-                    break
-                last_good = time.monotonic()  # the fresh stream cap is healthy; reset the stall clock
     except KeyboardInterrupt:
         print("\n^C")
     finally:

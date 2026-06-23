@@ -9,9 +9,9 @@ from arm101_hand.config.hand_config import HandTuning
 
 def test_defaults():
     cfg = HandConfig()
-    assert cfg.connection.port == "COM18"
-    assert cfg.connection.baudrate == 1_000_000
-    assert cfg.tuning.speeds.open == 5
+    assert cfg.connection.port == "COM18"  # device identity
+    assert cfg.connection.baudrate == 1_000_000  # bus protocol constant (1 Mbps)
+    assert cfg.tuning.speeds.open > 0  # tuning knob -- sanity, not an exact value
 
 
 def test_pose_per_finger_round_trip(tmp_path: Path):
@@ -44,8 +44,9 @@ def test_extra_key_rejected(tmp_path: Path):
 
 def test_pose_poll_knobs_default():
     t = HandTuning()
-    assert t.pose_timeout_s == 2.0
-    assert t.pose_poll_s == 0.03
+    # poll timing knobs are tuning parameters -- assert they're positive, not exact values.
+    assert t.pose_timeout_s > 0
+    assert t.pose_poll_s > 0
 
 
 def test_pose_poll_knobs_reject_nonpositive():

@@ -190,6 +190,7 @@ Each reads calibration and config; none write either. Run with `uv run python`.
 - `scripts/demos/grab_toggle.py` — grab, then SPACE toggles the index finger in and out like a button.
 - `scripts/demos/grab_trigger_capture.py` — live ROI-zoomed system-cam window ('r' records); SPACE presses the Aurora shutter and auto-pulls the fundus image to `media_outputs/`.
 - `scripts/demos/grab_trigger_capture_analysis.py` — same as above plus inline DR grading: 'g' grades the patient turn and shows a combined results panel beside the image. `--no-grade` runs capture-only.
+- `scripts/demos/grab_auto_trigger_analysis.py` — computer-vision AUTO variant: watches the Aurora's red/green alignment arcs, fires after stable green alignment, pulls the fundus image, and optionally grades the patient turn. It starts in MANUAL; press `m` to arm AUTO.
 
 ---
 
@@ -205,7 +206,293 @@ The Pictor Wi-Fi API cannot set these — configure them on the device, with the
 
 Pulled fundus images and recordings land under `media_outputs/` (git-ignored — never commit medical images).
 
-### 10.2 DR grading flow
+### 10.2 How computer vision provides AUTO trigger
+
+The one-sentence mental model is:
+
+> The arm-mounted USB camera is the robot's eyes: it watches the Aurora's alignment arcs, computer vision decides when they indicate correct alignment, the robot's index finger physically presses the shutter, and the actual retinal JPEG is then downloaded from the Aurora over Wi-Fi.
+
+#### Two cameras, with two different jobs
+
+Do not confuse the arm-mounted USB **observation camera** with the Optomed Aurora **fundus camera**. The integration uses both, but their images have different purposes:
+
+```text
+VISUAL DECISION PATH
+
+Aurora screen ──filmed by──> USB observation camera ──frames──> OpenCV
+ red/green arcs                                                │
+                                                               └──> ready / not ready
+
+PHYSICAL CAPTURE AND IMAGE PATH
+
+ready ──> robot index finger presses Aurora shutter ──> Aurora takes retinal photo
+                                                               │
+                                                               └──Wi-Fi──> saved JPEG
+```
+
+The USB frame is used only to decide **when to press**. It is not saved as the diagnostic retinal image. The actual fundus JPEG comes from the Aurora through `src/arm101_hand/fundus_camera/`.
+
+#### Component map
+
+The integration is intentionally divided into small parts:
+
+| Component | Responsibility |
+|---|---|
+| `scripts/demos/grab_auto_trigger_analysis.py` | Orchestrates keys, patients, vision decisions, the physical press, Aurora download, display, and grading |
+| `system_camera/preview.py` | Owns the USB camera and OpenCV windows on a background thread; supplies the newest clean frame |
+| `system_camera/roi.py` | Crops a fixed rectangle around the Aurora screen and scales coordinates to the actual frame size |
+| `system_camera/arc_detector.py` | Converts pixels into left/right `RED`, `GREEN`, or `NONE` classifications and an overall `ready` flag |
+| `system_camera/auto_trigger.py` | Debounces the visual result: wait for green, stabilize, fire once, cool down, and wait for green to clear |
+| `data/system_camera_config.yaml` | Stores the camera, crop, HSV color, timing, and re-arm tuning |
+| `fundus_camera/` | Lists and downloads the new retinal image from the Aurora after the shutter press |
+
+The detector and trigger lifecycle do not own the camera, robot, keyboard, or filesystem. They accept values and return values, which keeps the computer-vision decision logic testable without hardware.
+
+#### End-to-end flow
+
+Once the staged grab has placed the arm and hand around the Aurora, the AUTO path is:
+
+```text
+USB camera captures a room-scale BGR frame
+              │
+              ▼
+Crop the fixed Aurora-screen rectangle
+              │
+              ▼
+Resize that screen crop to a normalized 640 x 480 frame
+              │
+              ▼
+Inspect only the left-arc and right-arc rectangles
+              │
+              ▼
+Convert BGR pixels to HSV and calculate red/green coverage
+              │
+              ▼
+AlignmentState(left, right, ready, coverage values)
+              │
+              ▼
+Auto-trigger state machine requires stable ready state
+              │
+              ▼
+One-tick FIRE signal
+              │
+              ▼
+Snapshot Aurora file list → press → hold → release
+              │
+              ▼
+Poll file list → identify new file → download and validate JPEG
+              │
+              ▼
+Save + display + add to current patient turn → optionally grade with `g`
+```
+
+#### 1. Screen crop and coordinate systems
+
+The raw USB image contains the robot, room, camera body, and Aurora screen. Most of that is irrelevant to alignment detection. `AURORA_SCREEN_ROI` in `system_camera/roi.py` selects the known screen location:
+
+```python
+Roi(x=60, y=75, w=196, h=147, ref_w=640, ref_h=480)
+```
+
+The preview thread crops this 196 x 147 area and enlarges it to 640 x 480. This is a digital zoom onto the screen:
+
+```text
+Raw USB frame                         Normalized vision frame
+┌──────────────────────────┐          ┌──────────────────────────┐
+│ room                     │          │                          │
+│    ┌────────────┐        │  crop +  │   enlarged Aurora screen│
+│    │ Aurora     │        │  resize  │   ( retinal view )      │
+│    │ screen     │        │ ───────> │   left arc   right arc  │
+│    └────────────┘        │          │                          │
+└──────────────────────────┘          └──────────────────────────┘
+```
+
+The `left_arc` and `right_arc` coordinates in `system_camera_config.yaml` are measured inside this **normalized screen frame**, not inside the raw USB frame. `Roi.for_frame()` rescales and clamps rectangles if the incoming resolution changes.
+
+The current arc search rectangles are:
+
+```yaml
+left_arc:  {x: 60,  y: 110, w: 70, h: 190, ref_w: 640, ref_h: 480}
+right_arc: {x: 420, y: 110, w: 70, h: 190, ref_w: 640, ref_h: 480}
+```
+
+Use `scripts/diagnostics/system_camera/usb_camera_roi_preview.py` when the physical camera mount or screen framing changes. Validate the outer screen crop first; tune the inner arc rectangles only after the screen crop is stable.
+
+#### 2. How a frame becomes RED, GREEN, or NONE
+
+OpenCV supplies the normalized image in BGR format. `arc_detector.detect()` converts it once to HSV:
+
+```text
+Hue        = the color family: red, green, blue, and so on
+Saturation = how colorful rather than gray the pixel is
+Value      = how bright the pixel is
+```
+
+HSV is used because a configurable range can express "green enough" more directly than three independent blue, green, and red channel comparisons.
+
+For each arc rectangle, the detector performs this decision:
+
+```text
+Crop arc rectangle
+       │
+       ├──> green HSV mask ──despeckle──> green coverage fraction
+       │
+       └──> red HSV mask ────despeckle──> red coverage fraction
+                                                │
+                                                ▼
+                enough green and green >= red? ──yes──> GREEN
+                                │ no
+                                ▼
+                           enough red? ──────────yes──> RED
+                                │ no
+                                ▼
+                                                       NONE
+```
+
+A mask is a black-and-white image: white pixels match the requested color range and black pixels do not. A small morphological opening removes isolated matching specks caused by display noise, reflections, or compression. Coverage is then:
+
+```text
+matching pixels / all pixels in that arc rectangle
+```
+
+The default `coverage_threshold` is `0.04`, meaning 4%. This is deliberately much lower than 50% because an alignment arc is a thin curve occupying only a small part of its bounding rectangle.
+
+Red uses two HSV bands because red wraps across both ends of OpenCV's hue scale (`0` and `180`). Green uses one band, capped below the blue UI colors so screen icons are less likely to be mistaken for an alignment arc.
+
+The result is an immutable `AlignmentState` containing the two labels, the four measured coverage fractions, and `ready`. With the current defaults:
+
+```yaml
+require_no_red: false
+```
+
+`ready` means **at least one arc is GREEN**. If `require_no_red` is changed to `true`, the detector additionally requires that neither arc be RED. This setting materially changes the acceptance rule and should be tuned against representative saved frames rather than changed casually.
+
+#### 3. Why one green frame does not immediately fire
+
+A single green result might be glare, motion blur, a display transition, or one noisy frame. `auto_trigger.update()` therefore treats perception and triggering as separate decisions:
+
+```text
+                  ready becomes true
+WAIT_GREEN ───────────────────────────> STABILIZING
+    ▲                                       │
+    │                     ready becomes false before timeout
+    └───────────────────────────────────────┘
+
+STABILIZING ──ready stays true for stable_seconds──> FIRE + COOLDOWN
+                                                        │
+                                      cooldown_seconds  │
+                                                        ▼
+                                                    WAIT_CLEAR
+                                                        │
+                                      ready becomes false
+                                                        ▼
+                                                    WAIT_GREEN
+```
+
+- `WAIT_GREEN`: armed and waiting for the first ready result.
+- `STABILIZING`: ready was seen, but it must remain continuous for `stable_seconds` (currently 1.0 second). If readiness drops, the timer is discarded.
+- `COOLDOWN`: the trigger has fired exactly once; another fire is prohibited for `cooldown_seconds` (currently 3.0 seconds).
+- `WAIT_CLEAR`: with `require_clear_between: true`, the arcs must leave the ready condition before another shot can be armed.
+
+`WAIT_CLEAR` checks for **not ready**, not specifically for red. When the camera moves off the eye, the Aurora screen may become blank and classify as `NONE`; requiring explicit red would leave the trigger stuck and unable to re-arm.
+
+The state machine returns `should_fire=True` for exactly one update. It does not leave a persistent "firing" state for the main loop to repeatedly observe.
+
+At the configured `detect_interval_s: 0.2`, a typical successful timeline is:
+
+```text
+0.0 s  RED    WAIT_GREEN
+0.2 s  GREEN  enter STABILIZING; remember start time
+0.4 s  GREEN  continue waiting
+0.6 s  GREEN  continue waiting
+0.8 s  GREEN  continue waiting
+1.0 s  GREEN  continue waiting
+1.2 s  GREEN  FIRE once; enter COOLDOWN
+...           physical press and image download
+later  GREEN  WAIT_CLEAR; cannot fire again
+later  NONE   return to WAIT_GREEN
+later  GREEN  begin stabilizing the next shot
+```
+
+#### 4. How the demo connects vision to physical capture
+
+The integration point in the demo's main loop is intentionally small:
+
+```python
+frame = preview.latest_frame()
+alignment = detect(frame, scfg.auto_trigger)
+state_auto, fire = auto_trigger.update(state_auto, alignment, now, scfg.auto_trigger)
+if fire:
+    _fire_capture_cycle()
+```
+
+MANUAL and AUTO both call the same `_fire_capture_cycle()`:
+
+```text
+MANUAL: SPACE key ──┐
+                    ├──> _fire_capture_cycle()
+AUTO: vision FIRE ──┘
+```
+
+The cycle first snapshots the Aurora's current file names. It then drives the index finger onto the physical shutter, holds for the configured dwell time, reads servo loads for a pressure warning, and releases the finger. After release it polls the Aurora file list until a stable new entry appears, downloads that file over Wi-Fi, verifies the JPEG signature and byte count, saves the image and metadata, displays it, and adds it to the current patient turn.
+
+The capture cycle is synchronous: vision-state updates pause while the finger and Aurora transaction run. The USB camera and OpenCV window remain responsive because `WebcamPreview` owns them on a separate daemon thread. When the cycle returns, the main loop resumes detection; the state machine is already in `COOLDOWN` or advances toward `WAIT_CLEAR` according to monotonic elapsed time.
+
+#### 5. AUTO mode and patient-level arming are separate gates
+
+Two controls must both allow automatic capture:
+
+```text
+mode == AUTO  AND  armed == true  AND  preview exists
+```
+
+- The demo starts in `MANUAL`. Press `m` to enter AUTO and create a fresh `WAIT_GREEN` state. SPACE is deliberately disabled in AUTO so two trigger sources cannot compete.
+- After `g` grades the current patient's accumulated shots, `armed` becomes false. Lingering green alignment cannot accidentally create the next patient's first shot.
+- Press `n` to begin the next patient, clear the previous turn, and re-arm AUTO.
+- If the USB preview camera is unavailable, AUTO cannot obtain frames and the demo falls back to MANUAL.
+
+The intended operator sequence is:
+
+```text
+Start demo → press m → align green → capture shot
+                    → move away → re-align → capture another shot
+                    → press g to grade patient → AUTO HOLD
+                    → press n for next patient → AUTO re-armed
+```
+
+Run the AUTO demo with:
+
+```powershell
+uv run python scripts/demos/grab_auto_trigger_analysis.py
+uv run python scripts/demos/grab_auto_trigger_analysis.py --no-grade  # vision + capture only
+```
+
+Keep terminal focus for `m`, `g`, `n`, `r`, SPACE, and quit controls; the OpenCV preview window displays status but does not own terminal keyboard input.
+
+#### 6. Tuning and debugging order
+
+Tune from the outside inward. Changing several layers at once makes failures difficult to localize:
+
+1. Confirm the USB camera opens with `usb_camera_probe.py` and that camera index, backend, focus, and exposure produce a sharp screen.
+2. Confirm `AURORA_SCREEN_ROI` consistently crops the whole screen with `usb_camera_roi_preview.py`.
+3. Confirm the left and right arc rectangles cover the arcs throughout normal alignment motion.
+4. Save representative RED, GREEN, NONE, glare, and transition frames before changing HSV bands or coverage threshold.
+5. Validate color classification before tuning `stable_seconds`, cooldown, or clear-between behavior.
+6. Only after vision is reliable, test the physical press and Aurora file download together.
+
+Useful status text in the preview has the form:
+
+```text
+AUTO [STABILIZING]  L:GREEN R:NONE
+```
+
+This separates three questions during debugging:
+
+- **Can the camera see the screen?** Check preview, focus, and outer ROI.
+- **Can the detector classify the arcs?** Check arc rectangles, HSV masks, coverage, and `L`/`R` labels.
+- **Why did it not fire?** Check the lifecycle phase, stabilization time, cooldown, wait-clear, patient `armed` state, and current mode.
+
+### 10.3 DR grading flow
 
 > WARNING: DR grading is a research/educational tool only. It is NOT a medical device and NOT for clinical diagnosis. The model was fine-tuned on APTOS2019 images; Optomed Aurora handheld captures differ in camera, field of view, and illumination, so real-capture accuracy can fall below the validation numbers.
 

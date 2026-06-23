@@ -13,10 +13,10 @@ from dataclasses import dataclass, replace
 
 from arm101_hand.hand.kinematics import clamp
 
-# Toggle delta bounds (degrees). Default 20 matches the bench example (grab base 33 ->
-# pressed 53). The real ceiling on press depth is the index ``base_max`` enforced by
+# Toggle delta bounds (degrees). Default 25 matches the bench example (grab base 33 ->
+# pressed 58). The real ceiling on press depth is the index ``base_max`` enforced by
 # ``in_base``'s clamp, so these bounds are deliberately independent of the jog STEP_*.
-TOGGLE_DELTA_DEFAULT = 20
+TOGGLE_DELTA_DEFAULT = 25
 TOGGLE_DELTA_MIN = 1
 TOGGLE_DELTA_MAX = 40
 

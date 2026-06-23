@@ -28,15 +28,12 @@ fps: null           # null -> camera-reported fps (fallback 20)
 # at this size it crops to ~490x368 REAL pixels and UPSCALES ~1.3x to the 640x480 ROI reference (roi.py)
 # -- a deliberate trade of the no-upscale goal for ~3x the frame rate; still ~6x the detail of the old
 # 640x480 stream. The preview window, recording, and detection frame all stay 640x480 (the ROI ref).
-# For max detail instead (no upscale, ~794x595 crop) use 2592x1944 @ ~15 fps. usb_camera_capture still
-# reopens the device at the STILL size (4000x3000) for its 12 MP SPACE grab, then resumes the stream;
-# the demos never save a USB-cam still. (MSMF can't switch resolution on an open capture, so that grab
-# reopens rather than switching it.) Set any of these to null to request the driver's max instead.
+# For max detail instead (no upscale, ~794x595 crop) use 2592x1944 @ ~15 fps. usb_camera_capture saves
+# this same stream frame on SPACE (no full-res reopen); the demos never save a USB-cam still. Set
+# width/height to null to request the driver's max instead.
 fourcc: MJPG
 width: 1600         # live stream @ UXGA 4:3 -> ROI crop ~490x368 real px -> ~1.3x upscale to 640x480 ref
 height: 1200
-still_width: 4000   # full-res SPACE grab in usb_camera_capture (12 MP), then back to the stream res
-still_height: 3000
 # --- Automated trigger (grab_auto_trigger_analysis.py) -------------------------------------------
 # Detect the Aurora's two on-screen alignment ARCS in the ROI; when they turn GREEN (aligned),
 # auto-fire the capture cycle. HSV masking per arc-band (OpenCV H 0-180, S/V 0-255). The regions +
@@ -51,7 +48,7 @@ auto_trigger:
     - {h_lo: 40, s_lo: 40, v_lo: 60, h_hi: 90, s_hi: 255, v_hi: 255}
   coverage_threshold: 0.04         # fraction of an arc band that must match a color to count
   morph_kernel: 3                  # MORPH_OPEN kernel (px) to despeckle the mask
-  stable_seconds: 2.0              # green must hold this long before firing
+  stable_seconds: 1.0              # green must hold this long before firing
   cooldown_seconds: 3.0            # min gap after a fire
   detect_interval_s: 0.2           # how often to sample the ROI in auto mode
   require_clear_between: true      # re-arm only after the arcs LEAVE green (re-align per shot); false = burst while green

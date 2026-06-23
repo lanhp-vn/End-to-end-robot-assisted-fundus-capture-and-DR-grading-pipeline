@@ -10,10 +10,8 @@ from .auto_trigger import AutoTriggerState, arm, update
 from .focus import best_sample, focus_reached_baseline, focus_steps, sharpness
 from .preview import (
     WebcamPreview,
-    grab_full_res_frame,
     imshow_fit,
     open_capture,
-    read_settled_frame,
     resolution_mismatch_warning,
 )
 from .roi import AURORA_SCREEN_ROI, Roi
@@ -30,10 +28,8 @@ __all__ = [
     "detect",
     "focus_reached_baseline",
     "focus_steps",
-    "grab_full_res_frame",
     "imshow_fit",
     "open_capture",
-    "read_settled_frame",
     "resolution_mismatch_warning",
     "sharpness",
     "update",

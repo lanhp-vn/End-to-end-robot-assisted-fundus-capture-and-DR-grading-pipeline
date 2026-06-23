@@ -107,15 +107,6 @@ class SystemCameraConfig(BaseModel):
     height: int | None = Field(
         default=None, ge=1, description="live stream height in px; null = request the camera's max"
     )
-    still_width: int | None = Field(
-        default=None,
-        ge=1,
-        description="full-res STILL width in px -- usb_camera_capture briefly switches the open "
-        "capture up to this for one SPACE grab, then back to the stream res; null = the camera's max",
-    )
-    still_height: int | None = Field(
-        default=None, ge=1, description="full-res still height in px; null = request the camera's max"
-    )
 
 
 def load_system_camera_config(path: Path) -> SystemCameraConfig:
