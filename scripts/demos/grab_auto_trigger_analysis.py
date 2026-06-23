@@ -139,8 +139,10 @@ def _overlay(mode: str, alignment, armed_phase: str) -> tuple[str, tuple[int, in
     """Build the on-screen status line + colour from the current mode and alignment."""
     if mode != "AUTO":
         return "MANUAL  (m=auto, SPACE=capture)", (200, 200, 200)
-    label = f"AUTO [{armed_phase}]  L:{alignment.left} R:{alignment.right}"
-    color = (0, 255, 0) if alignment.ready else (0, 0, 255)
+    lr = "RED" if alignment.left_red else "clear"
+    rr = "RED" if alignment.right_red else "clear"
+    label = f"AUTO [{armed_phase}]  L:{lr} R:{rr}"
+    color = (0, 0, 255) if (alignment.left_red or alignment.right_red) else (0, 255, 0)
     return label, color
 
 
