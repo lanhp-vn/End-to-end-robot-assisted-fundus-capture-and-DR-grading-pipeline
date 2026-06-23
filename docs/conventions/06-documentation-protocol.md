@@ -177,6 +177,8 @@ Every normative fact, procedure, spec, or reusable table lives in **one** Markdo
 |---|---|
 | Arc auto-trigger design + lifecycle (HSV per-arc-band masking, green-clear re-arm) | `docs/superpowers/specs/2026-06-19-arc-auto-trigger-design.md` |
 | Arc auto-trigger implementation plan (TDD task breakdown) | `docs/superpowers/plans/2026-06-19-arc-auto-trigger.md` |
+| System-camera view calibration design (screen ROI + arc regions + HSV bands re-derived from 3 captures) | `docs/superpowers/specs/2026-06-22-system-camera-view-calibration-design.md` |
+| System-camera view calibration implementation plan (TDD task breakdown) | `docs/superpowers/plans/2026-06-22-system-camera-view-calibration.md` |
 
 ### 10.2 When you add a new topic
 

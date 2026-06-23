@@ -4,7 +4,8 @@ The IFWATER module (Sony IMX362) defaults to PDAF *auto*focus, which hunts onto 
 Optomed Aurora and breathes during recording. Because the arm + camera + screen geometry is fixed,
 one *manual* focus value keeps the Aurora screen permanently sharp. UVC has no per-region AF (focus
 is a single global lens position), so "focus on the ROI" = the manual ``CAP_PROP_FOCUS`` value that
-maximizes sharpness measured *on* ``AURORA_SCREEN_ROI``. This tool finds it and lets you fine-tune.
+maximizes sharpness measured *on* the configured ``screen_roi``. This tool finds it and lets you
+fine-tune.
 
 This is the GATING check before wiring focus into ``system_camera_config.yaml`` + ``open_capture``:
 it also tells us whether this unit/backend even accepts manual focus. Absolute sharpness depends on
@@ -59,17 +60,20 @@ sys.path.insert(0, str(_REPO_ROOT / "src"))
 
 from arm101_hand.config import load_system_camera_config  # noqa: E402
 from arm101_hand.system_camera import (  # noqa: E402
-    AURORA_SCREEN_ROI,
+    Roi,
     best_sample,
     focus_reached_baseline,
     focus_steps,
     imshow_fit,
     open_capture,
+    roi_from_region,
     sharpness,
 )
 
 _CONFIG_PATH = _REPO_ROOT / "src" / "arm101_hand" / "data" / "system_camera_config.yaml"
-_ROI = AURORA_SCREEN_ROI
+# ROI to score sharpness on. Set in main() from screen_roi in system_camera_config.yaml (re-derived
+# by scripts/calibration/system_camera/calibrate_view.py); placeholder until then.
+_ROI: Roi = Roi(x=0, y=0, w=1, h=1)
 _ZOOM_SIZE = (640, 480)  # upscale target for the ROI window (matches the reference frame)
 _FONT = cv2.FONT_HERSHEY_SIMPLEX
 _GREEN = (0, 255, 0)
@@ -222,6 +226,9 @@ def main() -> int:
     cfg = load_system_camera_config(_CONFIG_PATH)
     camera_index = args.camera if args.camera is not None else cfg.camera_index
     backend = args.backend if args.backend is not None else cfg.backend
+    # Score sharpness on the calibrated screen_roi (the value the focus value will be locked for).
+    global _ROI
+    _ROI = roi_from_region(cfg.screen_roi)
 
     # This probe MANAGES focus itself (it sweeps), so it never passes cfg.focus to open_capture --
     # the defaults (autofocus on, focus untouched) leave it free to measure the AF baseline first.

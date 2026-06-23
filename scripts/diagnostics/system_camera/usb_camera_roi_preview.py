@@ -2,9 +2,9 @@
 
 Validates the region of interest that zooms the live preview + recording onto just the Optomed
 Aurora's screen. The arm + hand + camera geometry is fixed, so the screen always lands in the same
-place -- ``_ROI`` defaults to the canonical ``AURORA_SCREEN_ROI`` (exactly what
+place -- the ROI is read from ``screen_roi`` in ``system_camera_config.yaml`` (exactly what
 ``scripts/demos/grab_trigger_capture.py`` records). Run this, eyeball the framing; to re-tune,
-replace ``_ROI`` with a literal (see the note by it), then promote the value into AURORA_SCREEN_ROI.
+re-run ``scripts/calibration/system_camera/calibrate_view.py``, which rewrites ``screen_roi``.
 
 NOT the Aurora *fundus* camera (patient retinal images -- that is ``arm101_hand.fundus_camera``);
 this is the host webcam in ``arm101_hand.system_camera``. No motors, no Aurora link.
@@ -53,20 +53,13 @@ sys.path.insert(0, str(_REPO_ROOT / "src"))
 
 from arm101_hand.config import load_system_camera_config  # noqa: E402
 from arm101_hand.system_camera import (  # noqa: E402
-    AURORA_SCREEN_ROI,
     imshow_fit,
     open_capture,
     resolution_mismatch_warning,
+    roi_from_region,
 )
 
 _CONFIG_PATH = _REPO_ROOT / "src" / "arm101_hand" / "data" / "system_camera_config.yaml"
-
-# ROI to preview. Defaults to the canonical AURORA_SCREEN_ROI (exactly what the demo records), so
-# this tool and the demo never drift. To experiment with a different framing, replace this with a
-# literal -- e.g. ``from arm101_hand.system_camera import Roi`` then
-# ``_ROI = Roi(x=120, y=0, w=320, h=240)`` -- and once validated, promote the value into
-# AURORA_SCREEN_ROI in src/arm101_hand/system_camera/roi.py.
-_ROI = AURORA_SCREEN_ROI
 
 _ZOOM_SIZE = (640, 480)  # upscale target for the "ROI zoom" window (matches the reference frame)
 _GREEN = (0, 255, 0)
@@ -129,6 +122,10 @@ def main() -> int:
     cfg = load_system_camera_config(_CONFIG_PATH)
     camera_index = args.camera if args.camera is not None else cfg.camera_index
     backend = args.backend if args.backend is not None else cfg.backend
+    # ROI to preview = the calibrated screen_roi from the config (exactly what the demo records), so
+    # this diagnostic validates the value the calibration tool wrote. Re-run
+    # scripts/calibration/system_camera/calibrate_view.py to change it.
+    roi = roi_from_region(cfg.screen_roi)
     out_dir = Path(args.out_dir)
     title = f"USB cam {camera_index} (ROI)"
     zoom_title = f"{title} -- ROI zoom"
@@ -161,7 +158,7 @@ def main() -> int:
     if clamp_warn:
         print(clamp_warn, file=sys.stderr)
     src_fps = cap.get(cv2.CAP_PROP_FPS)
-    rx, ry, rw, rh = _ROI.for_frame(width, height)
+    rx, ry, rw, rh = roi.for_frame(width, height)
     # Read back what the device actually accepted -- the requested focus only proves we ASKED.
     # On DSHOW a working VCM reports CAP_PROP_FOCUS near the requested value + AUTOFOCUS prop 2
     # (manual); on MSMF the calls are accepted but the lens never moves (focus stays ~0).
@@ -172,14 +169,14 @@ def main() -> int:
         f"Window open: {width}x{height} @ {src_fps:.0f} fps (camera-reported).\n"
         f"Focus: autofocus {'off' if not cfg.autofocus else 'on'}, requested {focus_req} -- "
         f"camera reports focus={focus_actual:.0f}, autofocus_prop={af_actual:g}.\n"
-        f"ROI (this frame): x={rx} y={ry} w={rw} h={rh}  (constant {_ROI.w}x{_ROI.h} @ "
-        f"{_ROI.ref_w}x{_ROI.ref_h}).\n"
+        f"ROI (this frame): x={rx} y={ry} w={rw} h={rh}  (constant {roi.w}x{roi.h} @ "
+        f"{roi.ref_w}x{roi.ref_h}).\n"
         "Keys (focus THIS terminal): SPACE = save ROI zoom + full-res ROI crop, q/ESC = quit."
     )
-    if (width, height) != (_ROI.ref_w, _ROI.ref_h):
+    if (width, height) != (roi.ref_w, roi.ref_h):
         print(
             f"  NOTE: live frame {width}x{height} differs from the ROI reference "
-            f"{_ROI.ref_w}x{_ROI.ref_h} -- the ROI was rescaled to fit.",
+            f"{roi.ref_w}x{roi.ref_h} -- the ROI was rescaled to fit.",
             file=sys.stderr,
         )
 
@@ -231,11 +228,11 @@ def main() -> int:
 
             # ROI zoom: crop to the region, then upscale to the reference size -- this is exactly
             # the zoomed feed the demo's preview + recording will produce.
-            zoom = cv2.resize(_ROI.crop(frame), _ZOOM_SIZE, interpolation=cv2.INTER_LINEAR)
+            zoom = cv2.resize(roi.crop(frame), _ZOOM_SIZE, interpolation=cv2.INTER_LINEAR)
             imshow_fit(zoom_title, zoom)
 
             # Full frame with the ROI rectangle drawn (on a copy so the crop above stays clean).
-            x, y, w, h = _ROI.for_frame(frame.shape[1], frame.shape[0])
+            x, y, w, h = roi.for_frame(frame.shape[1], frame.shape[0])
             overlay = frame.copy()
             cv2.rectangle(overlay, (x, y), (x + w, y + h), _GREEN, 2)
             imshow_fit(full_title, overlay)
@@ -251,7 +248,7 @@ def main() -> int:
                     saved += 1
                 # Native-res ROI crop straight from the live frame: the stream is already 5 MP, so
                 # this is as sharp as the operating path gets -- no device reopen, no preview freeze.
-                if _write_image(out_dir, ts, _ROI.crop(frame)):  # native ROI region at the stream res
+                if _write_image(out_dir, ts, roi.crop(frame)):  # native ROI region at the stream res
                     saved += 1
     except KeyboardInterrupt:
         print("\n^C")

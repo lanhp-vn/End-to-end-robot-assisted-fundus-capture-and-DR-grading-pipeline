@@ -24,7 +24,7 @@ def test_resolution_fourcc_defaults():
     assert cfg.width is None
     assert cfg.height is None
     assert cfg.fourcc == "MJPG"
-    assert cfg.schema_version == 5
+    assert cfg.schema_version == 6
 
 
 def test_focus_defaults():
@@ -127,3 +127,46 @@ def test_auto_trigger_coverage_threshold_bounds():
 def test_auto_trigger_extra_keys_forbidden():
     with pytest.raises(ValidationError):
         SystemCameraConfig.model_validate({"auto_trigger": {"bogus": 1}})
+
+
+def test_arcregion_is_roibox_alias():
+    from arm101_hand.config.system_camera_config import ArcRegion, RoiBox
+
+    assert ArcRegion is RoiBox
+
+
+def test_screen_roi_default_matches_legacy_constant():
+    cfg = SystemCameraConfig()
+    sr = cfg.screen_roi
+    assert (sr.x, sr.y, sr.w, sr.h) == (60, 75, 196, 147)
+    assert (sr.ref_w, sr.ref_h) == (640, 480)
+
+
+def test_screen_roi_round_trips_at_calibration_resolution():
+    cfg = SystemCameraConfig.model_validate(
+        {"screen_roi": {"x": 150, "y": 188, "w": 490, "h": 368, "ref_w": 1600, "ref_h": 1200}}
+    )
+    sr = cfg.screen_roi
+    assert (sr.x, sr.y, sr.w, sr.h, sr.ref_w, sr.ref_h) == (150, 188, 490, 368, 1600, 1200)
+
+
+def test_schema_default_version_is_6():
+    assert SystemCameraConfig().schema_version == 6
+
+
+def test_data_yaml_has_screen_roi():
+    # screen_roi is a TUNABLE -- calibrate_view.py re-derives it (geometry + ref resolution both
+    # change), so assert presence + positive geometry + a positive reference frame, NOT exact values
+    # (matches the "don't pin tuning values" approach used by test_data_yaml_loads).
+    sr = load_system_camera_config(_DATA).screen_roi
+    assert sr.w > 0 and sr.h > 0
+    assert sr.ref_w > 0 and sr.ref_h > 0
+
+
+def test_auto_trigger_rejects_empty_bands():
+    # >=1 band each: an empty list is a degenerate config (nothing to classify against). The
+    # calibration writer must never persist it -- guarded by min_length=1 on both fields.
+    with pytest.raises(ValidationError):
+        SystemCameraConfig.model_validate({"auto_trigger": {"red_bands": []}})
+    with pytest.raises(ValidationError):
+        SystemCameraConfig.model_validate({"auto_trigger": {"green_bands": []}})

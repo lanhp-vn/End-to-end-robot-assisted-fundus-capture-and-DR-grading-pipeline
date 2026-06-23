@@ -2,12 +2,12 @@
 # system_camera_config.yaml -- arm-mounted USB OBSERVATION camera (films the Optomed Aurora's
 # screen). Live cv2 preview window + 'r' record. Distinct from the Aurora fundus camera
 # (see fundus_config.yaml). Hand-editable; never written by runtime code (IL-5).
-schema_version: 5
+schema_version: 6
 enabled: true
 camera_index: 1     # the arm cam on this PC (index 0 is the built-in webcam)
 backend: dshow      # REQUIRED for manual focus: only DSHOW drives this cam's VCM (MSMF accepts the
-                    # CAP_PROP_FOCUS calls but doesn't move the lens). DSHOW also handles the full-res
-                    # grab + the stream open by index on this unit.
+                    # CAP_PROP_FOCUS calls but doesn't move the lens). DSHOW also handles the stream
+                    # open by index on this unit.
 window_title: "Arm cam (Optomed view)"
 # Manual focus: the arm + camera + Aurora screen geometry is fixed, so one lens position keeps the
 # screen permanently sharp -- no autofocus hunting onto the room behind it, no breathing while
@@ -17,7 +17,7 @@ autofocus: false
 focus: 600
 record_dir: media_outputs/camera_recordings   # repo-relative; 'r' writes usb_cam_<timestamp>.avi here
 fps: null           # null -> camera-reported fps (fallback 20)
-# This cam = IFWATER IF-USB12MP02AF (IMX362, USB 2.0): 4000x3000 max still, MJPG-only for hi-res
+# This cam = IFWATER IF-USB12MP02AF (IMX362, USB 2.0): 4000x3000 sensor max, MJPG-only for hi-res
 # (YUY2 is uncompressed + capped low). _apply_format (preview.py) brackets the size with MJPG so the
 # driver can't silently fall back to YUY2 (which would crush USB-2.0 fps -- see system_camera memory).
 #
@@ -34,6 +34,11 @@ fps: null           # null -> camera-reported fps (fallback 20)
 fourcc: MJPG
 width: 1600         # live stream @ UXGA 4:3 -> ROI crop ~490x368 real px -> ~1.3x upscale to 640x480 ref
 height: 1200
+# Screen ROI -- the crop that zooms the preview/recording/detection onto just the Aurora screen.
+# Re-derived by scripts/calibration/system_camera/calibrate_view.py; ref_w/ref_h = the resolution it
+# was calibrated at, so the runtime rescale is identity. Default below = the legacy AURORA_SCREEN_ROI
+# (640x480 ref). Run the calibration after any resolution OR lighting change.
+screen_roi: {x: 60, y: 75, w: 196, h: 147, ref_w: 640, ref_h: 480}
 # --- Automated trigger (grab_auto_trigger_analysis.py) -------------------------------------------
 # Detect the Aurora's two on-screen alignment ARCS in the ROI; when they turn GREEN (aligned),
 # auto-fire the capture cycle. HSV masking per arc-band (OpenCV H 0-180, S/V 0-255). The regions +

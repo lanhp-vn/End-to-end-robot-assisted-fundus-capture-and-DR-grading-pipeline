@@ -2,7 +2,7 @@
 
 On startup a live preview window opens for the arm-mounted USB camera (it points at the
 Aurora's screen). The feed is cropped to a fixed ROI that zooms onto just the Aurora's screen
-(``AURORA_SCREEN_ROI``; validated with ``scripts/diagnostics/system_camera/usb_camera_roi_preview.py``) -- press 'r'
+(``screen_roi`` in system_camera_config.yaml; validated with ``usb_camera_roi_preview.py``) -- press 'r'
 anytime to start/stop recording that zoomed feed to a clip. The preview is best-effort: if the
 camera will not open, the demo continues without it.
 
@@ -59,7 +59,7 @@ from arm101_hand.hand import drive_finger, load_warning, read_finger
 from arm101_hand.hand.index_trigger import TriggerState, apply_action, key_to_action, press_base
 from arm101_hand.hand.pose_jog import HandJogState, format_hand_status
 from arm101_hand.scripts.grab_common import GrabHoldContext, run_grab_demo
-from arm101_hand.system_camera import AURORA_SCREEN_ROI, WebcamPreview
+from arm101_hand.system_camera import WebcamPreview, roi_from_region
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DATA_DIR = _REPO_ROOT / "src" / "arm101_hand" / "data"
@@ -116,13 +116,14 @@ def _start_preview(scfg: SystemCameraConfig) -> WebcamPreview | None:
     """Best-effort: open the arm-cam preview window. None if disabled or the cam won't open."""
     if not scfg.enabled:
         return None
+    screen_roi = roi_from_region(scfg.screen_roi)
     preview = WebcamPreview(
         index=scfg.camera_index,
         window_title=scfg.window_title,
         record_dir=_REPO_ROOT / scfg.record_dir,
         fps=scfg.fps,
         backend=scfg.backend,
-        roi=AURORA_SCREEN_ROI,
+        roi=screen_roi,
         fourcc=scfg.fourcc,
         width=scfg.width,
         height=scfg.height,
@@ -138,7 +139,7 @@ def _start_preview(scfg: SystemCameraConfig) -> WebcamPreview | None:
         return None
     print(
         f"USB preview: camera {scfg.camera_index} {preview.width}x{preview.height}"
-        f"@{preview.src_fps:.0f}fps, cropped to a {AURORA_SCREEN_ROI.w}x{AURORA_SCREEN_ROI.h} ROI "
+        f"@{preview.src_fps:.0f}fps, cropped to a {screen_roi.w}x{screen_roi.h} ROI "
         "(zoom of the Aurora screen) -- 'r' starts/stops recording."
     )
     return preview
