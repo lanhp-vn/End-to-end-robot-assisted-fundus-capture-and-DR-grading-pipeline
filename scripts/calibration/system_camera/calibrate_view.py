@@ -101,33 +101,41 @@ def _poll_key() -> str:
 def _capture_frame(cap, title: str, overlay: RoiBox | None) -> np.ndarray | None:
     """Stream until SPACE (return the frame) or q/ESC (return None). Draws ``overlay`` if given.
 
+    Destroys its own window before returning (try/finally), like every other helper here, so only ONE
+    preview window is ever open at a time -- otherwise this startup window lingers under the later
+    drag/rotate/arc/confirm windows for the whole session.
+
     Keys are read from the TERMINAL (see :func:`_poll_key`) while ``waitKey`` only pumps the window,
     so the operator presses SPACE/q in the console regardless of which window has OS focus."""
     print(f"\n{title}\n  Focus THIS terminal: SPACE = capture this frame, q = quit.")
     opened = False
     overlay_roi = roi_from_region(overlay) if overlay is not None else None
-    while True:
-        ok, frame = cap.read()
-        if not ok or frame is None:
-            cv2.waitKey(30)  # keep the window pumped during camera warm-up / hiccups
-            if _poll_key() in ("q", "Q", "\x1b"):
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                cv2.waitKey(30)  # keep the window pumped during camera warm-up / hiccups
+                if _poll_key() in ("q", "Q", "\x1b"):
+                    return None
+                continue
+            if not opened:  # create the window once we know the frame size (imshow_fit needs it to exist)
+                _open_window(title, frame.shape[1], frame.shape[0])
+                opened = True
+            disp = frame.copy()
+            if overlay_roi is not None:
+                x, y, w, h = overlay_roi.for_frame(frame.shape[1], frame.shape[0])
+                cv2.rectangle(disp, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.putText(disp, title, (12, 28), _FONT, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
+            imshow_fit(title, disp)
+            cv2.waitKey(1)  # render only; action keys come from the terminal
+            key = _poll_key()
+            if key == " ":
+                return frame
+            if key in ("q", "Q", "\x1b"):
                 return None
-            continue
-        if not opened:  # create the window once we know the frame size (imshow_fit needs it to exist)
-            _open_window(title, frame.shape[1], frame.shape[0])
-            opened = True
-        disp = frame.copy()
-        if overlay_roi is not None:
-            x, y, w, h = overlay_roi.for_frame(frame.shape[1], frame.shape[0])
-            cv2.rectangle(disp, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        cv2.putText(disp, title, (12, 28), _FONT, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
-        imshow_fit(title, disp)
-        cv2.waitKey(1)  # render only; action keys come from the terminal
-        key = _poll_key()
-        if key == " ":
-            return frame
-        if key in ("q", "Q", "\x1b"):
-            return None
+    finally:
+        if opened:
+            cv2.destroyWindow(title)
 
 
 def _pick_arcs(roi_frame: np.ndarray) -> tuple[RoiBox, RoiBox] | None:
@@ -370,14 +378,6 @@ def _prompt_expected(state: AlignmentState) -> str | None:
             return None
 
 
-def _prompt_note() -> str:
-    """Optional free-text note from the TERMINAL (Enter to skip)."""
-    try:
-        return input("  optional note (Enter to skip): ").strip()
-    except EOFError:
-        return ""
-
-
 def _save_calib_case(
     out_dir: Path,
     roi_img: np.ndarray,
@@ -385,12 +385,11 @@ def _save_calib_case(
     state: AlignmentState,
     expected: str,
     comment: str,
-    note: str,
     camera_index: int,
     backend: str,
 ) -> None:
     """Save clean + annotated PNGs + a JSON sidecar (ground truth, detector output, generated comment,
-    note, geometry, bands, threshold) under media_outputs/arc_calib/ for the audit trail."""
+    geometry, bands, threshold) under media_outputs/arc_calib/ for the audit trail."""
     out_dir.mkdir(parents=True, exist_ok=True)
     ts = _dt.datetime.now()
     stem = ts.strftime("%Y%m%d_%H%M%S_") + f"{ts.microsecond // 1000:03d}"
@@ -401,7 +400,6 @@ def _save_calib_case(
         "captured_at": ts.isoformat(),
         "expected": expected,
         "comment": comment,
-        "note": note,
         "detection": {
             "left_red": state.left_red,
             "left_cov": state.left_cov,
@@ -495,8 +493,9 @@ def _confirm(red_ref: np.ndarray, clear_ref: np.ndarray, cfg: AutoTriggerConfig)
 def _test_loop(
     cap, screen_roi: RoiBox, cfg: AutoTriggerConfig, camera_index: int, backend: str
 ) -> list[ArcCase] | None:
-    """Live ROI + arc HUD using cfg; SPACE freezes a frame -> tag 1/2 + optional note -> ArcCase +
-    saved case files. 'd' = done (return collected cases), 'q' = abort (None)."""
+    """Live ROI + arc HUD using cfg; SPACE freezes a frame -> tag 1/2 -> ArcCase + saved case files.
+    Labelling a case loops straight back to live capture (no note prompt). 'd' = done (return
+    collected cases), 'q' = abort (None)."""
     print(
         "\nTest loop -- focus THIS terminal:\n"
         "  SPACE = freeze + label a case   d = done (re-sweep)   q = abort"
@@ -537,7 +536,6 @@ def _test_loop(
                     state,
                     expected,
                     comment,
-                    _prompt_note(),
                     camera_index,
                     backend,
                 )
