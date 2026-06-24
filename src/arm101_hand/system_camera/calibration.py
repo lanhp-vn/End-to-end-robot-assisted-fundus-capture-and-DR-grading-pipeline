@@ -7,11 +7,10 @@ alignment-arc bands on the camera circle, and the red HSV band(s) from three sam
 Synthetic-numpy unit-testable, mirroring ``arc_detector.py``. The interactive capture/confirm
 shell lives in ``scripts/calibration/system_camera/calibrate_view.py``.
 
-Screen detection sweeps several HIGH brightness thresholds (the backlit Aurora LCD is near-
-saturated white, unlike painted walls / daylight) and ranks INTERIOR rectangles by
-fill x aspect x size x not-touching-the-border -- the screen is the only large bright rectangle
-that does not run into the frame edge. Plain opencv-python only (no contrib); patterns adapted
-from the OpenCV samples, never imported from references/.
+The ROI is chosen interactively (manual drag + arrow-key deskew) in the calibrate_view shell; this
+module only normalises the chosen rect to a 5:3 deskewed RoiBox, fits the camera circle, derives the
+symmetric arc bands, samples the red HSV band, and round-trips the config. Plain opencv-python only
+(no contrib).
 """
 
 from __future__ import annotations
@@ -29,104 +28,7 @@ from arm101_hand.config.system_camera_config import HsvBand, RoiBox, SystemCamer
 
 from .roi import roi_from_region
 
-# Screen detection tuning. The Aurora screen is a backlit LCD (near-saturated white) sitting as an
-# island inside the frame; walls / daylight / doorway are bright too but run into the frame border.
-_SCREEN_ASPECT_LO, _SCREEN_ASPECT_HI = 1.2, 2.0  # landscape ~16:10..16:9
-_SCREEN_MIN_AREA_FRAC = 0.01  # ignore blobs smaller than 1% of the frame
-_SCREEN_BORDER_FRAC = 0.01  # within 1% of an edge counts as "touching the border"
-_SCREEN_TARGET_AREA_FRAC = 0.04  # size score saturates around 4% of the frame
-_SCREEN_THRESH_FRACS = (0.4, 0.6, 0.8)  # high cuts between Otsu and 255 to isolate the backlit LCD
-
-
-def _bbox_iou(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
-    """Intersection-over-union of two ``(x, y, w, h)`` boxes (to de-dupe candidates across cuts)."""
-    ax, ay, aw, ah = a
-    bx, by, bw, bh = b
-    ix0, iy0 = max(ax, bx), max(ay, by)
-    ix1, iy1 = min(ax + aw, bx + bw), min(ay + ah, by + bh)
-    iw, ih = max(0, ix1 - ix0), max(0, iy1 - iy0)
-    inter = iw * ih
-    union = aw * ah + bw * bh - inter
-    return inter / union if union else 0.0
-
-
-def _screen_likeness(bbox: tuple[int, int, int, int], area: float, frame_w: int, frame_h: int) -> float:
-    """Score a bright blob on how screen-like it is: solid (high fill), landscape aspect, sizeable,
-    and INTERIOR -- not touching the frame border (walls / daylight do; the screen does not)."""
-    x, y, w, h = bbox
-    rect_area = w * h
-    if rect_area <= 0:
-        return 0.0
-    fill = area / rect_area
-    aspect = w / h if h else 0.0
-    aspect_score = 1.0 if _SCREEN_ASPECT_LO <= aspect <= _SCREEN_ASPECT_HI else 0.25
-    size = min(area / (frame_w * frame_h) / _SCREEN_TARGET_AREA_FRAC, 1.0)
-    margin = max(2, int(_SCREEN_BORDER_FRAC * min(frame_w, frame_h)))
-    touches = x <= margin or y <= margin or x + w >= frame_w - margin or y + h >= frame_h - margin
-    interior = 0.1 if touches else 1.0
-    return fill * aspect_score * size * interior
-
-
 _Rect = tuple[tuple[float, float], tuple[float, float], float]
-
-
-def _norm_rect(rect: _Rect) -> _Rect:
-    """Normalise a ``minAreaRect`` to width >= height and angle in (-45, 45].
-
-    OpenCV 4.13's ``minAreaRect`` returns the angle in the post-4.5 (0, 90] convention. Swapping the
-    sides when ``w < h`` (and folding the angle by 90 deg) recovers the small physical tilt of a
-    landscape screen instead of an arbitrary +/-90 deg rotation."""
-    (cx, cy), (w, h), angle = rect
-    if w < h:
-        w, h = h, w
-        angle += 90.0
-    if angle > 45.0:
-        angle -= 90.0
-    elif angle < -45.0:
-        angle += 90.0
-    return (cx, cy), (w, h), angle
-
-
-def detect_screen_rects(white_bgr: np.ndarray, *, top_n: int = 3) -> list[_Rect]:
-    """Top-``top_n`` interior bright rotated rects ``((cx,cy),(w,h),angle)``, best first.
-
-    Same high-threshold + interior + screen-likeness ranking as before, but returns the rotated
-    ``minAreaRect`` (so the slight screen tilt is recovered) instead of an axis-aligned bbox."""
-    gray = cv2.cvtColor(white_bgr, cv2.COLOR_BGR2GRAY)
-    fh, fw = gray.shape
-    otsu, _ = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-    min_area = _SCREEN_MIN_AREA_FRAC * fw * fh
-    scored: list[tuple[float, _Rect]] = []
-    for frac in _SCREEN_THRESH_FRACS:
-        thr = int(otsu + (255 - otsu) * frac)
-        _, mask = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        for c in contours:
-            area = cv2.contourArea(c)
-            if area < min_area:
-                continue
-            bbox = cv2.boundingRect(c)
-            s = _screen_likeness(bbox, area, fw, fh)
-            if s > 0.0:
-                scored.append((s, _norm_rect(cv2.minAreaRect(c))))
-    scored.sort(key=lambda t: t[0], reverse=True)
-    out: list[_Rect] = []
-    seen: list[tuple[int, int, int, int]] = []
-    for _, rect in scored:
-        bbox = (
-            int(rect[0][0] - rect[1][0] / 2),
-            int(rect[0][1] - rect[1][1] / 2),
-            int(rect[1][0]),
-            int(rect[1][1]),
-        )
-        if all(_bbox_iou(bbox, b) < 0.5 for b in seen):
-            seen.append(bbox)
-            out.append(rect)
-        if len(out) >= top_n:
-            break
-    return out
 
 
 def screen_roi_from_rect(

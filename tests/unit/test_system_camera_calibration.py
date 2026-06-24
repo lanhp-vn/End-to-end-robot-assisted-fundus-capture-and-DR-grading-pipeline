@@ -9,7 +9,7 @@ from arm101_hand.config import load_system_camera_config
 from arm101_hand.config.system_camera_config import HsvBand, RoiBox
 from arm101_hand.system_camera.calibration import (
     arc_bands_from_circle,
-    detect_screen_rects,
+    deskew_crop,
     fit_camera_circle,
     sample_red_band,
     screen_roi_from_rect,
@@ -18,17 +18,6 @@ from arm101_hand.system_camera.calibration import (
 )
 
 _DATA = Path(__file__).resolve().parents[2] / "src" / "arm101_hand" / "data" / "system_camera_config.yaml"
-
-
-def test_detect_screen_rects_finds_tilted_interior_rect():
-    img = np.zeros((480, 800, 3), dtype=np.uint8)
-    box = cv2.boxPoints(((400, 240), (360, 220), 6.0)).astype(np.int32)  # 5:3-ish, tilted 6deg, interior
-    cv2.fillPoly(img, [box], (255, 255, 255))
-    rects = detect_screen_rects(img, top_n=3)
-    assert len(rects) >= 1
-    (cx, cy), (w, h), angle = rects[0]
-    assert 360 <= cx <= 440 and 200 <= cy <= 280
-    assert abs(abs(angle) - 6.0) < 2.0  # recovered the tilt
 
 
 def test_screen_roi_from_rect_is_5_3_at_800x480_ref_with_angle():
@@ -41,6 +30,30 @@ def test_screen_roi_from_rect_is_5_3_at_800x480_ref_with_angle():
 
     x, y, w, h = roi_from_region(sr).for_frame(1600, 1200)
     assert abs((w / h) - 5 / 3) < 0.1
+
+
+def test_deskew_crop_with_stored_angle_uprights_a_tilted_rect():
+    # Deskew-SIGN regression guard for the manual rotate-to-deskew step: screen_roi_from_rect stores
+    # +angle and Roi.crop/deskew_crop warps by +angle to produce an UPRIGHT crop. Synthesize a bright
+    # 5:3-ish rect tilted by T deg as an interior island, build a screen_roi at that SAME tilt (PADDED
+    # ~50% larger so the rect floats inside the crop -- otherwise it fills the bbox and minAreaRect
+    # always reads -90 regardless of sign), deskew, and assert the bright region comes out axis-aligned.
+    # A flipped deskew sign would leave it tilted ~2T deg (~20 deg) off axis, failing this. Decoupled
+    # from the removed detector: the tilt is the known input, not a detection output.
+    tilt = 10.0
+    fw, fh = 800, 480
+    big = np.zeros((fh, fw, 3), dtype=np.uint8)
+    box = cv2.boxPoints(((400, 240), (300, 180), tilt)).astype(np.int32)
+    cv2.fillPoly(big, [box], (255, 255, 255))
+    screen_roi = screen_roi_from_rect(((400.0, 240.0), (300 * 1.5, 180 * 1.5), tilt), fw, fh)
+    crop = deskew_crop(big, screen_roi, out=(800, 480))
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    _, mask = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    assert contours
+    _, _, a = cv2.minAreaRect(max(contours, key=cv2.contourArea))
+    # axis-aligned: minAreaRect angle ~0 deg or ~+/-90 deg (-90 is equivalent to axis-aligned)
+    assert abs(a) < 1.5 or abs(abs(a) - 90.0) < 1.5
 
 
 def test_fit_camera_circle_centres_on_disc():
