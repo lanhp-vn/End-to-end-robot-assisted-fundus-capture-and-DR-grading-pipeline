@@ -9,7 +9,7 @@ collect frames where the RED/clear classification is WRONG, so ``coverage_thresh
 
 This is a DIAGNOSTIC, not a demo: it runs the same staged grab as the demos but makes NO Aurora
 connection, presses NO shutter, fires NO trigger, records NO video, and grades nothing. It only
-observes the camera and saves stills on demand. The arc boxes + red bands + screen ROI it draws and
+observes the camera and saves stills on demand. The arc boxes + a* cutoff + screen ROI it draws and
 records are read verbatim from ``system_camera_config.yaml`` (never written -- IL-5); re-derive them
 with ``scripts/calibration/system_camera/calibrate_view.py``.
 

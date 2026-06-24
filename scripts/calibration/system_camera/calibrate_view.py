@@ -1,7 +1,7 @@
 """Interactive view-calibration for the arm-mounted USB observation camera.
 
 Re-derives the Aurora SCREEN ROI (a deskewed 4:3 / 640x480 crop carrying a rotation angle), the two
-manually-placed alignment-ARC boxes, and the RED HSV band(s) + coverage threshold (auto-swept against
+manually-placed alignment-ARC boxes, and the LAB a* red cutoff + coverage threshold (auto-swept against
 a RED + CLEAR reference panel), then writes them into src/arm101_hand/data/system_camera_config.yaml.
 Run after any RESOLUTION or LIGHTING change (the fixed-fraction ROI + colour bands drift otherwise).
 
@@ -12,7 +12,7 @@ Flow (inside run_grab_demo -- the arm+hand stage the grab so the camera views th
   1. WHITE startup screen -> drag a box + <-/-> rotate to deskew -> screen_roi (full frame).
   2-3. Freeze a RED-arc ROI -> drag the LEFT arc box, then the RIGHT (left box shown).
   4. Capture a RED panel (both arcs red) and a CLEAR/aligned panel.
-  5. Auto-sweep the red HSV band + coverage threshold against both panels (report + best-effort).
+  5. Auto-sweep the LAB a* cutoff + coverage threshold against both panels (report + best-effort).
   6-7. Confirm: 'y' write, 't' test loop (label frames 1=both-red/2=both-clear -> re-sweep), 'r'
        redo arcs, 'q' quit. Loop until satisfied.
   8. Write screen_roi + arc boxes + a_star_min + threshold to system_camera_config.yaml.

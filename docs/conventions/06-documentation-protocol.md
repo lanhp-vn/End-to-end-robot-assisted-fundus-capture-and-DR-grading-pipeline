@@ -185,6 +185,8 @@ Every normative fact, procedure, spec, or reusable table lives in **one** Markdo
 | System-camera arc-sweep calibration implementation plan | `docs/superpowers/plans/2026-06-23-system-camera-arc-sweep-calibration.md` |
 | System-camera red-detection sweep robustness design (pooled hue anchor across all red frames + low coverage floor + transitional one-arc-blank frame exclusion; runtime detection unchanged) | `docs/superpowers/specs/2026-06-23-system-camera-red-sweep-robustness-design.md` |
 | System-camera red-detection sweep robustness implementation plan | `docs/superpowers/plans/2026-06-23-system-camera-red-sweep-robustness.md` |
+| System-camera arc-redness LAB a* detection design (replaces the HSV red-band coverage metric with LAB a* coverage so pale arcs washed toward white are detected; `a_star_min` replaces `red_bands`/`HsvBand`, schema 8; detection-metric supersession of the HSV-band entries above, arc geometry/lifecycle unchanged) | `docs/superpowers/specs/2026-06-24-system-camera-arc-redness-lab-design.md` |
+| System-camera arc-redness LAB a* implementation plan (TDD task breakdown) | `docs/superpowers/plans/2026-06-24-system-camera-arc-redness-lab.md` |
 
 ### 10.2 When you add a new topic
 
