@@ -183,6 +183,8 @@ Every normative fact, procedure, spec, or reusable table lives in **one** Markdo
 | System-camera deskew + circle-based red-gate detection implementation plan (TDD task breakdown) | `docs/superpowers/plans/2026-06-23-system-camera-deskew-circle-redgate.md` |
 | System-camera arc-sweep calibration design (grab-staged; manual arc drags; red-detection auto-sweep + test-loop refinement) | `docs/superpowers/specs/2026-06-23-system-camera-arc-sweep-calibration-design.md` |
 | System-camera arc-sweep calibration implementation plan | `docs/superpowers/plans/2026-06-23-system-camera-arc-sweep-calibration.md` |
+| System-camera red-detection sweep robustness design (pooled hue anchor across all red frames + low coverage floor + transitional one-arc-blank frame exclusion; runtime detection unchanged) | `docs/superpowers/specs/2026-06-23-system-camera-red-sweep-robustness-design.md` |
+| System-camera red-detection sweep robustness implementation plan | `docs/superpowers/plans/2026-06-23-system-camera-red-sweep-robustness.md` |
 
 ### 10.2 When you add a new topic
 
