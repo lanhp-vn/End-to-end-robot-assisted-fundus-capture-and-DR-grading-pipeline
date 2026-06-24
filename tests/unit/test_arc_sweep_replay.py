@@ -16,12 +16,19 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from arm101_hand.config import load_system_camera_config
 from arm101_hand.config.system_camera_config import HsvBand, RoiBox
-from arm101_hand.system_camera.calibration import ArcCase, SweepResult, sweep_red_detection
+from arm101_hand.system_camera.calibration import (
+    ArcCase,
+    SweepResult,
+    sweep_red_detection,
+    write_calibration_values,
+)
 
 _SCRIPT = (
     Path(__file__).resolve().parents[2] / "scripts" / "diagnostics" / "system_camera" / "arc_sweep_replay.py"
 )
+_DATA = Path(__file__).resolve().parents[2] / "src" / "arm101_hand" / "data" / "system_camera_config.yaml"
 
 _LEFT = RoiBox(x=120, y=120, w=80, h=240, ref_w=800, ref_h=480)
 _RIGHT = RoiBox(x=600, y=120, w=80, h=240, ref_w=800, ref_h=480)
@@ -109,3 +116,47 @@ def test_format_sweep_report_marks_excluded_wrong_and_ok():
     assert "[ 0] EXCLUDED" in report
     assert "[ 1] WRONG" in report
     assert "[ 2] ok" in report
+
+
+def test_build_write_kwargs_preserves_screen_roi_and_uses_case_arcs():
+    mod = _load_module()
+    screen_roi = RoiBox(x=200, y=220, w=410, h=246, ref_w=800, ref_h=480, angle=-1.0)
+    frame = np.zeros((480, 800, 3), dtype=np.uint8)
+    cases = [mod.LabeledCase("c0", ArcCase(frame=frame, expected="red"), _LEFT, _RIGHT)]
+    res = SweepResult(
+        red_bands=[HsvBand(h_lo=0, s_lo=15, v_lo=30, h_hi=10, s_hi=255, v_hi=255)],
+        coverage_threshold=0.0096,
+        separable=True,
+        unsatisfied=[],
+        case_detections=[(True, True)],
+        excluded_transitional=[],
+    )
+    kw = mod.build_write_kwargs(res, cases, screen_roi)
+    assert kw["screen_roi"] is screen_roi  # preserved, not re-derived
+    assert kw["left_arc"] == _LEFT and kw["right_arc"] == _RIGHT  # taken from the cases
+    assert kw["red_bands"] == res.red_bands
+    assert kw["coverage_threshold"] == 0.0096
+
+
+def test_write_kwargs_round_trip_updates_config(tmp_path):
+    """End-to-end: load cases -> sweep -> build kwargs -> write to a temp config copy -> reload."""
+    mod = _load_module()
+    dst = tmp_path / "system_camera_config.yaml"
+    dst.write_text(_DATA.read_text(encoding="utf-8"), encoding="utf-8")
+    current = load_system_camera_config(dst)
+
+    cdir = tmp_path / "cases"
+    cdir.mkdir()
+    _write_case(cdir, "calib_red", "red", (0, 0, 200))
+    _write_case(cdir, "calib_clear", "clear", (80, 160, 80))
+    cases = mod.load_arc_cases(cdir)
+    res = sweep_red_detection([lc.case for lc in cases], cases[0].left_arc, cases[0].right_arc)
+    assert res.separable is True
+
+    write_calibration_values(dst, **mod.build_write_kwargs(res, cases, current.screen_roi))
+
+    reloaded = load_system_camera_config(dst)
+    assert reloaded.auto_trigger.coverage_threshold == res.coverage_threshold
+    assert (reloaded.auto_trigger.left_arc.x, reloaded.auto_trigger.right_arc.x) == (_LEFT.x, _RIGHT.x)
+    assert reloaded.screen_roi == current.screen_roi  # screen_roi preserved unchanged
+    assert dst.with_suffix(".yaml.bak").exists()
