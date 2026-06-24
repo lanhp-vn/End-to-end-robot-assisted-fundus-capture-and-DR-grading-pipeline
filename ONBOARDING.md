@@ -496,6 +496,269 @@ This separates three questions during debugging:
 
 > WARNING: DR grading is a research/educational tool only. It is NOT a medical device and NOT for clinical diagnosis. The model was fine-tuned on APTOS2019 images; Optomed Aurora handheld captures differ in camera, field of view, and illumination, so real-capture accuracy can fall below the validation numbers.
 
+#### Mental model: the artifact is learned memory, not the whole model
+
+`models/retfound_aptos2019_vitl16.safetensors` is an inference-only copy of
+the learned tensor values extracted from the upstream checkpoint. It is not
+trained by this repository and it is not a self-contained application.
+
+Think of the two files this way:
+
+```text
+Training checkpoint (.pth)                 Inference artifact (.safetensors)
+
++--------------------------------+          +--------------------------------+
+| learned model tensors          |          | learned model tensors          |
+| optimizer state                |  export  |                                |
+| gradient-scaler state          | -------> |                                |
+| epoch and training arguments   |          |                                |
++--------------------------------+          +--------------------------------+
+             3.64 GB                                  1.21 GB
+```
+
+The `.pth` file is a training suitcase: it contains the model plus the state
+needed to continue the original training process. The `.safetensors` file
+keeps only the learned model tensors required to make predictions. This is why
+the exported artifact is about two-thirds smaller and cannot resume training.
+
+Weights and architecture are separate:
+
+```text
+Architecture = what machinery exists
+               24 transformer blocks, 16 attention heads,
+               1024-dimensional embeddings, and a 5-class head
+
+Weights      = what that machinery learned
+               the numerical tensor values stored in safetensors
+```
+
+Weights without matching model code are only numbers. Model code without
+trained weights is correctly shaped but untrained machinery. Working inference
+requires all of the following to agree:
+
+```text
+weights
+  + exact ViT architecture
+  + pooling behavior
+  + image preprocessing
+  + class ordering
+  = reproducible predictions
+```
+
+#### Provenance and conversion boundary
+
+The complete artifact path is:
+
+```text
+RETFound retinal-image pretraining
+              |
+              v
+ViT-Large / 16 x 16 image patches
+              |
+              v
+Fine-tuning on five-class APTOS2019
+              |
+              v
+references/AIML-models/APTOS2019/checkpoint-best.pth
+              |
+              | one controlled, CPU-only export
+              | retain checkpoint["model"]
+              | discard training-only state
+              v
+296 contiguous model tensors
+              |
+              | serialize without Python pickle objects
+              v
+models/retfound_aptos2019_vitl16.safetensors
+              |
+              | strict-load into the matching model
+              v
+Local DR inference
+```
+
+The original checkpoint remains read-only under `references/` (IL-2). The
+derived artifact is written to the git-ignored `models/` directory. Ordinary
+grading opens only the tensor-only artifact; it does not repeatedly deserialize
+the pickle-based training checkpoint.
+
+The exporter loads the source on CPU with PyTorch's restricted
+`weights_only=True` behavior. The checkpoint's known `argparse.Namespace` is
+narrowly allowlisted because its saved training arguments require that class.
+The code deliberately does not fall back to unrestricted pickle loading.
+
+Before saving, every tensor is made contiguous and cloned:
+
+```python
+value.contiguous().clone()
+```
+
+This gives each exported tensor a simple independent storage block and avoids
+shared-storage or non-contiguous views that are unsuitable for predictable
+safetensors serialization.
+
+#### How the matching architecture was established
+
+The architecture was determined from checkpoint arguments and tensor shapes,
+not merely inferred from the filename:
+
+| Property | Verified value |
+|---|---|
+| Model | ViT-Large, patch size 16 |
+| Input | 224 x 224 pixels |
+| Embedding dimension | 1024 |
+| Transformer depth | 24 blocks |
+| Attention heads | 16 |
+| Output classes | 5 |
+| Pooling | Average pooling |
+| Classification head | `(5, 1024)` |
+| Model tensors | 296 |
+| Best upstream epoch | 27 |
+
+The positional embedding has shape `(1, 197, 1024)`, which acts as an
+architectural fingerprint:
+
+```text
+224-pixel image / 16-pixel patch = 14 patches per side
+
+14 x 14 = 196 image-patch tokens
+196 + 1 class token = 197 total tokens
+```
+
+Average pooling is significant. The checkpoint contains `fc_norm.*` parameters
+and not the `norm.*` parameters produced by token pooling. Constructing the
+model with `global_pool="avg"` gives an exact 296-of-296 key match. This choice
+reproduces the network that was fine-tuned; it is not a stylistic preference.
+
+At runtime the network is reconstructed as:
+
+```python
+timm.create_model(
+    "vit_large_patch16_224",
+    num_classes=5,
+    global_pool="avg",
+)
+```
+
+The weights are then loaded with `strict=True`. Every expected tensor name and
+shape must match, with no missing or unexpected tensors:
+
+```text
+artifact tensor name and shape == model slot name and shape
+```
+
+The exporter's 296-tensor count is an early sanity check. Strict loading is the
+stronger compatibility gate: two incompatible models could contain the same
+number of tensors while using different names or shapes.
+
+#### Why preprocessing is part of model correctness
+
+The model expects images in the same numerical form used during RETFound
+evaluation. The runtime pipeline is:
+
+```text
+Fundus image
+     |
+     v
+For raw Aurora images, isolate the bright circular fundus region
+     |
+     v
+Resize shortest side to 256 with bicubic interpolation
+     |
+     v
+Center-crop to 224 x 224
+     |
+     v
+Convert pixels to a PyTorch tensor
+     |
+     v
+Normalize with ImageNet RGB mean and standard deviation
+     |
+     v
+ViT-L/16 inference
+```
+
+The normalization constants are:
+
+```text
+mean = (0.485, 0.456, 0.406)
+std  = (0.229, 0.224, 0.225)
+```
+
+Correct weights with incorrect preprocessing can still produce plausible
+numbers, but those numbers no longer represent the behavior that was
+validated. For this reason preprocessing is treated as part of the model
+contract, not as display cleanup.
+
+Aurora captures commonly include a large near-black border around the retinal
+disc. The additional circle crop prevents that irrelevant border from
+occupying most of the limited 224 x 224 input. If no plausible disc is found,
+the runtime uses a center-square fallback and records that fallback in the
+result sidecar.
+
+#### Output labels and result interpretation
+
+The classification head emits five values without embedding human-readable
+label names. Their positions follow the alphabetical APTOS `ImageFolder`
+directory order:
+
+| Output index | Upstream folder | Meaning |
+|---:|---|---|
+| 0 | `anodr` | No DR |
+| 1 | `bmilddr` | Mild |
+| 2 | `cmoderatedr` | Moderate |
+| 3 | `dseveredr` | Severe |
+| 4 | `eproliferativedr` | Proliferative |
+
+This ordering is a correctness requirement. A model can load successfully and
+still report the wrong disease name if output indices are mapped to labels in a
+different order.
+
+#### Behavioral validation and traceability
+
+Serialization proves that a file was written. Strict loading proves that its
+tensors fit the reconstructed architecture. End-to-end evaluation additionally
+checks preprocessing and label interpretation:
+
+```text
+1,100 labelled APTOS test images
+              |
+              v
+same preprocessing + same model builder + same safetensors loader
+              |
+              v
+predicted grade compared with known folder label
+```
+
+The recorded held-out results are:
+
+- Accuracy: `0.8373`
+- Quadratic-weighted kappa: `0.9062`
+
+Quadratic-weighted kappa is useful because DR grades are ordered: an error
+between adjacent grades is penalized less than confusing No DR with
+Proliferative DR. These measurements support correct pipeline wiring on the
+APTOS source domain. They do not establish clinical performance on Aurora
+captures.
+
+The known artifact identity is:
+
+```text
+Size:    1,213,255,180 bytes
+SHA-256: 6ffa4e53ec752186323f0d9f9c4efb9328ff11414f6e57269cd0871f5eb4e2c8
+Short:   6ffa4e53
+```
+
+Each `.dr.json` result records the checkpoint filename, architecture, and short
+hash. A filename can be reused for different bytes; the hash ties a prediction
+to the exact artifact that produced it.
+
+The artifact intentionally does not contain Python model code, preprocessing
+instructions, label names, provenance, metrics, optimizer state, or clinical
+calibration. Those remain explicit, reviewable dependencies in this
+repository.
+
+#### Run order
+
 Prerequisite: the APTOS2019 checkpoint directory is in place (section 3.4).
 
 ```powershell
@@ -506,7 +769,7 @@ uv run arm101-dr-grade                                      # grade media_output
 
 `export_weights.py` reads the read-only `checkpoint-best.pth` (IL-2, never modified) and writes `models/retfound_aptos2019_vitl16.safetensors` (about 1.21 GB, git-ignored). `arm101-dr-grade` writes `<image>.dr.json` sidecars to `media_outputs/fundus_analysis/` and prints a summary table; re-runs skip already-graded images unless you pass `--force`.
 
-Model and provenance: RETFound MAE ViT-L/16 (`vit_large_patch16_224`, `global_pool=avg`, `input_size=224`, 5 classes, best epoch 27). The downloaded APTOS2019 checkpoint is credited to the RETFound benchmark checkpoint listing: [rmaphoh/RETFound `BENCHMARK.md`](https://github.com/rmaphoh/RETFound/blob/main/BENCHMARK.md). Validated test-split accuracy 0.8373, quadratic-weighted kappa 0.9062. Labels: 0 No DR, 1 Mild, 2 Moderate, 3 Severe, 4 Proliferative. Full metrics and run order: [scripts/fundus_analysis/README.md](scripts/fundus_analysis/README.md).
+The downloaded APTOS2019 checkpoint is credited to the RETFound benchmark checkpoint listing: [rmaphoh/RETFound `BENCHMARK.md`](https://github.com/rmaphoh/RETFound/blob/main/BENCHMARK.md). Implementation details, metrics, and operational notes are maintained in [scripts/fundus_analysis/README.md](scripts/fundus_analysis/README.md).
 
 ---
 
