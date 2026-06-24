@@ -1,9 +1,9 @@
 """Interactive view-calibration for the arm-mounted USB observation camera.
 
 Re-derives the Aurora SCREEN ROI (a deskewed 5:3 / 800x480 crop carrying a rotation angle), the two
-symmetric alignment-ARC bands on the camera circle, the RED HSV band(s), and the coverage threshold,
-then writes them into src/arm101_hand/data/system_camera_config.yaml. Run after any RESOLUTION or
-LIGHTING change (the fixed-fraction ROI + colour bands drift otherwise).
+manually-placed alignment-ARC boxes, and the RED HSV band(s) + coverage threshold (auto-swept against
+a RED + CLEAR reference panel), then writes them into src/arm101_hand/data/system_camera_config.yaml.
+Run after any RESOLUTION or LIGHTING change (the fixed-fraction ROI + colour bands drift otherwise).
 
 Detection is RED-ONLY: each arc is RED (misaligned) or not-red (aligned); no green is sampled (the
 bright/aligned screen reads greenish overall, so green coverage is unreliable).
