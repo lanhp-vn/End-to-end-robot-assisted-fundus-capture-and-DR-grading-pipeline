@@ -420,16 +420,24 @@ def _save_calib_case(
 
 
 def _report_sweep(result: SweepResult, cases: list[ArcCase]) -> None:
-    """Print the sweep outcome: threshold, separability, and the describe_case sentence for every
-    case the chosen config still gets wrong (best-effort)."""
-    ok = len(cases) - len(result.unsatisfied)
+    """Print the sweep outcome: threshold, separability over the FITTED (clean) cases, any clean case
+    still wrong, and the transitional 'red' cases excluded from tuning (one arc read clear)."""
+    n_excluded = len(result.excluded_transitional)
+    n_fit = len(cases) - n_excluded
+    ok = n_fit - len(result.unsatisfied)
     print(
         f"\nSweep -> threshold={result.coverage_threshold:.4f}  separable={result.separable}  "
-        f"{ok}/{len(cases)} cases correct."
+        f"{ok}/{n_fit} fitted cases correct ({n_excluded} excluded as transitional)."
     )
     for i in result.unsatisfied:
         dl, dr = result.case_detections[i]
         print(f"  case {i} STILL WRONG: {describe_case(cases[i].expected, dl, dr)}")
+    for i in result.excluded_transitional:
+        dl, dr = result.case_detections[i]
+        print(
+            f"  case {i} EXCLUDED (transitional): {describe_case(cases[i].expected, dl, dr)} "
+            "-- one arc read clear; relabel as clear or recapture as a clean both-red frame."
+        )
 
 
 def _confirm(red_ref: np.ndarray, clear_ref: np.ndarray, cfg: AutoTriggerConfig) -> str:
