@@ -98,6 +98,7 @@ uv run python scripts/diagnostics/system_camera/usb_camera_capture.py [--camera 
 uv run python scripts/diagnostics/system_camera/usb_camera_roi_preview.py [--camera N]  # preview the fixed ROI zoom (deskewed 5:3 crop of the Aurora screen) before the demo uses it
 uv run python scripts/diagnostics/system_camera/usb_camera_focus_probe.py [--camera N]   # sweep + fine-tune MANUAL focus on the ROI vs an autofocus baseline (needs --backend dshow); found focus=600
 uv run python scripts/diagnostics/system_camera/usb_camera_arc_debug.py [--camera N]   # arc-detection debug: stages the arm+hand grab, draws both arc boxes (red=RED/green=clear) + a coverage HUD on the deskewed ROI; SPACE saves a clean+annotated frame + a coverage/threshold sidecar to media_outputs/arc_debug/ (motors; no Aurora, no trigger)
+uv run python scripts/diagnostics/system_camera/arc_sweep_replay.py [--from DIR]   # OFFLINE (no hardware): re-run the red-detection sweep over saved labelled cases (default media_outputs/arc_calib/) to validate a calibration.py/sweep change; prints chosen red band + coverage_threshold + per-case ok/WRONG/EXCLUDED-transitional
 
 # System-camera view calibration (writes system_camera_config.yaml; run after a resolution/lighting change)
 uv run python scripts/calibration/system_camera/calibrate_view.py            # live: white -> red -> bright/aligned -> confirm -> write
