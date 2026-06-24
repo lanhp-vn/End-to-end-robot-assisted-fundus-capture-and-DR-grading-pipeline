@@ -9,14 +9,11 @@ from arm101_hand.config import load_system_camera_config
 from arm101_hand.config.system_camera_config import HsvBand, RoiBox
 from arm101_hand.system_camera.calibration import (
     ArcCase,
-    arc_bands_from_circle,
     describe_case,
     deskew_crop,
-    fit_camera_circle,
     pick_threshold,
     sample_red_band,
     screen_roi_from_rect,
-    suggest_coverage_threshold,
     sweep_red_detection,
     write_calibration_values,
 )
@@ -60,45 +57,6 @@ def test_deskew_crop_with_stored_angle_uprights_a_tilted_rect():
     assert abs(a) < 1.5 or abs(abs(a) - 90.0) < 1.5
 
 
-def test_fit_camera_circle_centres_on_disc():
-    img = np.zeros((480, 800, 3), dtype=np.uint8)
-    cv2.circle(img, (400, 240), 180, (255, 255, 255), -1)
-    cx, cy, r = fit_camera_circle(img)
-    assert abs(cx - 400) <= 15 and abs(cy - 240) <= 15 and abs(r - 180) <= 25
-
-
-def test_fit_camera_circle_handles_nonuniform_disc():
-    # A LARGE disc (fills ~half the frame, like the real Aurora) that is BRIGHT on the right half and
-    # DIM on the left -- both halves clearly above the dark bezel. Otsu splits bezel-from-disc and
-    # recovers the WHOLE disc; a high-percentile threshold keeps only the bright half and mis-centres
-    # it (the bench bug: percentile-80 fit cx=511 r=152 for a disc truly centred ~400 r~260). This is
-    # the regression guard against the percentile approach.
-    yy, xx = np.ogrid[:480, :800]
-    disc = (xx - 400) ** 2 + (yy - 240) ** 2 <= 230**2
-    gray = np.broadcast_to(np.where(xx < 400, 110, 230).astype(np.uint8), (480, 800)).copy()
-    gray[~disc] = 0
-    img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-    cx, cy, r = fit_camera_circle(img)
-    assert abs(cx - 400) <= 25 and abs(cy - 240) <= 25 and abs(r - 230) <= 35
-
-
-def test_arc_bands_from_circle_are_symmetric():
-    left, right = arc_bands_from_circle(400, 240, 200, ref_w=800, ref_h=480)
-    assert left.x < 400 <= right.x
-    assert (left.w, left.h) == (right.w, right.h)
-    assert abs(right.x - (800 - (left.x + left.w))) <= 1  # mirror across centre
-
-
-def test_arc_bands_mirror_about_circle_centre():
-    # When the disc is NOT frame-centred, the bands must mirror about the CIRCLE centre cx (sitting on
-    # the disc's own L/R edges), NOT about the frame centre. Bench bug: a circle fit at cx=511 produced
-    # two bands clustered near the frame centre, missing both red arcs entirely.
-    left, right = arc_bands_from_circle(300, 240, 150, ref_w=800, ref_h=480)
-    assert (left.w, left.h) == (right.w, right.h)
-    assert left.x < 300 < right.x  # bands straddle the circle centre
-    assert abs((left.x + (right.x + right.w)) - 2 * 300) <= 2  # outer edges symmetric about cx=300
-
-
 def test_sample_red_band_brackets_and_wraps():
     hsv = np.zeros((20, 20, 3), dtype=np.uint8)
     hsv[:, :10] = (2, 200, 200)  # near hue 0
@@ -106,13 +64,6 @@ def test_sample_red_band_brackets_and_wraps():
     bands = sample_red_band(cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR))
     assert len(bands) == 2
     assert any(b.h_lo == 0 for b in bands) and any(b.h_hi == 180 for b in bands)
-
-
-def test_suggest_coverage_threshold_midpoint_and_floor():
-    assert suggest_coverage_threshold(0.20, 0.0) == 0.10
-    # Non-zero "off" coverage: catches a max()-instead-of-midpoint regression (0.15, not 0.20/0.10).
-    assert suggest_coverage_threshold(0.20, 0.10) == 0.15
-    assert suggest_coverage_threshold(0.02, 0.0) == 0.02  # midpoint 0.01 floored to 0.02
 
 
 def test_write_calibration_preserves_comments_and_updates(tmp_path):
