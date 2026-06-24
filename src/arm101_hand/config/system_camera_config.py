@@ -14,18 +14,6 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class HsvBand(BaseModel):
-    """An inclusive OpenCV HSV threshold band (8-bit: H 0-180, S/V 0-255)."""
-
-    model_config = ConfigDict(extra="forbid")
-    h_lo: int = Field(ge=0, le=180)
-    s_lo: int = Field(ge=0, le=255)
-    v_lo: int = Field(ge=0, le=255)
-    h_hi: int = Field(ge=0, le=180)
-    s_hi: int = Field(ge=0, le=255)
-    v_hi: int = Field(ge=0, le=255)
-
-
 class RoiBox(BaseModel):
     """A pixel rectangle measured against a reference frame size (mirrors system_camera.Roi).
 
@@ -46,20 +34,22 @@ ArcRegion = RoiBox  # back-compat alias: existing imports/configs keep working
 
 
 class AutoTriggerConfig(BaseModel):
-    """Red-only arc auto-trigger: each arc is RED (>= coverage_threshold) or not. ready/fire is
-    gated by a red -> not-red transition (see arm101_hand.system_camera.auto_trigger)."""
+    """Red-only arc auto-trigger: each arc is RED (>= coverage_threshold of pixels at LAB a* >=
+    a_star_min) or not. ready/fire is gated by a red -> not-red transition (see
+    arm101_hand.system_camera.auto_trigger)."""
 
     model_config = ConfigDict(extra="forbid")
     left_arc: RoiBox = Field(default_factory=lambda: RoiBox(x=88, y=130, w=56, h=230, ref_w=640, ref_h=480))
     right_arc: RoiBox = Field(default_factory=lambda: RoiBox(x=496, y=130, w=56, h=230, ref_w=640, ref_h=480))
-    red_bands: list[HsvBand] = Field(
-        min_length=1,  # >=1 band: red is the only colour classified (no degenerate empty config)
-        default_factory=lambda: [
-            HsvBand(h_lo=0, s_lo=35, v_lo=50, h_hi=12, s_hi=255, v_hi=255),
-            HsvBand(h_lo=158, s_lo=35, v_lo=50, h_hi=180, s_hi=255, v_hi=255),
-        ],
+    a_star_min: int = Field(
+        default=134,
+        ge=128,
+        le=255,
+        description="LAB a* cutoff: a pixel counts as red at a* >= this (128 = neutral, higher = redder)",
     )
-    coverage_threshold: float = Field(default=0.04, ge=0.0, le=1.0, description="arc is RED at >= this")
+    coverage_threshold: float = Field(
+        default=0.01, ge=0.0, le=1.0, description="arc is RED at >= this fraction of pixels above a_star_min"
+    )
     morph_kernel: int = Field(default=3, ge=1)
     stable_seconds: float = Field(default=1.0, gt=0.0)
     cooldown_seconds: float = Field(default=3.0, ge=0.0)
@@ -70,7 +60,7 @@ class SystemCameraConfig(BaseModel):
     """Arm-mounted USB observation camera: live preview window (cv2) + record toggle."""
 
     model_config = ConfigDict(extra="forbid")
-    schema_version: int = 7
+    schema_version: int = 8
     enabled: bool = Field(default=True, description="open the preview window when the demo runs")
     camera_index: int = Field(default=0, ge=0, description="USB camera index (the arm-mounted cam)")
     backend: Literal["auto", "dshow"] = Field(

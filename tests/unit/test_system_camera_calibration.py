@@ -6,14 +6,12 @@ import pytest
 from pydantic import ValidationError
 
 from arm101_hand.config import load_system_camera_config
-from arm101_hand.config.system_camera_config import HsvBand, RoiBox
-from arm101_hand.system_camera import roi_from_region
+from arm101_hand.config.system_camera_config import RoiBox
 from arm101_hand.system_camera.calibration import (
     ArcCase,
     describe_case,
     deskew_crop,
     pick_threshold,
-    sample_red_band,
     screen_roi_from_rect,
     sweep_red_detection,
     write_calibration_values,
@@ -58,15 +56,6 @@ def test_deskew_crop_with_stored_angle_uprights_a_tilted_rect():
     assert abs(a) < 1.5 or abs(abs(a) - 90.0) < 1.5
 
 
-def test_sample_red_band_brackets_and_wraps():
-    hsv = np.zeros((20, 20, 3), dtype=np.uint8)
-    hsv[:, :10] = (2, 200, 200)  # near hue 0
-    hsv[:, 10:] = (178, 200, 200)  # near hue 180
-    bands = sample_red_band(cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR))
-    assert len(bands) == 2
-    assert any(b.h_lo == 0 for b in bands) and any(b.h_hi == 180 for b in bands)
-
-
 def test_write_calibration_preserves_comments_and_updates(tmp_path):
     dst = tmp_path / "system_camera_config.yaml"
     dst.write_text(_DATA.read_text(encoding="utf-8"), encoding="utf-8")
@@ -75,7 +64,7 @@ def test_write_calibration_preserves_comments_and_updates(tmp_path):
         screen_roi=RoiBox(x=10, y=8, w=400, h=240, ref_w=640, ref_h=480, angle=-0.9),
         left_arc=RoiBox(x=90, y=130, w=70, h=230, ref_w=640, ref_h=480),
         right_arc=RoiBox(x=480, y=130, w=70, h=230, ref_w=640, ref_h=480),
-        red_bands=[HsvBand(h_lo=0, s_lo=40, v_lo=50, h_hi=10, s_hi=255, v_hi=255)],
+        a_star_min=140,
         coverage_threshold=0.08,
     )
     text = dst.read_text(encoding="utf-8")
@@ -83,6 +72,7 @@ def test_write_calibration_preserves_comments_and_updates(tmp_path):
     cfg = load_system_camera_config(dst)
     assert cfg.screen_roi.angle == -0.9 and (cfg.screen_roi.ref_w, cfg.screen_roi.ref_h) == (640, 480)
     assert cfg.auto_trigger.coverage_threshold == 0.08
+    assert cfg.auto_trigger.a_star_min == 140
     assert (cfg.auto_trigger.left_arc.x, cfg.auto_trigger.right_arc.x) == (90, 480)
 
 
@@ -96,10 +86,10 @@ def test_write_calibration_rejects_invalid_without_writing(tmp_path):
             screen_roi=RoiBox(x=0, y=0, w=1, h=1),
             left_arc=RoiBox(x=0, y=0, w=1, h=1),
             right_arc=RoiBox(x=0, y=0, w=1, h=1),
-            red_bands=[],  # empty -> rejected by the min_length=1 guard (a degenerate config)
-            coverage_threshold=0.5,  # VALID: empty bands are the sole cause of rejection here
+            a_star_min=300,  # out of [128, 255] -> rejected by the schema; nothing written
+            coverage_threshold=0.5,
         )
-    assert dst.read_text(encoding="utf-8") == before  # original untouched on failure
+    assert dst.read_text(encoding="utf-8") == before
 
 
 @pytest.mark.parametrize(
@@ -156,17 +146,18 @@ def _roi_with_arcs(left, right, color_bgr):
 def test_sweep_red_detection_separates_red_from_clear():
     left = RoiBox(x=120, y=120, w=80, h=240, ref_w=640, ref_h=480)
     right = RoiBox(x=480, y=120, w=80, h=240, ref_w=640, ref_h=480)
-    red_frame = _roi_with_arcs(left, right, (0, 0, 200))  # pure red arcs (HSV hue 0)
-    clear_frame = _roi_with_arcs(left, right, (80, 160, 80))  # greenish, no red
+    red_frame = _roi_with_arcs(left, right, (0, 0, 200))  # red arcs -> high a*
+    clear_frame = _roi_with_arcs(left, right, (80, 160, 80))  # greenish -> low a*
     res = sweep_red_detection([ArcCase(red_frame, "red"), ArcCase(clear_frame, "clear")], left, right)
     assert res.separable is True
     assert res.unsatisfied == []
     assert 0.0 < res.coverage_threshold < 1.0
+    assert 128 <= res.a_star_min <= 255
     from arm101_hand.config.system_camera_config import AutoTriggerConfig
     from arm101_hand.system_camera.arc_detector import detect
 
     cfg = AutoTriggerConfig(
-        left_arc=left, right_arc=right, red_bands=res.red_bands, coverage_threshold=res.coverage_threshold
+        left_arc=left, right_arc=right, a_star_min=res.a_star_min, coverage_threshold=res.coverage_threshold
     )
     assert detect(red_frame, cfg).both_red
     assert detect(clear_frame, cfg).both_clear
@@ -179,32 +170,8 @@ def test_sweep_red_detection_reports_unsatisfiable_cases():
     contradictory_clear = _roi_with_arcs(left, right, (0, 0, 200))  # tagged 'clear' but actually red
     res = sweep_red_detection([ArcCase(red_frame, "red"), ArcCase(contradictory_clear, "clear")], left, right)
     assert res.separable is False
-    assert res.unsatisfied  # non-empty -> best-effort, reported not silently dropped
+    assert res.unsatisfied
     assert isinstance(res.coverage_threshold, float)
-
-
-def _fill_arcs(left, right, hsv_color):
-    """640x480 BGR frame with both arc boxes filled with a given HSV colour."""
-    hsv = np.zeros((480, 640, 3), dtype=np.uint8)
-    for arc in (left, right):
-        hsv[arc.y : arc.y + arc.h, arc.x : arc.x + arc.w] = hsv_color
-    return cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
-
-
-def test_pooled_red_anchor_widens_hue_across_cases():
-    from arm101_hand.system_camera.calibration import _pooled_red_anchor
-
-    left = RoiBox(x=120, y=120, w=80, h=240, ref_w=640, ref_h=480)
-    right = RoiBox(x=480, y=120, w=80, h=240, ref_w=640, ref_h=480)
-    near0 = _fill_arcs(left, right, (2, 200, 200))  # hue 2
-    near180 = _fill_arcs(left, right, (178, 200, 200))  # hue 178 (wraps to red)
-    # a single near-0 frame anchors only the near-zero band
-    single = sample_red_band(roi_from_region(left).crop(near0))
-    assert len(single) == 1 and single[0].h_lo == 0
-    # pooling a near-0 frame and a near-180 frame yields BOTH wrap bands
-    pooled = _pooled_red_anchor([near0, near180], left, right)
-    assert len(pooled) == 2
-    assert any(b.h_lo == 0 for b in pooled) and any(b.h_hi == 180 for b in pooled)
 
 
 def test_sweep_excludes_transitional_red_case():
@@ -216,32 +183,32 @@ def test_sweep_excludes_transitional_red_case():
     transitional[left.y : left.y + left.h, left.x : left.x + left.w] = (0, 0, 200)  # ...left arc red only
     cases = [ArcCase(red_frame, "red"), ArcCase(clear_frame, "clear"), ArcCase(transitional, "red")]
     res = sweep_red_detection(cases, left, right)
-    assert res.separable is True  # the clean both-red + clear separate
+    assert res.separable is True
     assert 2 in res.excluded_transitional  # the one-arc-red 'red' frame is excluded from fitting
-    assert 2 not in res.unsatisfied  # and is not counted as a fit failure
+    assert 2 not in res.unsatisfied
     from arm101_hand.config.system_camera_config import AutoTriggerConfig
     from arm101_hand.system_camera.arc_detector import detect
 
     cfg = AutoTriggerConfig(
-        left_arc=left, right_arc=right, red_bands=res.red_bands, coverage_threshold=res.coverage_threshold
+        left_arc=left, right_arc=right, a_star_min=res.a_star_min, coverage_threshold=res.coverage_threshold
     )
     assert detect(red_frame, cfg).both_red and detect(clear_frame, cfg).both_clear
 
 
-def test_sweep_pooled_hue_classifies_two_different_red_hues():
+def test_sweep_detects_pale_washed_red_arc():
+    # A washed arc: nearly white (high value) with only a faint red tint -- HSV saturation would be
+    # ~0, but LAB a* stays above neutral. Both arcs get the same pale-red so it is a true both-red.
     left = RoiBox(x=120, y=120, w=80, h=240, ref_w=640, ref_h=480)
     right = RoiBox(x=480, y=120, w=80, h=240, ref_w=640, ref_h=480)
-    red_a = _fill_arcs(left, right, (2, 200, 200))  # hue 2
-    red_b = _fill_arcs(left, right, (178, 200, 200))  # hue 178 (wraps to red)
-    clear = _roi_with_arcs(left, right, (80, 160, 80))
-    res = sweep_red_detection(
-        [ArcCase(red_a, "red"), ArcCase(red_b, "red"), ArcCase(clear, "clear")], left, right
-    )
+    pale_red = (235, 235, 255)  # BGR: near white, red channel slightly higher -> a* > 128
+    clear_frame = _roi_with_arcs(left, right, (245, 245, 245))  # neutral near-white -> a* ~128
+    red_frame = _roi_with_arcs(left, right, pale_red)
+    res = sweep_red_detection([ArcCase(red_frame, "red"), ArcCase(clear_frame, "clear")], left, right)
     assert res.separable is True
     from arm101_hand.config.system_camera_config import AutoTriggerConfig
     from arm101_hand.system_camera.arc_detector import detect
 
     cfg = AutoTriggerConfig(
-        left_arc=left, right_arc=right, red_bands=res.red_bands, coverage_threshold=res.coverage_threshold
+        left_arc=left, right_arc=right, a_star_min=res.a_star_min, coverage_threshold=res.coverage_threshold
     )
-    assert detect(red_a, cfg).both_red and detect(red_b, cfg).both_red and detect(clear, cfg).both_clear
+    assert detect(red_frame, cfg).both_red and detect(clear_frame, cfg).both_clear

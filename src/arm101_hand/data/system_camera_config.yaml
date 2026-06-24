@@ -2,7 +2,7 @@
 # system_camera_config.yaml -- arm-mounted USB OBSERVATION camera (films the Optomed Aurora's
 # screen). Live cv2 preview window + 'r' record. Distinct from the Aurora fundus camera
 # (see fundus_config.yaml). Hand-editable; never written by runtime code (IL-5).
-schema_version: 7
+schema_version: 8
 enabled: true
 camera_index: 1     # the arm cam on this PC (index 0 is the built-in webcam)
 backend: dshow      # REQUIRED for manual focus: only DSHOW drives this cam's VCM (MSMF accepts the
@@ -44,18 +44,16 @@ height: 1440
 # (640x480 ref). Run the calibration after any resolution OR lighting change.
 # ROI cut is 4:3 (640x480 ref). Values below are rescaled from the prior 5:3/800-ref capture as a
 # placeholder -- re-run calibrate_view.py to re-derive screen_roi + arcs for the 4:3 cut.
-screen_roi: {x: 79, y: 42, w: 167, h: 134, ref_w: 640, ref_h: 480, angle: -1.0}
+screen_roi: {x: 98, y: 47, w: 128, h: 128, ref_w: 640, ref_h: 480, angle: -0.5}
 # --- Automated trigger (grab_auto_trigger_analysis.py) -------------------------------------------
 # Red-only: each arc is RED (>= coverage_threshold) or not; a capture fires after BOTH arcs go RED
 # (misaligned) then BOTH go not-red (aligned), held stable_seconds. Regions/bands are STARTING
 # ESTIMATES -- re-derive with scripts/calibration/system_camera/calibrate_view.py.
 auto_trigger:
-  left_arc: {x: 110, y: 88, w: 62, h: 315, ref_w: 640, ref_h: 480, angle: 0.0}
-  right_arc: {x: 475, y: 90, w: 59, h: 312, ref_w: 640, ref_h: 480, angle: 0.0}
-  red_bands:                       # red wraps hue 0/180 -> two bands OR'd (pale arcs -> low S/V floors)
-  - {h_lo: 0, s_lo: 15, v_lo: 30, h_hi: 11, s_hi: 255, v_hi: 255}
-  - {h_lo: 160, s_lo: 15, v_lo: 30, h_hi: 180, s_hi: 255, v_hi: 255}
-  coverage_threshold: 0.005        # an arc counts as RED at >= this fraction
+  left_arc: {x: 46, y: 80, w: 85, h: 330, ref_w: 640, ref_h: 480, angle: 0.0}
+  right_arc: {x: 518, y: 82, w: 82, h: 326, ref_w: 640, ref_h: 480, angle: 0.0}
+  a_star_min: 134                  # LAB a* cutoff: a pixel counts as red at a* >= this (128 = neutral)
+  coverage_threshold: 0.011        # an arc counts as RED at >= this fraction of pixels above a_star_min
   morph_kernel: 3                  # MORPH_OPEN kernel (px) to despeckle the mask
   stable_seconds: 1.0              # both arcs must hold not-red this long before firing
   cooldown_seconds: 3.0            # min gap after a fire
