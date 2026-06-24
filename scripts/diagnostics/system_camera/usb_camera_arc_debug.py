@@ -1,7 +1,7 @@
 """Arc-detection debug collector for the arm-mounted USB observation camera (read-only diagnostic).
 
 Stages the arm + hand into the grab pose (the ONLY pose where the Aurora-screen ROI geometry is
-valid), then shows the live deskewed 5:3 (800x480) screen ROI with the two alignment-arc boxes
+valid), then shows the live deskewed 4:3 (640x480) screen ROI with the two alignment-arc boxes
 drawn -- each RED when ``arc_detector.detect()`` classifies that arc as RED (misaligned) and GREEN
 when it reads clear -- plus a raw-classification HUD (per-arc coverage vs the threshold). Use it to
 collect frames where the RED/clear classification is WRONG, so ``coverage_threshold`` / ``red_bands``
@@ -20,7 +20,7 @@ in place (or reversed only on explicit 'h' at the prompt) -- no surprise movemen
 SPACE prompts (in the TERMINAL) for a short note describing what is WRONG with the detector's call
 on this frame, then saves one "case" -- three files sharing a millisecond-timestamp stem ``arc_<ts>``
 in ``--out-dir`` (default ``media_outputs/arc_debug/``, git-ignored):
-  * ``arc_<ts>_clean.png``      the un-annotated 800x480 ROI -- ground truth, re-feedable to detect()
+  * ``arc_<ts>_clean.png``      the un-annotated 640x480 ROI -- ground truth, re-feedable to detect()
                                 / calibrate_view.py --from-files.
   * ``arc_<ts>_annotated.png``  the ROI with arc boxes + verdict HUD burned in.
   * ``arc_<ts>.json``           the numbers the detector saw: per-arc coverage + verdict, the

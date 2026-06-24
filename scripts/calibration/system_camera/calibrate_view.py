@@ -1,6 +1,6 @@
 """Interactive view-calibration for the arm-mounted USB observation camera.
 
-Re-derives the Aurora SCREEN ROI (a deskewed 5:3 / 800x480 crop carrying a rotation angle), the two
+Re-derives the Aurora SCREEN ROI (a deskewed 4:3 / 640x480 crop carrying a rotation angle), the two
 manually-placed alignment-ARC boxes, and the RED HSV band(s) + coverage threshold (auto-swept against
 a RED + CLEAR reference panel), then writes them into src/arm101_hand/data/system_camera_config.yaml.
 Run after any RESOLUTION or LIGHTING change (the fixed-fraction ROI + colour bands drift otherwise).
@@ -64,7 +64,7 @@ from arm101_hand.system_camera.calibration import (  # noqa: E402
 _CONFIG_PATH = _REPO_ROOT / "src" / "arm101_hand" / "data" / "system_camera_config.yaml"
 _CALIB_CASE_DIR = _REPO_ROOT / "media_outputs" / "arc_calib"
 _FONT = cv2.FONT_HERSHEY_SIMPLEX
-_DETECT = (800, 480)  # the deskewed 5:3 detection reference (ref_w x ref_h)
+_DETECT = (640, 480)  # the deskewed 4:3 detection reference (ref_w x ref_h)
 _REF_W, _REF_H = _DETECT
 _MAX_WIN_W, _MAX_WIN_H = 1100, 800  # initial window cap so large frames fit the screen
 _ROTATE_STEP_DEG = 0.5  # <- / -> step in the deskew-rotate preview (auto-repeats on key-hold)
@@ -140,7 +140,7 @@ def _capture_frame(cap, title: str, overlay: RoiBox | None) -> np.ndarray | None
 
 def _pick_arcs(roi_frame: np.ndarray) -> tuple[RoiBox, RoiBox] | None:
     """Drag the LEFT arc box, then the RIGHT one with the confirmed left box shown, on the deskewed
-    ROI frame (already at the 800x480 ref, so drag pixels are ref pixels). Returns (left, right)
+    ROI frame (already at the 640x480 ref, so drag pixels are ref pixels). Returns (left, right)
     RoiBoxes, or None if either drag is cancelled."""
     left = _drag_box(roi_frame, "Drag the LEFT arc box, then SPACE/ENTER.")
     if left is None:
@@ -155,7 +155,7 @@ def _pick_arcs(roi_frame: np.ndarray) -> tuple[RoiBox, RoiBox] | None:
 
 
 def _capture_roi(cap, screen_roi: RoiBox, title: str) -> np.ndarray | None:
-    """Stream the deskewed ROI (screen_roi crop -> 800x480) until SPACE (return the frozen ROI) or
+    """Stream the deskewed ROI (screen_roi crop -> 640x480) until SPACE (return the frozen ROI) or
     q/ESC (None). Action keys come from the TERMINAL (see _poll_key)."""
     print(f"\n{title}\n  Focus THIS terminal: SPACE = capture, q = quit.")
     opened = False
@@ -249,9 +249,9 @@ def _drag_box(
 
 
 def _option_box_pts(cx: float, cy: float, w: float, h: float, angle: float, fw: int, fh: int) -> np.ndarray:
-    """Polygon (int32 points) of the 5:3 crop box for a screen rect at ``angle``, in frame pixels.
+    """Polygon (int32 points) of the 4:3 crop box for a screen rect at ``angle``, in frame pixels.
 
-    Draw EXACTLY the box ENTER will commit: screen_roi_from_rect does the 5:3 expansion + ref scaling
+    Draw EXACTLY the box ENTER will commit: screen_roi_from_rect does the 4:3 expansion + ref scaling
     + edge clamp, so deriving the preview from it (mapped back to the frame, rotated by +angle about
     its centre) keeps the green preview faithful to the stored/cropped ROI -- one copy of the
     expansion rule, and a clamp at a frame edge shows in the preview too."""
@@ -262,10 +262,10 @@ def _option_box_pts(cx: float, cy: float, w: float, h: float, angle: float, fw: 
 
 
 def _pick_roi(white: np.ndarray) -> RoiBox | None:
-    """Drag a box over the Aurora screen, then rotate the 5:3 crop to deskew it. None = recapture.
+    """Drag a box over the Aurora screen, then rotate the 4:3 crop to deskew it. None = recapture.
 
     Replaces the old auto-detect + 3-angle-preset picker: the operator drags an axis-aligned box
-    (sized to the screen), then nudges the angle with the arrow keys until the 5:3 crop's edges sit
+    (sized to the screen), then nudges the angle with the arrow keys until the 4:3 crop's edges sit
     parallel to the (possibly tilted) screen. A cancelled drag returns None so main() recaptures the
     white frame; 'r' in the rotate step re-drags on the same frame (no re-SPACE)."""
     while True:
@@ -282,10 +282,10 @@ def _deskew_preview(base: np.ndarray, box: tuple[int, int, int, int]) -> RoiBox 
     """Rotate-to-deskew preview for a dragged screen box. Returns the confirmed RoiBox (ENTER), or
     None to re-drag ('r'); raises KeyboardInterrupt on 'q'.
 
-    Draws the 5:3 crop box (green, the exact region ENTER will store) rotated by a live angle over the
+    Draws the 4:3 crop box (green, the exact region ENTER will store) rotated by a live angle over the
     white frame; <- / -> nudge the angle by _ROTATE_STEP_DEG. Keys come from the TERMINAL (see
     _poll_key); the window only displays. The dragged box gives centre + (w, h) at angle 0 --
-    screen_roi_from_rect widens the short side to 5:3, so the green box reads WIDER than a ~16:10
+    screen_roi_from_rect widens the short side to 4:3, so the green box reads WIDER than a ~16:10
     screen; "aligned" means parallel edges + centred, not edge-coincident."""
     fh, fw = base.shape[:2]
     cx, cy = box[0] + box[2] / 2.0, box[1] + box[3] / 2.0
@@ -293,7 +293,7 @@ def _deskew_preview(base: np.ndarray, box: tuple[int, int, int, int]) -> RoiBox 
     angle = 0.0
     title = "Calib 1/3: rotate to deskew (press keys in the TERMINAL)"
     print(
-        "\nRotate the 5:3 crop to deskew -- focus THIS terminal:\n"
+        "\nRotate the 4:3 crop to deskew -- focus THIS terminal:\n"
         "  <- / -> = rotate 0.5deg   ENTER = confirm   r = re-drag   q = quit"
     )
     _open_window(title, fw, fh)
@@ -312,7 +312,7 @@ def _deskew_preview(base: np.ndarray, box: tuple[int, int, int, int]) -> RoiBox 
         )
         cv2.putText(
             disp,
-            "green = chosen 5:3 crop (rotate until its edges match the screen)",
+            "green = chosen 4:3 crop (rotate until its edges match the screen)",
             (12, 52),
             _FONT,
             0.5,

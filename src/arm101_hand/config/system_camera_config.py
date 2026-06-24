@@ -50,8 +50,8 @@ class AutoTriggerConfig(BaseModel):
     gated by a red -> not-red transition (see arm101_hand.system_camera.auto_trigger)."""
 
     model_config = ConfigDict(extra="forbid")
-    left_arc: RoiBox = Field(default_factory=lambda: RoiBox(x=110, y=130, w=70, h=230, ref_w=800, ref_h=480))
-    right_arc: RoiBox = Field(default_factory=lambda: RoiBox(x=620, y=130, w=70, h=230, ref_w=800, ref_h=480))
+    left_arc: RoiBox = Field(default_factory=lambda: RoiBox(x=88, y=130, w=56, h=230, ref_w=640, ref_h=480))
+    right_arc: RoiBox = Field(default_factory=lambda: RoiBox(x=496, y=130, w=56, h=230, ref_w=640, ref_h=480))
     red_bands: list[HsvBand] = Field(
         min_length=1,  # >=1 band: red is the only colour classified (no degenerate empty config)
         default_factory=lambda: [

@@ -1,13 +1,13 @@
 """Pure detection helpers for the system-camera view calibration (device layer).
 
-Normalises the chosen Aurora screen ROI (deskewed to an upright 5:3 crop) and samples the red
+Normalises the chosen Aurora screen ROI (deskewed to an upright 4:3 crop) and samples the red
 HSV band(s) from the sample frames. Pure numpy + cv2 imgproc -- no HighGUI window; the one I/O
 function is ``write_calibration_values`` (ruamel round-trip). Synthetic-numpy unit-testable,
 mirroring ``arc_detector.py``. The interactive capture/confirm shell lives in
 ``scripts/calibration/system_camera/calibrate_view.py``.
 
 The ROI is chosen interactively (manual drag + arrow-key deskew) in the calibrate_view shell; this
-module only normalises the chosen rect to a 5:3 deskewed RoiBox, samples the red HSV band, runs the
+module only normalises the chosen rect to a 4:3 deskewed RoiBox, samples the red HSV band, runs the
 red-detection sweep, and round-trips the config. Plain opencv-python only (no contrib).
 """
 
@@ -38,13 +38,13 @@ _Rect = tuple[tuple[float, float], tuple[float, float], float]
 
 
 def screen_roi_from_rect(
-    rect: _Rect, frame_w: int, frame_h: int, *, ref_w: int = 800, ref_h: int = 480
+    rect: _Rect, frame_w: int, frame_h: int, *, ref_w: int = 640, ref_h: int = 480
 ) -> RoiBox:
-    """Normalise a rotated screen rect to 5:3 and store it at the ``ref_w x ref_h`` detection ref
-    (so ``Roi.crop`` -> resize lands a 5:3 deskewed image). Carries the deskew ``angle``."""
+    """Normalise a rotated screen rect to 4:3 and store it at the ``ref_w x ref_h`` detection ref
+    (so ``Roi.crop`` -> resize lands a 4:3 deskewed image). Carries the deskew ``angle``."""
     (cx, cy), (w, h), angle = rect
-    target = 5 / 3
-    if w / h < target:  # widen the short side to 5:3 (never shrink -> no content lost)
+    target = 4 / 3
+    if w / h < target:  # widen the short side to 4:3 (never shrink -> no content lost)
         w = target * h
     else:
         h = w / target
@@ -62,8 +62,8 @@ def screen_roi_from_rect(
     )
 
 
-def deskew_crop(frame: np.ndarray, region: RoiBox, *, out: tuple[int, int] = (800, 480)) -> np.ndarray:
-    """Deskewed 5:3 crop of ``frame`` for ``region`` (screen_roi), resized to ``out``."""
+def deskew_crop(frame: np.ndarray, region: RoiBox, *, out: tuple[int, int] = (640, 480)) -> np.ndarray:
+    """Deskewed 4:3 crop of ``frame`` for ``region`` (screen_roi), resized to ``out``."""
     return cv2.resize(roi_from_region(region).crop(frame), out, interpolation=cv2.INTER_AREA)
 
 

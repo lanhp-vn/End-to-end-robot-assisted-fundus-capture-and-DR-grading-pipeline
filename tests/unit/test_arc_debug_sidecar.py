@@ -37,11 +37,11 @@ def test_build_arc_case_sidecar_shape():
     build = _load_builder()
     alignment = AlignmentState(left_red=True, right_red=False, left_cov=0.061, right_cov=0.004)
     cfg = AutoTriggerConfig(
-        left_arc=RoiBox(x=144, y=130, w=70, h=230, ref_w=800, ref_h=480),
-        right_arc=RoiBox(x=586, y=130, w=70, h=230, ref_w=800, ref_h=480),
+        left_arc=RoiBox(x=115, y=130, w=56, h=230, ref_w=640, ref_h=480),
+        right_arc=RoiBox(x=469, y=130, w=56, h=230, ref_w=640, ref_h=480),
         coverage_threshold=0.02,
     )
-    screen_roi = RoiBox(x=102, y=89, w=202, h=97, ref_w=800, ref_h=480, angle=-2.045)
+    screen_roi = RoiBox(x=82, y=89, w=162, h=97, ref_w=640, ref_h=480, angle=-2.045)
     ts = dt.datetime(2026, 6, 23, 14, 5, 33, tzinfo=dt.UTC)
 
     out = build(

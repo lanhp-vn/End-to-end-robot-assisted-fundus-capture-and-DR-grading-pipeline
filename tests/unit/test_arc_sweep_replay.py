@@ -30,8 +30,8 @@ _SCRIPT = (
 )
 _DATA = Path(__file__).resolve().parents[2] / "src" / "arm101_hand" / "data" / "system_camera_config.yaml"
 
-_LEFT = RoiBox(x=120, y=120, w=80, h=240, ref_w=800, ref_h=480)
-_RIGHT = RoiBox(x=600, y=120, w=80, h=240, ref_w=800, ref_h=480)
+_LEFT = RoiBox(x=120, y=120, w=80, h=240, ref_w=640, ref_h=480)
+_RIGHT = RoiBox(x=480, y=120, w=80, h=240, ref_w=640, ref_h=480)
 
 
 def _load_module():
@@ -46,8 +46,8 @@ def _load_module():
 
 
 def _write_case(case_dir: Path, stem: str, expected: str, color_bgr: tuple[int, int, int]) -> None:
-    """Write a <stem>.json sidecar + an 800x480 <stem>_clean.png with both arc boxes filled."""
-    img = np.zeros((480, 800, 3), dtype=np.uint8)
+    """Write a <stem>.json sidecar + a 640x480 <stem>_clean.png with both arc boxes filled."""
+    img = np.zeros((480, 640, 3), dtype=np.uint8)
     for arc in (_LEFT, _RIGHT):
         img[arc.y : arc.y + arc.h, arc.x : arc.x + arc.w] = color_bgr
     cv2.imwrite(str(case_dir / f"{stem}_clean.png"), img)
@@ -66,7 +66,7 @@ def test_load_arc_cases_reads_labelled_and_skips_unlabelled(tmp_path):
         ),
         encoding="utf-8",
     )
-    cv2.imwrite(str(tmp_path / "arc_c_clean.png"), np.zeros((480, 800, 3), dtype=np.uint8))
+    cv2.imwrite(str(tmp_path / "arc_c_clean.png"), np.zeros((480, 640, 3), dtype=np.uint8))
 
     cases = mod.load_arc_cases(tmp_path)
     assert [lc.stem for lc in cases] == ["calib_a", "calib_b"]  # sorted; unlabelled skipped
@@ -97,7 +97,7 @@ def test_load_then_sweep_is_separable(tmp_path):
 
 def test_format_sweep_report_marks_excluded_wrong_and_ok():
     mod = _load_module()
-    frame = np.zeros((480, 800, 3), dtype=np.uint8)
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
     cases = [
         mod.LabeledCase("c0", ArcCase(frame=frame, expected="red"), _LEFT, _RIGHT),
         mod.LabeledCase("c1", ArcCase(frame=frame, expected="red"), _LEFT, _RIGHT),
@@ -120,8 +120,8 @@ def test_format_sweep_report_marks_excluded_wrong_and_ok():
 
 def test_build_write_kwargs_preserves_screen_roi_and_uses_case_arcs():
     mod = _load_module()
-    screen_roi = RoiBox(x=200, y=220, w=410, h=246, ref_w=800, ref_h=480, angle=-1.0)
-    frame = np.zeros((480, 800, 3), dtype=np.uint8)
+    screen_roi = RoiBox(x=200, y=220, w=410, h=246, ref_w=640, ref_h=480, angle=-1.0)
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
     cases = [mod.LabeledCase("c0", ArcCase(frame=frame, expected="red"), _LEFT, _RIGHT)]
     res = SweepResult(
         red_bands=[HsvBand(h_lo=0, s_lo=15, v_lo=30, h_hi=10, s_hi=255, v_hi=255)],

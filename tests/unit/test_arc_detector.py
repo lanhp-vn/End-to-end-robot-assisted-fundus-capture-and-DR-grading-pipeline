@@ -7,10 +7,10 @@ _RED = (0, 0, 255)
 
 
 def _cfg() -> AutoTriggerConfig:
-    # arcs at the left/right thirds of an 800x480 reference frame
+    # arcs at the left/right thirds of a 640x480 reference frame
     return AutoTriggerConfig(
-        left_arc=RoiBox(x=40, y=160, w=120, h=160, ref_w=800, ref_h=480),
-        right_arc=RoiBox(x=640, y=160, w=120, h=160, ref_w=800, ref_h=480),
+        left_arc=RoiBox(x=40, y=160, w=120, h=160, ref_w=640, ref_h=480),
+        right_arc=RoiBox(x=480, y=160, w=120, h=160, ref_w=640, ref_h=480),
         coverage_threshold=0.2,
     )
 
@@ -23,15 +23,15 @@ def test_alignmentstate_properties():
 
 
 def test_detect_both_red():
-    frame = np.zeros((480, 800, 3), dtype=np.uint8)
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
     frame[160:320, 40:160] = _RED
-    frame[160:320, 640:760] = _RED
+    frame[160:320, 480:600] = _RED
     s = detect(frame, _cfg())
     assert s.both_red is True
 
 
 def test_detect_both_clear_on_blank():
-    frame = np.zeros((480, 800, 3), dtype=np.uint8)  # nothing red
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)  # nothing red
     s = detect(frame, _cfg())
     assert s.both_clear is True
 
@@ -43,7 +43,7 @@ def test_detect_respects_coverage_threshold():
     arc = cfg.left_arc
 
     def left_red_for(fill: float) -> bool:
-        frame = np.zeros((480, 800, 3), dtype=np.uint8)
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
         rows = int(fill * arc.h)
         frame[arc.y : arc.y + rows, arc.x : arc.x + arc.w] = _RED
         return detect(frame, cfg).left_red

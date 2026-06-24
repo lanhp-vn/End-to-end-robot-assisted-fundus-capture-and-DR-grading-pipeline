@@ -209,7 +209,7 @@ class WebcamPreview:
     An optional fixed ``roi`` crops (and deskews, if it carries an ``angle``) every frame to a
     region and upscales it back to the ROI's reference size, so the preview window *and* the
     recording show the same zoomed feed at the ROI's aspect (the calibrated Aurora screen_roi is
-    5:3 at ref 800x480) -- used to frame just the Optomed Aurora's screen. ``None`` (default)
+    4:3 at ref 640x480) -- used to frame just the Optomed Aurora's screen. ``None`` (default)
     previews the full frame,
     so callers that want the whole scene (e.g. ``usb_camera_probe.py``) are unaffected.
     """
@@ -392,7 +392,7 @@ class WebcamPreview:
                 if self._roi is not None:
                     # Crop (+ deskew, if the ROI carries an angle) to the fixed ROI, then upscale
                     # back to the ROI's reference size so the preview window + recording show the same
-                    # zoomed feed at the ROI's aspect (calibrated screen_roi is 5:3 @ ref 800x480),
+                    # zoomed feed at the ROI's aspect (calibrated screen_roi is 4:3 @ ref 640x480),
                     # validated with scripts/diagnostics/system_camera/usb_camera_roi_preview.py.
                     # Done before everything below,
                     # so writer sizing, the clean write, the REC overlay, and imshow all inherit it.

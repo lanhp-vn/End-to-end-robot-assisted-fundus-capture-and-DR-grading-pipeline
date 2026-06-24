@@ -113,7 +113,7 @@ def test_auto_trigger_defaults():
     assert at.detect_interval_s > 0
     assert 0.0 <= at.coverage_threshold <= 1.0
     assert len(at.red_bands) == 2  # red wraps hue 0/180
-    assert (at.left_arc.ref_w, at.left_arc.ref_h) == (800, 480)  # 5:3 detection reference (structural)
+    assert (at.left_arc.ref_w, at.left_arc.ref_h) == (640, 480)  # 4:3 detection reference (structural)
 
 
 def test_auto_trigger_coverage_threshold_bounds():
@@ -177,8 +177,8 @@ def test_schema_default_version_is_7():
 def test_auto_trigger_is_red_only():
     at = SystemCameraConfig().auto_trigger
     assert len(at.red_bands) >= 1
-    assert (at.left_arc.ref_w, at.left_arc.ref_h) == (800, 480)
-    assert (at.right_arc.ref_w, at.right_arc.ref_h) == (800, 480)
+    assert (at.left_arc.ref_w, at.left_arc.ref_h) == (640, 480)
+    assert (at.right_arc.ref_w, at.right_arc.ref_h) == (640, 480)
     assert not hasattr(at, "green_bands")
     assert not hasattr(at, "require_no_red")
     assert not hasattr(at, "require_clear_between")

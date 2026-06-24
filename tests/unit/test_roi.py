@@ -110,5 +110,5 @@ def test_roi_from_region_carries_angle():
     from arm101_hand.config.system_camera_config import RoiBox
     from arm101_hand.system_camera import roi_from_region
 
-    r = roi_from_region(RoiBox(x=1, y=2, w=3, h=4, ref_w=800, ref_h=480, angle=-0.9))
-    assert r.angle == -0.9 and (r.ref_w, r.ref_h) == (800, 480)
+    r = roi_from_region(RoiBox(x=1, y=2, w=3, h=4, ref_w=640, ref_h=480, angle=-0.9))
+    assert r.angle == -0.9 and (r.ref_w, r.ref_h) == (640, 480)

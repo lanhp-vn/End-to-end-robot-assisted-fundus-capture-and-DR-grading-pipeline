@@ -104,13 +104,13 @@ Two cameras are involved: the **Optomed Aurora** *fundus* camera (captures patie
 ```powershell
 uv run python scripts/diagnostics/fundus_camera/aurora_probe.py        # read-only Aurora reachability + status + filelist
 uv run python scripts/diagnostics/system_camera/usb_camera_probe.py    # system-cam smoke test: live window + 'r' record (no motors/Aurora)
-uv run python scripts/diagnostics/system_camera/usb_camera_roi_preview.py  # preview the fixed deskewed 5:3 ROI zoom of the Aurora screen (no motors/Aurora)
+uv run python scripts/diagnostics/system_camera/usb_camera_roi_preview.py  # preview the fixed deskewed 4:3 ROI zoom of the Aurora screen (no motors/Aurora)
 uv run python scripts/diagnostics/system_camera/usb_camera_focus_probe.py  # sweep + fine-tune the manual focus value (needs --backend dshow; no motors/Aurora)
 uv run python scripts/diagnostics/system_camera/usb_camera_arc_debug.py  # arc-detection debug: stages the arm+hand grab, draws the arc boxes on the deskewed ROI; SPACE saves failing RED/clear cases to media_outputs/arc_debug/ (motors; no Aurora)
 uv run python scripts/demos/grab_trigger_capture.py                    # live ROI-zoomed system-cam window; SPACE presses the shutter, image lands in media_outputs/fundus_images/ and pops up until the next capture
 ```
 
-When the system camera's **resolution or lighting** changes, re-derive its view calibration — the Aurora **screen ROI** (a deskewed 5:3 crop carrying a rotation angle), the two symmetric alignment-**arc bands**, and the **red HSV color band** — with an interactive guided capture from **3 frames** (white startup screen → red arcs → bright/aligned screen → confirm → write). The bright frame fits the camera circle and places mirror-symmetric arc bands on its edges; detection is red-only (an arc is RED or not). It writes `src/arm101_hand/data/system_camera_config.yaml` (keeping a `.bak`); see [`scripts/calibration/system_camera/README.md`](scripts/calibration/system_camera/README.md):
+When the system camera's **resolution or lighting** changes, re-derive its view calibration — the Aurora **screen ROI** (a deskewed 4:3 crop carrying a rotation angle), the two symmetric alignment-**arc bands**, and the **red HSV color band** — with an interactive guided capture from **3 frames** (white startup screen → red arcs → bright/aligned screen → confirm → write). The bright frame fits the camera circle and places mirror-symmetric arc bands on its edges; detection is red-only (an arc is RED or not). It writes `src/arm101_hand/data/system_camera_config.yaml` (keeping a `.bak`); see [`scripts/calibration/system_camera/README.md`](scripts/calibration/system_camera/README.md):
 
 ```powershell
 uv run python scripts/calibration/system_camera/calibrate_view.py                       # live guided capture

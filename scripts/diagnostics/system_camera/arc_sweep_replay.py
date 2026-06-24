@@ -4,7 +4,7 @@ Re-runs the calibration red-detection sweep (``sweep_red_detection``) over the l
 by ``calibrate_view.py`` (and the ``usb_camera_arc_debug.py`` collector) with NO hardware -- no arm,
 no hand, no camera, no Aurora. Each case is a ``<stem>.json`` sidecar (carrying the operator's
 ``expected`` 'red'/'clear' label + the dragged arc geometry) beside a ``<stem>_clean.png`` (the
-800x480 deskewed ROI the detector runs on). The tool loads every labelled case, rebuilds the
+640x480 deskewed ROI the detector runs on). The tool loads every labelled case, rebuilds the
 ``ArcCase`` list, runs the sweep, and prints the chosen red HSV band + coverage threshold + per-case
 outcome -- including the transitional one-arc-blank 'red' frames the sweep excludes from the fit.
 
