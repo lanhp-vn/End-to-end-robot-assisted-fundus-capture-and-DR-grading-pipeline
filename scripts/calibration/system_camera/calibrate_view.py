@@ -8,30 +8,25 @@ LIGHTING change (the fixed-fraction ROI + colour bands drift otherwise).
 Detection is RED-ONLY: each arc is RED (misaligned) or not-red (aligned); no green is sampled (the
 bright/aligned screen reads greenish overall, so green coverage is unreliable).
 
-Flow:
-  1. WHITE startup screen -> DRAG a box over the screen (mouse), then <- / -> to rotate the 5:3 crop
-     until its edges sit parallel to the (possibly tilted) screen; ENTER confirms, 'r' re-drags, 'q'
-     quits. The chosen ROI is a RoiBox at the 800x480 detection reference carrying that deskew angle.
-  2. RED arcs -> deskew-crop the ROI -> sample the RED band from a misaligned arc.
-  3. BRIGHT / aligned screen -> deskew-crop -> fit the camera circle -> derive symmetric arc bands +
-     validate the bands read not-red on the bright frame; pick the coverage threshold.
-  4. CONFIRM screen: two deskewed panels labelled by the REAL arc_detector.detect():
-     RED panel (expect both arcs RED) + BRIGHT panel (expect both clear, fitted circle drawn).
-     'y' writes, 'e' re-tune arc boxes (mouse drag), 'r' redo, 'q' quit.
-Like usb_camera_capture.py, ACTION KEYS are read from the TERMINAL (a cv2 window often has no
-keyboard focus when launched from a console); the window only displays. The screen-box drag and 'e'
-arc-retune drags are mouse-only in the window (mouse events reach a window without keyboard focus)
-and are accepted/cancelled from the TERMINAL too -- NOT cv2.selectROI, whose key-confirm hangs a
-focusless console window (see _drag_box). Plain opencv-python only (no contrib).
+Flow (inside run_grab_demo -- the arm+hand stage the grab so the camera views the Aurora screen):
+  1. WHITE startup screen -> drag a box + <-/-> rotate to deskew -> screen_roi (full frame).
+  2-3. Freeze a RED-arc ROI -> drag the LEFT arc box, then the RIGHT (left box shown).
+  4. Capture a RED panel (both arcs red) and a CLEAR/aligned panel.
+  5. Auto-sweep the red HSV band + coverage threshold against both panels (report + best-effort).
+  6-7. Confirm: 'y' write, 't' test loop (label frames 1=both-red/2=both-clear -> re-sweep), 'r'
+       redo arcs, 'q' quit. Loop until satisfied.
+  8. Write screen_roi + arc boxes + red_bands + threshold to system_camera_config.yaml.
+Action keys are read from the TERMINAL (the cv2 window often has no keyboard focus from a console).
 
 Usage:
   uv run python scripts/calibration/system_camera/calibrate_view.py [--camera N] [--backend auto|dshow]
-  uv run python scripts/calibration/system_camera/calibrate_view.py --from-files WHITE RED BRIGHT
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
+import json
 import msvcrt
 import sys
 from pathlib import Path
@@ -43,24 +38,31 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
 from arm101_hand.config import load_system_camera_config  # noqa: E402
-from arm101_hand.config.system_camera_config import AutoTriggerConfig, HsvBand, RoiBox  # noqa: E402
+from arm101_hand.config.system_camera_config import AutoTriggerConfig, RoiBox  # noqa: E402
+from arm101_hand.scripts.grab_common import GrabHoldContext, run_grab_demo  # noqa: E402
 from arm101_hand.system_camera import (  # noqa: E402
     imshow_fit,
     open_capture,
+    resolution_mismatch_warning,
     roi_from_region,
 )
-from arm101_hand.system_camera.arc_detector import _band_mask, detect, red_coverage  # noqa: E402
+from arm101_hand.system_camera.arc_detector import (  # noqa: E402
+    AlignmentState,
+    _band_mask,
+    detect,
+)
 from arm101_hand.system_camera.calibration import (  # noqa: E402
-    arc_bands_from_circle,
+    ArcCase,
+    SweepResult,
+    describe_case,
     deskew_crop,
-    fit_camera_circle,
-    sample_red_band,
     screen_roi_from_rect,
-    suggest_coverage_threshold,
+    sweep_red_detection,
     write_calibration_values,
 )
 
 _CONFIG_PATH = _REPO_ROOT / "src" / "arm101_hand" / "data" / "system_camera_config.yaml"
+_CALIB_CASE_DIR = _REPO_ROOT / "media_outputs" / "arc_calib"
 _FONT = cv2.FONT_HERSHEY_SIMPLEX
 _DETECT = (800, 480)  # the deskewed 5:3 detection reference (ref_w x ref_h)
 _REF_W, _REF_H = _DETECT
@@ -128,7 +130,54 @@ def _capture_frame(cap, title: str, overlay: RoiBox | None) -> np.ndarray | None
             return None
 
 
-def _drag_box(base: np.ndarray, prompt: str) -> tuple[int, int, int, int] | None:
+def _pick_arcs(roi_frame: np.ndarray) -> tuple[RoiBox, RoiBox] | None:
+    """Drag the LEFT arc box, then the RIGHT one with the confirmed left box shown, on the deskewed
+    ROI frame (already at the 800x480 ref, so drag pixels are ref pixels). Returns (left, right)
+    RoiBoxes, or None if either drag is cancelled."""
+    left = _drag_box(roi_frame, "Drag the LEFT arc box, then SPACE/ENTER.")
+    if left is None:
+        return None
+    right = _drag_box(roi_frame, "Drag the RIGHT arc box (left box shown), then SPACE/ENTER.", keep_box=left)
+    if right is None:
+        return None
+    return (
+        RoiBox(x=left[0], y=left[1], w=left[2], h=left[3], ref_w=_REF_W, ref_h=_REF_H),
+        RoiBox(x=right[0], y=right[1], w=right[2], h=right[3], ref_w=_REF_W, ref_h=_REF_H),
+    )
+
+
+def _capture_roi(cap, screen_roi: RoiBox, title: str) -> np.ndarray | None:
+    """Stream the deskewed ROI (screen_roi crop -> 800x480) until SPACE (return the frozen ROI) or
+    q/ESC (None). Action keys come from the TERMINAL (see _poll_key)."""
+    print(f"\n{title}\n  Focus THIS terminal: SPACE = capture, q = quit.")
+    opened = False
+    while True:
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            cv2.waitKey(30)
+            if _poll_key() in ("q", "Q", "\x1b"):
+                return None
+            continue
+        roi_img = deskew_crop(frame, screen_roi, out=_DETECT)
+        if not opened:
+            _open_window(title, _REF_W, _REF_H)
+            opened = True
+        disp = roi_img.copy()
+        cv2.putText(disp, title, (10, 24), _FONT, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
+        imshow_fit(title, disp)
+        cv2.waitKey(1)
+        key = _poll_key()
+        if key == " ":
+            cv2.destroyWindow(title)
+            return roi_img
+        if key in ("q", "Q", "\x1b"):
+            cv2.destroyWindow(title)
+            return None
+
+
+def _drag_box(
+    base: np.ndarray, prompt: str, *, keep_box: tuple[int, int, int, int] | None = None
+) -> tuple[int, int, int, int] | None:
     """Mouse-drag a rectangle on a window; ACCEPT/CANCEL from the TERMINAL. Returns ``(x, y, w, h)``
     in ``base`` pixels, or None if cancelled.
 
@@ -170,6 +219,9 @@ def _drag_box(base: np.ndarray, prompt: str) -> tuple[int, int, int, int] | None
     try:
         while True:
             disp = shown.copy()
+            if keep_box is not None:  # an already-confirmed box, drawn thin so the new drag references it
+                kx, ky, kw, kh = (round(v * scale) for v in keep_box)
+                cv2.rectangle(disp, (kx, ky), (kx + kw, ky + kh), (0, 200, 0), 1)
             if st["box"]:
                 cv2.rectangle(disp, (st["x0"], st["y0"]), (st["x1"], st["y1"]), (0, 255, 0), 2)
             cv2.imshow(win, disp)
@@ -284,115 +336,206 @@ def _tint_mask(crop: np.ndarray, mask: np.ndarray, color: tuple[int, int, int]) 
     return cv2.addWeighted(crop, 0.5, out, 0.5, 0.0)
 
 
-def _confirm(
-    red_ref: np.ndarray,
-    bright_ref: np.ndarray,
-    circle: tuple[float, float, float],
-    trial: AutoTriggerConfig,
-) -> str:
-    """Show the two deskewed panels with arc boxes + tinted RED masks + real-detector labels (red-
-    only). RED panel expects both arcs RED; BRIGHT panel expects both clear (+ the fitted circle).
-    Returns the pressed action key: 'y' (accept), 'e' (edit), 'r' (redo), 'q' (quit)."""
+def _annotate_live(roi_frame: np.ndarray, cfg: AutoTriggerConfig, state: AlignmentState) -> np.ndarray:
+    """ROI copy with both arc boxes (RED verdict -> red, clear -> green) + a coverage HUD."""
+    disp = roi_frame.copy()
+    h, w = disp.shape[:2]
+    for region, is_red in ((cfg.left_arc, state.left_red), (cfg.right_arc, state.right_red)):
+        x, y, bw, bh = roi_from_region(region).for_frame(w, h)
+        cv2.rectangle(disp, (x, y), (x + bw, y + bh), (0, 0, 255) if is_red else (0, 255, 0), 2)
+    t = cfg.coverage_threshold
+    hud = (
+        f"L:{'RED' if state.left_red else 'clr'} {state.left_cov:.3f}   "
+        f"R:{'RED' if state.right_red else 'clr'} {state.right_cov:.3f}   thr={t:.3f}"
+    )
+    cv2.putText(disp, hud, (10, h - 12), _FONT, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+    return disp
+
+
+def _prompt_expected(state: AlignmentState) -> str | None:
+    """Read the on-screen ground truth from the TERMINAL: '1' both arcs RED, '2' both arcs CLEAR,
+    'c'/q to cancel. Returns 'red'/'clear'/None. Window stays pumped via waitKey."""
+    print(
+        f"  detector said L:{'RED' if state.left_red else 'clr'} R:{'RED' if state.right_red else 'clr'}. "
+        "Ground truth -> 1 = both RED, 2 = both CLEAR, c = cancel"
+    )
+    while True:
+        cv2.waitKey(20)
+        key = _poll_key()
+        if key == "1":
+            return "red"
+        if key == "2":
+            return "clear"
+        if key in ("c", "C", "q", "Q", "\x1b"):
+            return None
+
+
+def _prompt_note() -> str:
+    """Optional free-text note from the TERMINAL (Enter to skip)."""
+    try:
+        return input("  optional note (Enter to skip): ").strip()
+    except EOFError:
+        return ""
+
+
+def _save_calib_case(
+    out_dir: Path,
+    roi_img: np.ndarray,
+    cfg: AutoTriggerConfig,
+    state: AlignmentState,
+    expected: str,
+    comment: str,
+    note: str,
+    camera_index: int,
+    backend: str,
+) -> None:
+    """Save clean + annotated PNGs + a JSON sidecar (ground truth, detector output, generated comment,
+    note, geometry, bands, threshold) under media_outputs/arc_calib/ for the audit trail."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ts = _dt.datetime.now()
+    stem = ts.strftime("%Y%m%d_%H%M%S_") + f"{ts.microsecond // 1000:03d}"
+    cv2.imwrite(str(out_dir / f"calib_{stem}_clean.png"), roi_img)
+    cv2.imwrite(str(out_dir / f"calib_{stem}_annotated.png"), _annotate_live(roi_img, cfg, state))
+    sidecar = {
+        "tool": "calibrate_view",
+        "captured_at": ts.isoformat(),
+        "expected": expected,
+        "comment": comment,
+        "note": note,
+        "detection": {
+            "left_red": state.left_red,
+            "left_cov": state.left_cov,
+            "right_red": state.right_red,
+            "right_cov": state.right_cov,
+            "coverage_threshold": cfg.coverage_threshold,
+        },
+        "left_arc": cfg.left_arc.model_dump(),
+        "right_arc": cfg.right_arc.model_dump(),
+        "red_bands": [b.model_dump() for b in cfg.red_bands],
+        "morph_kernel": cfg.morph_kernel,
+        "camera": {"index": camera_index, "backend": backend},
+    }
+    (out_dir / f"calib_{stem}.json").write_text(json.dumps(sidecar, indent=2), encoding="utf-8")
+    print(f"  saved calib_{stem} ({comment})")
+
+
+def _report_sweep(result: SweepResult, cases: list[ArcCase]) -> None:
+    """Print the sweep outcome: threshold, separability, and the describe_case sentence for every
+    case the chosen config still gets wrong (best-effort)."""
+    ok = len(cases) - len(result.unsatisfied)
+    print(
+        f"\nSweep -> threshold={result.coverage_threshold:.4f}  separable={result.separable}  "
+        f"{ok}/{len(cases)} cases correct."
+    )
+    for i in result.unsatisfied:
+        dl, dr = result.case_detections[i]
+        print(f"  case {i} STILL WRONG: {describe_case(cases[i].expected, dl, dr)}")
+
+
+def _confirm(red_ref: np.ndarray, clear_ref: np.ndarray, cfg: AutoTriggerConfig) -> str:
+    """Two deskewed panels (RED + CLEAR) with arc boxes + tinted red masks + real-detector labels.
+    Returns the pressed action: 'y' write, 't' test loop + re-sweep, 'r' redo arcs, 'q' quit."""
     title = "Calib confirm (press keys in the TERMINAL)"
-    la = roi_from_region(trial.left_arc)
-    ra = roi_from_region(trial.right_arc)
-    cx, cy, r = circle
+    la, ra = roi_from_region(cfg.left_arc), roi_from_region(cfg.right_arc)
     print(
         "\nConfirm calibration -- focus THIS terminal:\n"
-        "  y = write config   e = re-tune arc boxes   r = redo   q = quit (no write)"
+        "  y = write config   t = test loop (label cases + re-sweep)   r = redo arcs   q = quit (no write)"
     )
-    _open_window(title, 2 * _REF_W, _REF_H)  # the confirm composite is two deskewed panels side by side
-    while True:
-        panels = []
-        for label, frame, draw_circle in (("RED frame", red_ref, False), ("BRIGHT frame", bright_ref, True)):
-            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-            mask = _band_mask(hsv, trial.red_bands)
-            panel = _tint_mask(frame, mask, (0, 0, 255))
-            if draw_circle:
-                cv2.circle(panel, (int(round(cx)), int(round(cy))), int(round(r)), (255, 0, 255), 1)
-            for arc in (la, ra):
-                ax, ay, aw, ah = arc.for_frame(_REF_W, _REF_H)
-                cv2.rectangle(panel, (ax, ay), (ax + aw, ay + ah), (255, 255, 0), 1)
-            state = detect(frame, trial)
-            ls = "RED" if state.left_red else "clear"
-            rs = "RED" if state.right_red else "clear"
+    _open_window(title, 2 * _REF_W, _REF_H)
+    try:
+        while True:
+            panels = []
+            for label, frame in (("RED frame", red_ref), ("CLEAR frame", clear_ref)):
+                hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+                panel = _tint_mask(frame, _band_mask(hsv, cfg.red_bands), (0, 0, 255))
+                for arc in (la, ra):
+                    ax, ay, aw, ah = arc.for_frame(_REF_W, _REF_H)
+                    cv2.rectangle(panel, (ax, ay), (ax + aw, ay + ah), (255, 255, 0), 1)
+                state = detect(frame, cfg)
+                cv2.putText(
+                    panel,
+                    f"{label}: L={'RED' if state.left_red else 'clear'} R={'RED' if state.right_red else 'clear'}",
+                    (8, 24),
+                    _FONT,
+                    0.55,
+                    (255, 255, 255),
+                    1,
+                    cv2.LINE_AA,
+                )
+                panels.append(panel)
+            gate = detect(red_ref, cfg).both_red and detect(clear_ref, cfg).both_clear
+            composite = np.hstack(panels)
             cv2.putText(
-                panel,
-                f"{label}: L={ls} R={rs}",
-                (8, 24),
+                composite,
+                f"red->both RED and clear->both clear: {gate}",
+                (8, _REF_H - 12),
                 _FONT,
-                0.55,
-                (255, 255, 255),
-                1,
+                0.6,
+                (0, 255, 0) if gate else (0, 0, 255),
+                2,
                 cv2.LINE_AA,
             )
-            panels.append(panel)
-        gate = detect(red_ref, trial).both_red
-        release = detect(bright_ref, trial).both_clear
-        composite = np.hstack(panels)
-        cv2.putText(
-            composite,
-            f"gate both RED: {gate} | release both clear: {release}",
-            (8, _REF_H - 12),
-            _FONT,
-            0.6,
-            (0, 255, 0) if (gate and release) else (0, 0, 255),
-            2,
-            cv2.LINE_AA,
-        )
-        imshow_fit(title, composite)
-        cv2.waitKey(20)  # render only; action keys come from the terminal
-        key = _poll_key()
-        if key in ("y", "Y", "e", "E", "r", "R", "q", "Q", "\x1b"):
-            cv2.destroyWindow(title)
-            return "q" if key in ("q", "Q", "\x1b") else key.lower()
+            imshow_fit(title, composite)
+            cv2.waitKey(20)
+            key = _poll_key()
+            if key in ("y", "Y", "t", "T", "r", "R", "q", "Q", "\x1b"):
+                return "q" if key in ("q", "Q", "\x1b") else key.lower()
+    finally:
+        cv2.destroyWindow(title)
 
 
-def _retune(red_ref: np.ndarray, trial: AutoTriggerConfig) -> AutoTriggerConfig:
-    """Mouse-drag each arc band on the deskewed RED crop (accept/cancel in the TERMINAL, see
-    :func:`_drag_box`). Returns an updated AutoTriggerConfig (geometry override; the sampled red bands
-    + threshold are kept). A cancelled drag keeps that arc's current band. red_ref is the 800x480
-    detection ref, so the dragged pixels are already in ref_w/ref_h space."""
-    lr = _drag_box(red_ref, "Re-tune the LEFT arc band.")
-    rr = _drag_box(red_ref, "Re-tune the RIGHT arc band.")
-    upd = trial.model_copy(deep=True)
-    if lr is not None:
-        upd.left_arc = RoiBox(x=lr[0], y=lr[1], w=lr[2], h=lr[3], ref_w=_REF_W, ref_h=_REF_H)
-    if rr is not None:
-        upd.right_arc = RoiBox(x=rr[0], y=rr[1], w=rr[2], h=rr[3], ref_w=_REF_W, ref_h=_REF_H)
-    return upd
-
-
-def _load_frames_from_files(paths: list[str]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    imgs = []
-    for p in paths:
-        img = cv2.imread(p)
-        if img is None:
-            raise SystemExit(f"ERROR: could not read image {p}")
-        imgs.append(img)
-    return imgs[0], imgs[1], imgs[2]
-
-
-def _derive_bands_and_threshold(
-    red_ref: np.ndarray, bright_ref: np.ndarray, left_arc: RoiBox, right_arc: RoiBox
-) -> tuple[list[HsvBand], float, AutoTriggerConfig]:
-    """Sample the RED band(s) off a misaligned arc and pick a two-pass coverage threshold."""
+def _test_loop(
+    cap, screen_roi: RoiBox, cfg: AutoTriggerConfig, camera_index: int, backend: str
+) -> list[ArcCase] | None:
+    """Live ROI + arc HUD using cfg; SPACE freezes a frame -> tag 1/2 + optional note -> ArcCase +
+    saved case files. 'd' = done (return collected cases), 'q' = abort (None)."""
+    print(
+        "\nTest loop -- focus THIS terminal:\n"
+        "  SPACE = freeze + label a case   d = done (re-sweep)   q = abort"
+    )
+    title = "Calib test loop (Optomed ROI)"
+    _open_window(title, _REF_W, _REF_H)
+    new_cases: list[ArcCase] = []
     try:
-        red_bands = sample_red_band(roi_from_region(left_arc).crop(red_ref))
-    except ValueError:
-        red_bands = sample_red_band(roi_from_region(right_arc).crop(red_ref))
-    trial = AutoTriggerConfig(left_arc=left_arc, right_arc=right_arc, red_bands=red_bands)
-
-    def _cov(ref: np.ndarray, cfg: AutoTriggerConfig) -> float:
-        hsv = cv2.cvtColor(roi_from_region(left_arc).crop(ref), cv2.COLOR_BGR2HSV)
-        return red_coverage(hsv, cfg)
-
-    threshold = suggest_coverage_threshold(_cov(red_ref, trial), _cov(bright_ref, trial))
-    trial = trial.model_copy(update={"coverage_threshold": threshold})
-    # second pass: the sampled bands now drive the threshold (coverages recomputed under `trial`)
-    threshold = suggest_coverage_threshold(_cov(red_ref, trial), _cov(bright_ref, trial))
-    trial = trial.model_copy(update={"coverage_threshold": threshold})
-    return red_bands, threshold, trial
+        while True:
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                cv2.waitKey(30)
+                key = _poll_key()
+                if key in ("q", "Q", "\x1b"):
+                    return None
+                if key in ("d", "D"):
+                    return new_cases
+                continue
+            roi_img = deskew_crop(frame, screen_roi, out=_DETECT)
+            state = detect(roi_img, cfg)
+            imshow_fit(title, _annotate_live(roi_img, cfg, state))
+            cv2.waitKey(1)
+            key = _poll_key()
+            if key in ("d", "D"):
+                return new_cases
+            if key in ("q", "Q", "\x1b"):
+                return None
+            if key == " ":
+                expected = _prompt_expected(state)
+                if expected is None:
+                    continue
+                comment = describe_case(expected, state.left_red, state.right_red)
+                print(f"  -> {comment}")
+                _save_calib_case(
+                    _CALIB_CASE_DIR,
+                    roi_img,
+                    cfg,
+                    state,
+                    expected,
+                    comment,
+                    _prompt_note(),
+                    camera_index,
+                    backend,
+                )
+                new_cases.append(ArcCase(frame=roi_img, expected=expected))
+    finally:
+        cv2.destroyWindow(title)
 
 
 def main() -> int:
@@ -401,128 +544,123 @@ def main() -> int:
     ap.add_argument(
         "--backend", choices=("auto", "dshow"), default=None, help="cv2 backend (default: config)"
     )
-    ap.add_argument(
-        "--from-files",
-        nargs=3,
-        metavar=("WHITE", "RED", "BRIGHT"),
-        default=None,
-        help="skip live capture; run detection on three saved frames (white / red / bright-aligned)",
-    )
     args = ap.parse_args()
 
     cfg = load_system_camera_config(_CONFIG_PATH)
-    configured_res = (
-        f"{cfg.width}x{cfg.height}" if cfg.width and cfg.height else "driver max (width/height=null)"
-    )
-    print(f"Configured stream resolution: {configured_res} (fourcc {cfg.fourcc}).")
-    cap = None
-    try:
-        if args.from_files:
-            white, red, bright = _load_frames_from_files(args.from_files)
-            if (white.shape[1], white.shape[0]) != (
-                cfg.width or white.shape[1],
-                cfg.height or white.shape[0],
-            ):
-                print(
-                    f"WARNING: image size {white.shape[1]}x{white.shape[0]} != config "
-                    f"{cfg.width}x{cfg.height}; calibrating for a different resolution.",
-                    file=sys.stderr,
-                )
-            screen_roi = None
-            while screen_roi is None:
-                screen_roi = _pick_roi(white)
-                if screen_roi is None:
-                    print(
-                        "Recapture not available with --from-files; drag a box then rotate to "
-                        "confirm (Ctrl+C aborts)."
-                    )
-        else:
-            index = args.camera if args.camera is not None else cfg.camera_index
-            backend = args.backend if args.backend is not None else cfg.backend
-            print(f"Opening USB camera {index} ({backend}) ...")
-            cap = open_capture(
-                index,
-                backend,
-                fourcc=cfg.fourcc,
-                width=cfg.width,
-                height=cfg.height,
-                autofocus=cfg.autofocus,
-                focus=cfg.focus,
+    camera_index = args.camera if args.camera is not None else cfg.camera_index
+    backend = args.backend if args.backend is not None else cfg.backend
+
+    def _calibrate_hook(_ctx: GrabHoldContext) -> None:
+        # _ctx unused: arm+hand hold grab under torque (the only pose where the Aurora screen is in
+        # view); this hook opens the USB camera and runs the calibration. Mirrors usb_camera_arc_debug.
+        print(f"Opening USB camera {camera_index} ({backend}) ...")
+        cap = open_capture(
+            camera_index,
+            backend,
+            fourcc=cfg.fourcc,
+            width=cfg.width,
+            height=cfg.height,
+            autofocus=cfg.autofocus,
+            focus=cfg.focus,
+        )
+        if not cap.isOpened():
+            cap.release()
+            print(
+                f"ERROR: could not open camera {camera_index}. Try --camera N / --backend dshow. "
+                "(Arm/hand still release at the exit prompt.)",
+                file=sys.stderr,
             )
-            if not cap.isOpened():
-                print(
-                    f"ERROR: could not open camera {index}. Try --camera N / --backend dshow.",
-                    file=sys.stderr,
-                )
-                return 1
-            actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            if actual_w > 0 and actual_h > 0:
-                clamped = bool(cfg.width and cfg.height and (actual_w, actual_h) != (cfg.width, cfg.height))
-                print(
-                    f"  Camera negotiated {actual_w}x{actual_h}."
-                    + ("  (driver clamped from the configured size)" if clamped else "")
-                )
+            return
+        warn = resolution_mismatch_warning(
+            cfg.width,
+            cfg.height,
+            int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+        )
+        if warn:
+            print(warn, file=sys.stderr)
+        try:
+            # Stage 1: WHITE startup screen -> drag + rotate -> screen_roi (full frame)
             screen_roi = None
             while screen_roi is None:
                 white = _capture_frame(cap, "Calib 1/3: frame the WHITE startup screen, SPACE", None)
                 if white is None:
-                    return 1
+                    return
                 screen_roi = _pick_roi(white)
-            red = _capture_frame(cap, "Calib 2/3: show RED arcs, SPACE", screen_roi)
-            if red is None:
-                return 1
-            bright = _capture_frame(cap, "Calib 3/3: show the BRIGHT aligned screen, SPACE", screen_roi)
-            if bright is None:
-                return 1
 
-        red_ref = deskew_crop(red, screen_roi, out=_DETECT)
-        bright_ref = deskew_crop(bright, screen_roi, out=_DETECT)
-        try:
-            cx, cy, r = fit_camera_circle(bright_ref)
-        except ValueError as e:
-            print(
-                f"WARNING: circle fit failed ({e}); falling back to fixed symmetric bands.",
-                file=sys.stderr,
-            )
-            cx, cy, r = _DETECT[0] * 0.5, _DETECT[1] * 0.5, _DETECT[1] * 0.42
-        left_arc, right_arc = arc_bands_from_circle(cx, cy, r)
-        try:
-            _, _, trial = _derive_bands_and_threshold(red_ref, bright_ref, left_arc, right_arc)
-        except ValueError as e:
-            print(
-                f"ERROR: red sampling failed ({e}). Re-run and show clearly RED, misaligned arcs.",
-                file=sys.stderr,
-            )
-            return 1
+            # Stage 2-3: arcs -- freeze a RED-arc ROI, drag LEFT then RIGHT
+            arcs = None
+            while arcs is None:
+                roi_red = _capture_roi(cap, screen_roi, "Show RED arcs; SPACE to freeze for arc-box drag")
+                if roi_red is None:
+                    return
+                arcs = _pick_arcs(roi_red)
+            left_arc, right_arc = arcs
 
-        while True:
-            action = _confirm(red_ref, bright_ref, (cx, cy, r), trial)
-            if action == "y":
-                write_calibration_values(
-                    _CONFIG_PATH,
-                    screen_roi=screen_roi,
-                    left_arc=trial.left_arc,
-                    right_arc=trial.right_arc,
-                    red_bands=trial.red_bands,
-                    coverage_threshold=trial.coverage_threshold,
+            # Stage 4: reference panels
+            red_panel = _capture_roi(cap, screen_roi, "Capture RED panel (both arcs RED), SPACE")
+            if red_panel is None:
+                return
+            clear_panel = _capture_roi(cap, screen_roi, "Capture CLEAR/aligned panel, SPACE")
+            if clear_panel is None:
+                return
+            cases = [ArcCase(red_panel, "red"), ArcCase(clear_panel, "clear")]
+
+            # Stage 5: sweep
+            def _sweep(case_list: list[ArcCase]) -> AutoTriggerConfig:
+                result = sweep_red_detection(case_list, left_arc, right_arc)
+                _report_sweep(result, case_list)
+                return AutoTriggerConfig(
+                    left_arc=left_arc,
+                    right_arc=right_arc,
+                    red_bands=result.red_bands,
+                    coverage_threshold=result.coverage_threshold,
                 )
-                print(f"Wrote calibration to {_CONFIG_PATH} (backup: {_CONFIG_PATH.name}.bak).")
-                return 0
-            if action == "e":
-                trial = _retune(red_ref, trial)
-                continue
-            if action == "r" and cap is not None:
-                return main()  # restart the live flow
-            print("Quit without writing." if action in ("q",) else "Redo unavailable in --from-files.")
-            return 0
-    except KeyboardInterrupt:
-        print("\n^C -- nothing written.")
-        return 0
-    finally:
-        if cap is not None:
+
+            try:
+                trial = _sweep(cases)
+            except ValueError as e:
+                print(f"ERROR: {e}. Re-run and show clearly RED, misaligned arcs.", file=sys.stderr)
+                return
+
+            # Stage 6-8: confirm / test loop / re-sweep / write
+            while True:
+                action = _confirm(red_panel, clear_panel, trial)
+                if action == "y":
+                    write_calibration_values(
+                        _CONFIG_PATH,
+                        screen_roi=screen_roi,
+                        left_arc=left_arc,
+                        right_arc=right_arc,
+                        red_bands=trial.red_bands,
+                        coverage_threshold=trial.coverage_threshold,
+                    )
+                    print(f"Wrote calibration to {_CONFIG_PATH} (backup: {_CONFIG_PATH.name}.bak).")
+                    return
+                if action == "q":
+                    print("Quit without writing.")
+                    return
+                if action == "r":
+                    arcs = None
+                    while arcs is None:
+                        roi_red = _capture_roi(cap, screen_roi, "Show RED arcs; SPACE to re-drag arc boxes")
+                        if roi_red is None:
+                            return
+                        arcs = _pick_arcs(roi_red)
+                    left_arc, right_arc = arcs
+                    trial = _sweep(cases)
+                if action == "t":
+                    new = _test_loop(cap, screen_roi, trial, camera_index, backend)
+                    if new is None:
+                        print("Test loop aborted; nothing written.")
+                        return
+                    cases += new
+                    trial = _sweep(cases)
+        finally:
             cap.release()
-        cv2.destroyAllWindows()
+            cv2.destroyAllWindows()
+
+    return run_grab_demo(_calibrate_hook)
 
 
 if __name__ == "__main__":
